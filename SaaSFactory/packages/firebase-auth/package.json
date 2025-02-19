@@ -1,0 +1,38 @@
+{
+    "name": "@theamiteshtripathi/firebase-auth",
+    "version": "0.1.0",
+    "main": "./dist/index.js",
+    "module": "./dist/index.mjs",
+    "types": "./dist/index.d.ts",
+    "sideEffects": false,
+    "license": "MIT",
+    "files": ["dist/**"],
+    "scripts": {
+        "build": "tsup src/index.ts --format esm,cjs --dts",
+        "dev": "tsup src/index.ts --format esm,cjs --watch --dts",
+        "lint": "eslint src/",
+        "clean": "rm -rf .turbo && rm -rf node_modules && rm -rf dist"
+    },
+    "dependencies": {
+        "firebase": "^10.12.5"
+    },
+    "devDependencies": {
+        "eslint": "^8.0.0",
+        "tsup": "^6.0.1",
+        "typescript": "^4.7.4",
+        "@types/react": "^18.0.15"
+    },
+    "peerDependencies": {
+        "react": "^18.2.0",
+        "firebase": "^10.12.5"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/theamiteshtripathi/SaaSFactory.git",
+        "directory": "packages/firebase-auth"
+    },
+    "publishConfig": {
+        "registry": "https://npm.pkg.github.com",
+        "access": "restricted"
+    }
+}

@@ -1,0 +1,51 @@
+{
+  "name": "template-assistant",
+  "version": "1.0.0",
+  "description": "This is a template repository to build assistants/ agents for future projects. This repository should have all the requirements, from branch access control to setup files, \r required for smooth initiation, testing of future projects with an automated system of CI/CD with Github Releases and Actions.",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest --passWithNoTests && pytest -v",
+    "prepare": "husky install",
+    "prettier-check": "prettier --check .",
+    "type-check": "tsc --noEmit",
+    "prettier-fix": "prettier --write .",
+    "lint-staged": {
+      "*.py": [
+        "flake8",
+        "black"
+      ],
+      "*.js": [
+        "eslint ."
+      ]
+    }
+  },
+  "eslintConfig": {
+    "settings": {
+      "react": {
+        "version": "detect"
+      }
+    }
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@types/jest": "^29.5.14",
+    "@types/react": "^19.0.7",
+    "eslint": "^9.18.0",
+    "eslint-plugin-react": "^7.37.4",
+    "flake8": "^0.0.1",
+    "globals": "^15.14.0",
+    "husky": "^8.0.0",
+    "jest": "^29.7.0",
+    "lint-staged": "^15.4.1",
+    "prettier": "^3.4.2",
+    "puppeteer": "^24.1.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.20.0"
+  }
+}

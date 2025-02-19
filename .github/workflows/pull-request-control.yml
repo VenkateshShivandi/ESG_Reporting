@@ -1,0 +1,44 @@
+name: Action to Control PR Flow
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-pr-target:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug print PR information
+        run: |
+          echo "Target Branch: ${{ github.base_ref }}"
+          echo "Source Branch: ${{ github.head_ref }}"
+
+      - name: Check if PR is following the Git Workflow
+        run: |
+          # Get the source branch of the PR
+          PR_SOURCE_BRANCH="${{ github.head_ref }}"
+          PR_TARGET_BRANCH="${{ github.base_ref }}"
+
+          # Only allow PRs to 'main' from 'release/*' branches
+          if [[ "$PR_TARGET_BRANCH" == "main" && ! "$PR_SOURCE_BRANCH" =~ ^release/ ]]; then
+            echo "Error: PRs to 'main' must come from 'release/*' branches only. Please target an appropriate release branch."
+            exit 1
+          fi
+
+          # Only allow PRs to 'build' from 'feature/*' branches
+          if [[ "$PR_TARGET_BRANCH" == "build" && ! "$PR_SOURCE_BRANCH" =~ ^feature/  ]]; then
+            echo "Error: PRs to 'build' must come from 'feature/*' branches only."
+            exit 1
+          fi
+
+          # Only allow PRs to 'release/*' from 'build' or 'hotfix/*'
+          if [[ "$PR_TARGET_BRANCH" =~ ^release/ && "$PR_SOURCE_BRANCH" != "build" && ! "$PR_SOURCE_BRANCH" =~ ^hotfix/ ]]; then
+            echo "Error: PRs to 'release/*' must come from the 'build' or 'hotfix/*' branches."
+            exit 1
+          fi
+
+          # Only allow PRs to 'feature/*' from 'users/*'
+          if [[ "$PR_TARGET_BRANCH" =~ ^feature/ && ! "$PR_SOURCE_BRANCH" =~ ^users/ ]]; then
+            echo "Error: PRs to 'feature/*' must come from the 'users/*' branches only."
+            exit 1
+          fi

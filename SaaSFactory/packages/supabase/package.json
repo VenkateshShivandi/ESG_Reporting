@@ -1,0 +1,32 @@
+{
+    "name": "@theamiteshtripathi/supabase",
+    "version": "0.1.1",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "clean": "rimraf dist",
+        "dev": "tsc -w",
+        "lint": "eslint src --ext .ts",
+        "prepare": "npm run build"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.x.x",
+        "winston": "^3.x.x"
+    },
+    "devDependencies": {
+        "@types/node": "^18.19.64",
+        "eslint": "^8.x.x",
+        "rimraf": "^5.x.x",
+        "typescript": "^5.x.x"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/theamiteshtripathi/SaaSFactory.git",
+        "directory": "packages/supabase"
+    },
+    "publishConfig": {
+        "registry": "https://npm.pkg.github.com",
+        "access": "restricted"
+    }
+}

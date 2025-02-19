@@ -1,0 +1,11 @@
+# Ignore folders and environment variables
+node_modules
+setup
+
+.vscode
+env
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

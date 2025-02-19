@@ -1,0 +1,23 @@
+{
+  "name": "@theamiteshtripathi/theme",
+  "version": "0.1.0",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "license": "MIT",
+  "files": ["dist/**"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --external tailwindcss",
+    "dev": "tsup src/index.ts --format esm,cjs --watch --dts --external tailwindcss",
+    "lint": "eslint src/",
+    "clean": "rm -rf .turbo && rm -rf node_modules && rm -rf dist"
+  },
+  "dependencies": {
+    "tailwindcss": "^3.3.0"
+  },
+  "devDependencies": {
+    "tsup": "^6.0.1",
+    "typescript": "^4.7.4"
+  }
+}

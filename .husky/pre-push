@@ -1,0 +1,35 @@
+#!/bin/sh
+
+# Get the name of the current branch
+BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+
+# Regex patterns for branch naming
+VALID_FEATURE_NAME_REGEX="^feature/[a-z0-9-]+$"
+VALID_RELEASE_NAME_REGEX="^release/[0-9]+\.[0-9]+\.[0-9]+$"
+VALID_HOTFIX_NAME_REGEX="^hotfix/[0-9]+\.[0-9]+\.[0-9]+/[a-z0-9-]+$"
+VALID_USER_NAME_REGEX="^users/[a-zA-Z0-9-]+/[a-zA-Z0-9-]+$"
+
+# Check for invalid pushes to main or release branches
+if [[ "$BRANCH_NAME" == "main" || "$BRANCH_NAME" =~ ^release/  || "$BRANCH_NAME" =~ "build" ]]; then
+  echo "Error: You cannot push directly to 'main' or 'release/*' branches or build branches."
+  echo "Please make your changes in a feature or hotfix branch."
+  exit 1
+fi
+
+# Check if branch follows naming conventions
+if [[ "$BRANCH_NAME" =~ $VALID_FEATURE_NAME_REGEX ]] || \
+   [[ "$BRANCH_NAME" =~ $VALID_RELEASE_NAME_REGEX ]] || \
+   [[ "$BRANCH_NAME" =~ $VALID_HOTFIX_NAME_REGEX ]] || \
+   [[ "$BRANCH_NAME" =~ $VALID_USER_NAME_REGEX ]]; then
+  echo "Branch name '$BRANCH_NAME' is valid."
+  exit 0
+else
+  echo "Branch name '$BRANCH_NAME' is invalid."
+  echo "Error: Branch name does not follow naming conventions"
+  echo "Valid formats:"
+  echo "  - feature/feature-name"
+  echo "  - release/x.y.z"
+  echo "  - hotfix/x.y.z/description"
+  echo "  - users/username/feature-name"
+  exit 1
+fi

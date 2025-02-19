@@ -1,0 +1,32 @@
+#!/bin/sh
+
+# Run lint-staged to check for linting errors
+npm run lint-staged
+echo "Linting passed"
+# If lint-staged fails, exit with an error code
+if [ $? -ne 0 ]; then
+  echo "Linting failed. Please fix the linting errors and commit again."
+  exit 1
+fi
+
+# Run tests
+npm test 
+echo "Node.js Tests passed"
+if [ $? -ne 0 ]; then
+  echo "Node.js Tests failed. Please fix the tests and commit again."
+  exit 1
+fi
+# Check code formatting
+npm run prettier-check
+echo "Code formatting passed"
+if [ $? -ne 0 ]; then
+  echo "Code formatting failed. Please fix the formatting and commit again."
+  exit 1
+fi
+# Type checking
+npm run type-check  # For TypeScript
+echo "Type checking passed"
+if [ $? -ne 0 ]; then
+  echo "Type checking failed. Please fix the type errors and commit again."
+  exit 1
+fi

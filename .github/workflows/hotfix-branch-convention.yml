@@ -1,0 +1,32 @@
+name: Enforce Hotfix Branch Naming Convention
+
+on:
+  push:
+    branches:
+      - "hotfix/**"
+
+jobs:
+  validate-hotfix-name:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch naming convention
+        run: |
+          # Extract the current branch name
+          BRANCH_NAME="${{ github.ref_name }}"
+          echo "Validating branch: $BRANCH_NAME"
+
+          # Define the regex pattern for hotfix branch naming
+          VALID_HOTFIX_NAME_REGEX="^hotfix/[0-9]+\.[0-9]+\.[0-9]+/[a-z0-9-]+$"
+
+          # Check if the branch name matches the regex
+          if [[ ! "$BRANCH_NAME" =~ $VALID_HOTFIX_NAME_REGEX ]]; then
+            echo "Error: Branch name '$BRANCH_NAME' is invalid."
+            echo "Hotfix branches must follow the format: 'hotfix/<release-version>/<short-description>'"
+            echo "Examples:"
+            echo "  - hotfix/1.0.3/critical-bug"
+            echo "  - hotfix/2.1.1/fix-login-error"
+            echo "  - hotfix/3.0.0/security-patch"
+            exit 1
+          fi
+
+          echo "Branch name '$BRANCH_NAME' is valid."

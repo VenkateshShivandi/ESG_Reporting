@@ -1,0 +1,104 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+body {
+  font-family: 'Poppins', sans-serif;
+}
+
+.font-poppins {
+  font-family: 'Poppins', sans-serif;
+}
+
+.list-disc {
+  padding-left: 1.5em;
+}
+
+.list-disc li {
+  list-style-type: none;
+  margin-bottom: 0.5em;
+  position: relative;
+}
+
+.list-disc li::before {
+  content: '•';
+  position: absolute;
+  left: -1em;
+  color: #3D8396;
+}
+
+.list-disc li.dash::before {
+  content: '-';
+}
+
+.quote-container {
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  padding: 16px;
+  margin-top: 16px;
+}
+
+.quote-container h3 {
+  font-size: 1.2em;
+  margin-bottom: 8px;
+}
+
+.quote-container table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+
+.quote-container th, .quote-container td {
+  border: 1px solid #dee2e6;
+  padding: 8px;
+  text-align: left;
+}
+
+.quote-container th {
+  background-color: #e9ecef;
+  font-weight: bold;
+}
+
+.quote-container p {
+  margin-top: 12px;
+}
+
+.quote-details table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+.quote-details th, .quote-details td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+.quote-details th {
+  background-color: #f2f2f2;
+}
+
+.assistant-message table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+.assistant-message th, .assistant-message td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+.assistant-message th {
+  background-color: #f2f2f2;
+}
+
+.assistant-message img {
+  max-width: 50px;
+  max-height: 50px;
+}
