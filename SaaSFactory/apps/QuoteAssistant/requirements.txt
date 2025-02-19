@@ -1,7 +1,0 @@
-python-dotenv
-openai
-requests
-Flask
-flask-cors
-flask-session
-firebase_admin
