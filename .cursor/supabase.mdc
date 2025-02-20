@@ -1,0 +1,23 @@
+---
+description: 
+globs: 
+---
+# Supabase Integration Rules
+
+## Description
+This rule ensures that the AI follows Supabase's authentication and data handling conventions, especially for row-level security (RLS) and interactions with Supabase storage.
+
+## Behavior
+- **Authentication**:
+  - Ensure that users are authenticated via Google OAuth.
+  - Only allow access to ESG data if the user’s `organization_id` matches the data’s `organization_id`.
+- **Row-Level Security**:
+  - Enforce the rule `CREATE POLICY "ESG Data Access" ON esg_metrics USING (organization_id = auth.uid()::text);` for querying data.
+- **Storage**:
+  - Ensure proper file storage in Supabase storage buckets (e.g., `raw/` and `processed/`).
+  - Process files based on their type (PDF, Excel, CSV, etc.) for correct handling.
+
+## Examples
+```ts
+const { user } = useUser();
+if (!user) redirect('/auth');

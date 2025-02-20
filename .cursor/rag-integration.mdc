@@ -1,0 +1,36 @@
+---
+description: 
+globs: 
+---
+# RAG Integration Rules
+
+## Context
+- Core component combining Simba Assistant RAG + SaaS Factory enhancements.
+- Handles ESG metadata tagging, document chunking, and now supports extended file types.
+
+## Processing Pipeline
+1. **File Type Handling**
+   - **PDF**: Use PyPDF2 + optional Camelot for tables.
+   - **Excel/CSV/XLSX**: Use Pandas with ESG schema validation.
+   - **DOCX**: Use python-docx with custom paragraph extraction.
+   - **XML**: Parse XML files using an appropriate XML parser to extract text and data for ESG processing.
+   - **Images**: Use Tesseract OCR with quality checks.
+
+2. **ESG Metadata**
+   - **Required Tags**: `environment`, `social`, `governance`, `materiality_score`
+   - **Storage**: Store as JSONB in `esg_chunks.metadata`
+
+3. **Chunking Rules**
+   - **Text Chunks**: 512 tokens max with 64-token overlap.
+   - **Tables**: Preserve full table context in chunks.
+   - **Additional**: Append source document ID to all chunks.
+
+4. **Embedding Service**
+   - Always use `text-embedding-3-large`.
+   - Cache embeddings for 24h in Redis.
+   - **Error Fallback**: Retry 3x with exponential backoff.
+
+## Integration Points
+- **Supabase Hook**: Trigger processing on storage upload.
+- **Normalization**: Dual-write to `esg_metrics` and `esg_chunks`.
+- **Enhanced File Processing**: Integrate Simba Assistant RAG components with SaaS Factory enhancements for unified file parsing and ESG metadata tagging.
