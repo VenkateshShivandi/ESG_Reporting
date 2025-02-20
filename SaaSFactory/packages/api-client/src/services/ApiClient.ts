@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { VERSION } from 'openai/version';
+import { HeliconeAsyncConfiguration } from "helicone";
 
 // Define MessageProps locally instead of importing
 export interface MessageProps {
@@ -10,6 +11,7 @@ export interface MessageProps {
 
 export interface ApiConfig {
   apiKey: string;
+  heliconeApiKey?: string;
   model?: string;
   maxTokens?: number;
   temperature?: number;
@@ -49,8 +51,23 @@ export class ApiClient {
   constructor(config: ApiConfig) {
     this.checkOpenAIVersion();
     
+    const heliconeConfig = new HeliconeAsyncConfiguration({
+      apiKey: config.heliconeApiKey || process.env.HELICONE_API_KEY,
+      baseUrl: "https://oai.hconeai.com/v1",
+      properties: {
+        "Model": config.model || 'gpt-4',
+        "Project": "SaaSFactory"
+      }
+    });
+
     this.openai = new OpenAI({
-      apiKey: config.apiKey || process.env.OPENAI_API_KEY
+      apiKey: config.apiKey || process.env.OPENAI_API_KEY,
+      baseURL: heliconeConfig.baseUrl,
+      defaultHeaders: {
+        "Helicone-Auth": `Bearer ${heliconeConfig.apiKey}`,
+        "Helicone-Property-Model": heliconeConfig.properties.Model,
+        "Helicone-Property-Project": heliconeConfig.properties.Project
+      }
     });
     this.model = config.model || 'gpt-4';
     this.maxTokens = config.maxTokens || 1000;
