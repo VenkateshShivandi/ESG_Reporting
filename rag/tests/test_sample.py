@@ -1,5 +1,4 @@
-import pytest
-from simple_script_for_test import add_numbers
+from rag.simple_script_for_test import add_numbers
 
 def test_add_numbers():
     # Test case 1: Testing positive numbers

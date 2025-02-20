@@ -4,7 +4,7 @@
   "description": "This is a template repository to build assistants/ agents for future projects. This repository should have all the requirements, from branch access control to setup files, \r required for smooth initiation, testing of future projects with an automated system of CI/CD with Github Releases and Actions.",
   "main": "index.js",
   "scripts": {
-    "test": "jest --passWithNoTests && pytest -v",
+    "test": "pytest",
     "prepare": "husky install",
     "prettier-check": "prettier --check .",
     "type-check": "tsc --noEmit",
