@@ -1,0 +1,23 @@
+---
+description: 
+globs: 
+---
+# Reporting Rules
+
+## Excel Exports
+- Use `openpyxl` with pre-defined templates
+- Include:
+  - Raw data sheet
+  - Summary dashboard
+  - Metadata page
+
+## PDF Reports
+- WeasyPrint Requirements:
+  - A4 format
+  - ESG color palette (#2E7D32, #1A237E)
+  - Page numbers + org watermark
+
+## Performance
+- Large Exports: Background processing
+- Caching: 24-hour cache for identical requests
+- Security: Row-level checks on export data
