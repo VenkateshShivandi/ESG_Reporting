@@ -4,7 +4,6 @@ Our ESG Analytics Platform's frontend delivers an AI-powered interface for susta
 
 1. **Secure Document Management**: Multi-format uploads with real-time processing
 2. **Interactive ESG Analytics**: Dynamic dashboards with AI-enhanced insights
-3. **Conversational Interface**: Voiceflow-powered natural language queries
 
 ```mermaid
 classDiagram
@@ -128,8 +127,8 @@ flowchart LR
 sequenceDiagram
   participant U as User
   participant C as ChatUI
-  participant V as Voiceflow
-  participant R as RAG
+  participant V as RAG
+  participant R as Supabase
 
   U->>C: "Show Q2 emissions trends"
   C->>V: Post query + user context
