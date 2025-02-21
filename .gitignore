@@ -15,3 +15,6 @@ setup
 __pycache__
 # virtual environment
 venv
+
+# rag/experiments
+rag/experiments/*
