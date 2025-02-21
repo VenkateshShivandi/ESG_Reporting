@@ -2,10 +2,19 @@
 node_modules
 setup
 
+# vscode files to ignore
 .vscode
-env
+
+# macos files to ignore
 .DS_Store
 
+# environment variables
 .env*
 
+# python cache
 __pycache__
+# virtual environment
+venv
+
+# rag/experiments
+rag/experiments/*
