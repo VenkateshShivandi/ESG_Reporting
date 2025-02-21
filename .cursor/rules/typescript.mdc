@@ -1,0 +1,80 @@
+---
+description: 
+globs: 
+---
+# TypeScript Rules
+
+This document incorporates directives from:
+- **PRD & Tech Stack**: Emphasizing a modern TypeScript + Next.js environment.
+- **Frontend Guidelines**: Ensuring alignment with React best practices.
+- **Implementation Plan**: Recommending environment setup and continuous integration.
+- **Cursorrules**: Maintaining code consistency and reusability.
+- **System Prompts for V0 Integration & Memory Bank**: Encouraging structured documentation and code referencing for continuity.
+
+---
+
+## General Guidelines
+- **Strict Mode**: Always enable `strict` in `tsconfig.json` to leverage TypeScript’s full type-safety capabilities (ref: *Implementation Plan*).
+- **Project Organization**: Adhere to the recommended folder structure in the *Frontend Guidelines* (e.g., separate components, pages, and utils).
+- **Memory Bank Context**: When referencing code across multiple sessions, store and retrieve project details from `memory-bank/` docs (ref: *Memory Bank*).
+
+---
+
+## Best Practices
+1. **Strong Typing**
+   - Explicitly define types for variables, function parameters, and return values.
+   - **Avoid `any` and `unknown`** unless absolutely necessary (ref: *Cursorrules*).
+
+2. **Interfaces vs. Types**
+   - Prefer `interface` for object shapes, but use `type` when advanced composition or unions are required.
+
+3. **Naming Conventions**
+   - CamelCase for variables/functions, PascalCase for classes/interfaces (ref: *Frontend Guidelines*).
+
+4. **Error Handling**
+   - Wrap critical or external API calls in `try-catch` blocks. Log errors consistently (ref: *Implementation Plan* and *Backend Structure* for logging).
+
+5. **Async/Await**
+   - Use `async/await` to simplify asynchronous code and reduce nesting (ref: *Tech Stack Document* suggests modern ES6+ patterns).
+
+6. **Import Ordering**
+   - Group imports by:
+     1. Node modules
+     2. Local files
+     3. Shared or utility modules
+
+---
+
+## Code Quality & Testing
+- **Linting & Formatting**
+  - Follow Prettier and ESLint configurations recommended in the *Implementation Plan*.
+- **Unit & Integration Tests**
+  - Use Jest or similar frameworks to test React components, referencing *System Prompts for V0 Integration* for QA.
+  - Store test files adjacent to their corresponding modules to keep context easily accessible.
+
+---
+
+## Collaboration & Memory Bank Usage
+- **Context Recovery**
+  - Before coding or reviewing PRs, reference `memory-bank/` markdown files (e.g., `activeContext.md`) to ensure alignment with the current project state (ref: *Memory Bank*).
+- **Version Control**
+  - Use Git branches (`feature/`, `dev/`, `release/vX.X`) as outlined in the *Implementation Plan*.
+- **Documentation**
+  - Update relevant `.mdc` files and `memory-bank/` docs whenever new patterns or conventions are introduced (ref: *System Prompts for V0 Integration*).
+
+## Project Context
+- This project is an AI-powered ESG Data Management & Analytics System, using Next.js (React + TypeScript) on the frontend and Flask/Python on the backend.
+- Must support features like file uploads (PDF, Excel, CSV, DOCX, **XML**), chatbot interaction via OpenAI API or Custom RAG(`/rag-query` endpoint), and reporting exports (Excel/PDF).
+- Concurrency target: Up to 500 concurrent users, requiring efficient code and robust error handling.
+- **New Enhancements**: Integration of Google OAuth for authentication and comprehensive audit logging for user actions.
+
+## Style
+- **ES6+ Syntax:** Embrace modern TypeScript/JavaScript features (destructuring, optional chaining, etc.).
+- **Import Grouping:**
+  1. Node modules
+  2. Third-party libraries (e.g., Chart.js, D3.js, Recharts)
+  3. Local modules/components
+
+## Testing
+- Use Jest (or similar) for unit tests. Ensure coverage for core modules (file upload logic, data processing).
+- Consider Cypress for end-to-end testing (e.g., uploading a PDF, verifying dashboard updates, chatbot interactions).

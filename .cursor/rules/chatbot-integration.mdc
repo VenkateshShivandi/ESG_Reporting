@@ -1,0 +1,20 @@
+---
+description: 
+globs: 
+---
+# Chatbot Rules
+
+Use OpenAI API when necessary to generate responses.
+  
+## Query Handling
+
+1. Parse user question
+2. Search Supabase vector DB (esg_chunks)
+3. Inject top 3 relevant chunks + ESG metadata
+4. Format response using OpenAI's API Setup and our Custom RAG Setup
+
+## UI Components
+
+- Loading State: Animated ESG-themed spinner
+- Error State: Clear explanation + retry button
+- History: Persist last 10 conversations locally
