@@ -4,6 +4,7 @@ globs:
 ---
 # Chatbot Rules
 
+Use OpenAI API when necessary to generate responses.
   
 ## Query Handling
 
