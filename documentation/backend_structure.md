@@ -13,7 +13,7 @@ This document outlines the backend architecture for our **AI-Powered ESG Data Ma
     - **Data Ingestion**: Securely upload and store diverse file types.
     - **Data Processing**: Extract, transform, and generate embeddings (with OpenAI) for ESG metadata tagging.
     - **Data Storage**: Dual storage using Supabase PostgreSQL for core metrics (`esg_metrics`) and detailed text chunks (`esg_chunks`).
-    - **Analytics & Reporting**: Provide ESG dashboards, interactive Voiceflow chatbot integration, and export capabilities (Excel/PDF).
+    - **Analytics & Reporting**: Provide ESG dashboards, interactive chatbot integration, and export capabilities (Excel/PDF).
     - **Security**: Implement robust authentication (Google OAuth + Supabase Auth), row-level security, and data encryption (AES-256, TLS 1.2).
 - **Role in Overall Application**:
     
@@ -80,7 +80,7 @@ classDiagram
     
 - **Key Endpoints**:
     1. **POST /upload**: Handles file uploads.
-    2. **POST /rag-query**: Processes natural language queries via the Voiceflow chatbot.
+    2. **POST /rag-query**: Processes natural language queries via the chatbot.
     3. **GET /metrics**: Retrieves ESG metrics for dashboard visualizations.
 
 ---
@@ -150,7 +150,7 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | **Data Ingestion** | - File uploads (PDF/Excel/CSV/DOCX)<br>- Dual pipeline for structured & unstructured data | Handle multiple file types with ESG metadata tagging | **Simba:** Next.js UI, Supabase Storage, `document_processor.py` (extended for ESG metadata)<br>**SaaS Factory:** EnhancedDocumentProcessor (OCR/table extraction) |
 | **Basic Processing** | - Text extraction and chunking with ESG tags<br>- OpenAI embeddings generation | Transform raw files into searchable, ESG-tagged data | **Simba:** `embedding_service.py` & chunking functions (with ESG metadata)<br>**SaaS Factory:** Tesseract OCR & Camelot for non-PDF content processing |
-| **User Interface** | - Dashboard with ESG metrics and visualizations<br>- Voiceflow chatbot integration | Interactive insights and data visualization | **Simba:** Next.js dashboard (updated for ESG metrics)<br>**SaaS Factory:** Chart components, DocumentUploader UI |
+| **User Interface** | - Dashboard with ESG metrics and visualizations<br>- chatbot integration | Interactive insights and data visualization | **Simba:** Next.js dashboard (updated for ESG metrics)<br>**SaaS Factory:** Chart components, DocumentUploader UI |
 | **Auth & Security** | - Google OAuth login/signup<br>- Row-level security for ESG data | Secure access and data privacy | **Simba:** Supabase Auth (Google OAuth) with enhanced RLS<br>**SaaS Factory:** (Optional integration with Firebase/Supabase Auth) |
 | **Output Generation** | - Export reports in Excel/PDF<br>- Reporting from dual-stored ESG data | Enable offline report generation | **Simba:** Extended dual storage & reporting modules<br>**SaaS Factory:** Adapted reporting components (Pandas, WeasyPrint, openpyxl) |
 
@@ -211,7 +211,7 @@ end
 subgraph Analytics
   E --> F["Supabase API"]
   F --> G["Next.js Dashboard & Charts\\n(Enhanced with SaaS Factory UI)"]
-  G --> H["Voiceflow Chatbot"]
+  G --> H["Chatbot"]
   H -->|Retrieves ESG Data| F
 end
 

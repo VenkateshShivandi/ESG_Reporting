@@ -10,7 +10,7 @@
     - Enable secure upload and storage of diverse file types (PDF, Excel, CSV, DOCX).
     - Process documents using advanced AI techniques (OCR, table parsing, text chunking, and OpenAI embeddings) with ESG metadata tagging.
     - Provide real-time, interactive visualizations via a Next.js dashboard.
-    - Integrate a Voiceflow-powered chatbot for natural language queries on ESG data.
+    - Integrate a OpenAI-powered chatbot for natural language queries on ESG data.
     - Ensure secure user authentication using Google OAuth via Supabase Auth with row-level security.
 - **Intended Outcome:**Empower ESG Managers, Analysts, Executives, and Viewers with actionable insights, reliable reporting, and a user-friendly interface—leveraging existing Simba Assistant and SaaS Factory components for rapid MVP delivery.
 
@@ -28,7 +28,7 @@
 - **Analytics & Visualization:**
     - Real-time dashboard built with Next.js and React for dynamic charting and visualization of ESG data.
 - **Chatbot Integration:**
-    - Voiceflow-powered chatbot accessible via a dedicated `/rag-query` endpoint for context-aware ESG queries.
+    - OpenAI-powered chatbot accessible via a dedicated `/rag-query` endpoint for context-aware ESG queries.
 - **Authentication & Security:**
     - Google OAuth-based login via Supabase Auth coupled with robust row-level security.
 - **Reporting:**
@@ -53,7 +53,7 @@ graph TD;
   B --> C[File Upload];
   C --> D[Data Processing & ESG Tagging];
   D --> E[Visualization on Dashboard];
-  E --> F[Voiceflow Chatbot Interaction];
+  E --> F[Chatbot Interaction];
   F --> E;
   E --> G[Reporting: Export to Excel/PDF];
   G --> H[User Logout];
@@ -71,7 +71,7 @@ graph TD;
 - **Interactive Analytics:**
     - A modern, responsive dashboard with dynamic visualizations (charts, graphs) powered by React and Recharts.
 - **AI-Powered Chatbot:**
-    - Integration of a Voiceflow chatbot endpoint (`/rag-query`) to facilitate natural language queries on ESG data.
+    - Integration of a chatbot endpoint (`/rag-query`) to facilitate natural language queries on ESG data.
 - **Robust Authentication & Security:**
     - Implementation of Google OAuth and row-level security to ensure data privacy and secure access.
 - **Reporting Capabilities:**
