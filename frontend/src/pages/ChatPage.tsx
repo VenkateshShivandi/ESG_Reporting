@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useChat } from 'ai/react'
-import { Send, Loader2 } from 'lucide-react'
+import { Send, Loader2, Settings, HamIcon } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
@@ -29,7 +29,14 @@ const ChatPage = () => {
     <div className="flex flex-col h-screen bg-gray-100">
       <Card className="flex flex-col h-full pl-12">
         <CardHeader>
-          <CardTitle>ESG Analytics Chat</CardTitle>
+            <div className="flex flex-row flex-start items-center gap-2">
+                <Button variant="ghost" size="icon">
+                    <HamIcon className="w-4 h-4" />
+                </Button>
+                <Button variant="ghost" size="sm">
+                    <span className="text-sm">Generate Report</span>
+                </Button>
+            </div>
         </CardHeader>
         <CardContent className="flex-grow overflow-hidden">
           <ScrollArea className="h-full pr-4">
