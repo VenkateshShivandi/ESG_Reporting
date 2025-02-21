@@ -4,19 +4,14 @@ globs:
 ---
 # Chatbot Rules
 
-## Voiceflow Integration
-- Endpoint: POST /api/rag-query
-- Required Headers:
-  ```ts
-  'x-org-id': string
-  'Authorization': `Bearer ${token}`
+Use OpenAI API when necessary to generate responses.
   
 ## Query Handling
 
 1. Parse user question
 2. Search Supabase vector DB (esg_chunks)
 3. Inject top 3 relevant chunks + ESG metadata
-4. Format response using Voiceflow template
+4. Format response using OpenAI's API Setup and our Custom RAG Setup
 
 ## UI Components
 

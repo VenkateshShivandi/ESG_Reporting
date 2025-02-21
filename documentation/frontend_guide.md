@@ -16,7 +16,6 @@ classDiagram
   class BackendServices {
     +SupabaseStorage
     +RAGProcessor
-    +VoiceflowAPI
   }
   ESGPlatform --> BackendServices
 
@@ -50,7 +49,7 @@ flowchart TD
 | **State** | Context API, Zustand |
 | **Charts** | Recharts, ApexCharts |
 | **Auth** | Supabase Google OAuth |
-| **AI** | Voiceflow Embed, OpenAI API |
+| **AI** | OpenAI API |
 
 ---
 
