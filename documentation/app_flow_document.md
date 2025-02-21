@@ -119,7 +119,7 @@ flowchart LR
 ## Chatbot Interaction
 
 - **User Interaction**
-Users can interact with the **Voiceflow-powered chatbot** via the `/rag-query` endpoint.
+Users can interact with the chatbot via the `/rag-query` endpoint.
 The chatbot processes natural language queries and returns context-aware, ESG-specific responses using RAG technology.
 
 ```mermaid
@@ -196,7 +196,7 @@ graph TB
   subgraph Analytics
     E --> F["Supabase API"]
     F --> G["Next.js Dashboard & Charts"]
-    G --> H["Voiceflow Chatbot"]
+    G --> H["Chatbot"]
     H -->|Retrieve ESG Data| F
   end
   subgraph Auth

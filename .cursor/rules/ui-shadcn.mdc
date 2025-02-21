@@ -48,7 +48,7 @@ This document incorporates directives from:
      - **Bottom Panel**: Integrate a “Regenerate Document” feature allowing users to modify and re-generate document content.
      - **Action Buttons**: Provide options to copy, download the current document, or download all documents.
    - **Chatbot Integration**:
-     - Clearly present the Voiceflow-powered chatbot interface with proper loading states and error handling for ESG queries.
+     - Clearly present the chatbot interface with proper loading states and error handling for ESG queries.
 
 ---
 

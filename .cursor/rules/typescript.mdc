@@ -64,7 +64,7 @@ This document incorporates directives from:
 
 ## Project Context
 - This project is an AI-powered ESG Data Management & Analytics System, using Next.js (React + TypeScript) on the frontend and Flask/Python on the backend.
-- Must support features like file uploads (PDF, Excel, CSV, DOCX, **XML**), chatbot interaction via Voiceflow (`/rag-query` endpoint), and reporting exports (Excel/PDF).
+- Must support features like file uploads (PDF, Excel, CSV, DOCX, **XML**), chatbot interaction via OpenAI API or Custom RAG(`/rag-query` endpoint), and reporting exports (Excel/PDF).
 - Concurrency target: Up to 500 concurrent users, requiring efficient code and robust error handling.
 - **New Enhancements**: Integration of Google OAuth for authentication and comprehensive audit logging for user actions.
 
@@ -72,7 +72,7 @@ This document incorporates directives from:
 - **ES6+ Syntax:** Embrace modern TypeScript/JavaScript features (destructuring, optional chaining, etc.).
 - **Import Grouping:**
   1. Node modules
-  2. Third-party libraries (e.g., Recharts, Voiceflow SDK)
+  2. Third-party libraries (e.g., Chart.js, D3.js, Recharts)
   3. Local modules/components
 
 ## Testing
