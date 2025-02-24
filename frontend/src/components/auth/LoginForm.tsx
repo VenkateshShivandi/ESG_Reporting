@@ -1,19 +1,33 @@
-"use client"
+'use client'
 
-import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { signIn, signInWithOAuth } from "@/lib/auth"
-import { loginSchema } from "@/lib/validators/authSchema"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
-import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Icons } from "@/components/ui/icons"
-import { toast } from "sonner"
+import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { signIn, signInWithOAuth } from '@/lib/auth'
+import { loginSchema } from '@/lib/validators/authSchema'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from '@/components/ui/card'
+import {
+  Form,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormControl,
+  FormMessage,
+} from '@/components/ui/form'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Icons } from '@/components/ui/icons'
+import { toast } from 'sonner'
 
 type LoginFormValues = {
   email: string
@@ -27,8 +41,8 @@ export default function LoginForm() {
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: "",
-      password: "",
+      email: '',
+      password: '',
       rememberMe: false,
     },
   })
@@ -38,14 +52,13 @@ export default function LoginForm() {
     try {
       const { error } = await signIn(data.email, data.password)
       if (error) throw error
-      router.push("/dashboard")
-      toast.success("Welcome back!", {
-        description: "You have successfully logged in.",
+      toast.success('Welcome back!', {
+        description: 'You have successfully logged in.',
       })
     } catch (error) {
       console.error(error)
-      toast.error("Error", {
-        description: "An error occurred. Please try again.",
+      toast.error('Error', {
+        description: 'An error occurred. Please try again.',
       })
     } finally {
       setIsLoading(false)
@@ -55,8 +68,10 @@ export default function LoginForm() {
   return (
     <Card className="w-full max-w-md">
       <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold text-center">Login</CardTitle>
-        <CardDescription className="text-center">Track your sustainability metrics securely</CardDescription>
+        <CardTitle className="text-center text-2xl font-bold">Login</CardTitle>
+        <CardDescription className="text-center">
+          Track your sustainability metrics securely
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -104,7 +119,11 @@ export default function LoginForm() {
                 Forgot password?
               </Link>
             </div>
-            <Button type="submit" className="w-full bg-[#2E7D32] hover:bg-[#1B5E20]" disabled={isLoading}>
+            <Button
+              type="submit"
+              className="w-full bg-[#2E7D32] hover:bg-[#1B5E20]"
+              disabled={isLoading}
+            >
               {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
               Log in
             </Button>
@@ -118,7 +137,7 @@ export default function LoginForm() {
             <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
           </div>
         </div>
-        <Button variant="outline" className="w-full" onClick={() => signInWithOAuth("google")}>
+        <Button variant="outline" className="w-full" onClick={() => signInWithOAuth('google')}>
           <Icons.google className="mr-2 h-4 w-4" />
           Google
         </Button>
@@ -145,4 +164,3 @@ export default function LoginForm() {
     </Card>
   )
 }
-

@@ -1,19 +1,33 @@
-"use client"
+'use client'
 
-import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { signUp, signInWithOAuth } from "@/lib/auth"
-import { signupSchema } from "@/lib/validators/authSchema"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
-import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form"
-import { Icons } from "@/components/ui/icons"
-import { toast } from "sonner"
-import { PasswordStrengthMeter } from "@/components/auth/PasswordStrengthMeter"
+import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { signUp, signInWithOAuth } from '@/lib/auth'
+import { signupSchema } from '@/lib/validators/authSchema'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from '@/components/ui/card'
+import {
+  Form,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormControl,
+  FormMessage,
+} from '@/components/ui/form'
+import { Icons } from '@/components/ui/icons'
+import { toast } from 'sonner'
+import { PasswordStrengthMeter } from '@/components/auth/PasswordStrengthMeter'
 
 type SignupFormValues = {
   email: string
@@ -27,9 +41,9 @@ export default function SignupForm() {
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
     defaultValues: {
-      email: "",
-      password: "",
-      confirmPassword: "",
+      email: '',
+      password: '',
+      confirmPassword: '',
     },
   })
 
@@ -38,14 +52,14 @@ export default function SignupForm() {
     try {
       const { error } = await signUp(data.email, data.password)
       if (error) throw error
-      router.push("/dashboard")
-      toast.success("Welcome!", {
-        description: "Your account has been created successfully.",
+      router.push('/')
+      toast.success('Welcome!', {
+        description: 'Your account has been created successfully.',
       })
     } catch (error) {
       console.error(error)
-      toast.error("Error", {
-        description: "An error occurred. Please try again.",
+      toast.error('Error', {
+        description: 'An error occurred. Please try again.',
       })
     } finally {
       setIsLoading(false)
@@ -55,8 +69,10 @@ export default function SignupForm() {
   return (
     <Card className="w-full max-w-md">
       <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold text-center">Sign Up</CardTitle>
-        <CardDescription className="text-center">Join our green reporting community</CardDescription>
+        <CardTitle className="text-center text-2xl font-bold">Sign Up</CardTitle>
+        <CardDescription className="text-center">
+          Join our green reporting community
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <Form {...form}>
@@ -101,7 +117,11 @@ export default function SignupForm() {
                 </FormItem>
               )}
             />
-            <Button type="submit" className="w-full bg-[#2E7D32] hover:bg-[#1B5E20]" disabled={isLoading}>
+            <Button
+              type="submit"
+              className="w-full bg-[#2E7D32] hover:bg-[#1B5E20]"
+              disabled={isLoading}
+            >
               {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
               Sign Up
             </Button>
@@ -115,23 +135,22 @@ export default function SignupForm() {
             <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
           </div>
         </div>
-        <Button variant="outline" className="w-full" onClick={() => signInWithOAuth("google")}>
+        <Button variant="outline" className="w-full" onClick={() => signInWithOAuth('google')}>
           <Icons.google className="mr-2 h-4 w-4" />
           Google
         </Button>
       </CardContent>
       <CardFooter className="flex flex-col space-y-2">
-        <p className="text-sm text-center">
-          Already have an account?{" "}
+        <p className="text-center text-sm">
+          Already have an account?{' '}
           <Link href="/auth/login" className="text-[#2E7D32] hover:underline">
             Log in
           </Link>
         </p>
-        <Link href="/" className="text-sm text-[#2E7D32] hover:underline text-center">
+        <Link href="/" className="text-center text-sm text-[#2E7D32] hover:underline">
           Back to Home
         </Link>
       </CardFooter>
     </Card>
   )
 }
-
