@@ -1,19 +1,33 @@
-"use client"
+'use client'
 
-import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { updatePassword } from "@/lib/auth"
-import { updatePasswordSchema } from "@/lib/validators/authSchema"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
-import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form"
-import { Icons } from "@/components/ui/icons"
-import { toast } from "sonner"
-import { PasswordStrengthMeter } from "@/components/auth/PasswordStrengthMeter"
+import { useState } from 'react'
+import { useForm } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { updatePassword } from '@/lib/auth'
+import { updatePasswordSchema } from '@/lib/validators/authSchema'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from '@/components/ui/card'
+import {
+  Form,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormControl,
+  FormMessage,
+} from '@/components/ui/form'
+import { Icons } from '@/components/ui/icons'
+import { toast } from 'sonner'
+import { PasswordStrengthMeter } from '@/components/auth/PasswordStrengthMeter'
 
 type UpdatePasswordFormValues = {
   password: string
@@ -26,8 +40,8 @@ export default function UpdatePasswordForm() {
   const form = useForm<UpdatePasswordFormValues>({
     resolver: zodResolver(updatePasswordSchema),
     defaultValues: {
-      password: "",
-      confirmPassword: "",
+      password: '',
+      confirmPassword: '',
     },
   })
 
@@ -36,14 +50,14 @@ export default function UpdatePasswordForm() {
     try {
       const { error } = await updatePassword(data.password)
       if (error) throw error
-      toast.success("Password updated", {
-        description: "Your password has been successfully updated.",
+      toast.success('Password updated', {
+        description: 'Your password has been successfully updated.',
       })
-      router.push("/auth/login")
+      router.push('/auth/login')
     } catch (error) {
       console.error(error)
-      toast.error("Error", {
-        description: "An error occurred. Please try again.",
+      toast.error('Error', {
+        description: 'An error occurred. Please try again.',
       })
     } finally {
       setIsLoading(false)
@@ -53,7 +67,7 @@ export default function UpdatePasswordForm() {
   return (
     <Card className="w-full max-w-md">
       <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold text-center">Update Password</CardTitle>
+        <CardTitle className="text-center text-2xl font-bold">Update Password</CardTitle>
         <CardDescription className="text-center">
           Enter your new password for your ESG reporting account
         </CardDescription>
@@ -88,7 +102,11 @@ export default function UpdatePasswordForm() {
                 </FormItem>
               )}
             />
-            <Button type="submit" className="w-full bg-[#2E7D32] hover:bg-[#1B5E20]" disabled={isLoading}>
+            <Button
+              type="submit"
+              className="w-full bg-[#2E7D32] hover:bg-[#1B5E20]"
+              disabled={isLoading}
+            >
               {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
               Update Password
             </Button>
@@ -99,11 +117,10 @@ export default function UpdatePasswordForm() {
         <Link href="/auth/login" className="text-sm text-[#2E7D32] hover:underline">
           Back to Login
         </Link>
-        <Link href="/" className="text-sm text-[#2E7D32] hover:underline text-center">
+        <Link href="/" className="text-center text-sm text-[#2E7D32] hover:underline">
           Back to Home
         </Link>
       </CardFooter>
     </Card>
   )
 }
-
