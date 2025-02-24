@@ -1,5 +1,8 @@
 import { Container } from '@/pages/ContainerPage'
+import LandingPage from "@/pages/LandingPage"
+
+const isLoggedIn = false
 
 export default function Home() {
-  return <Container />
+  return isLoggedIn ? <Container /> : <LandingPage />
 }
