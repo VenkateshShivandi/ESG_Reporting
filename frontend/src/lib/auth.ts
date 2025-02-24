@@ -1,7 +1,10 @@
-import { createClient } from "@supabase/supabase-js"
-import * as Sentry from "@sentry/nextjs"
+import { createClient } from '@supabase/supabase-js'
+import * as Sentry from '@sentry/nextjs'
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export async function signIn(email: string, password: string) {
   try {
@@ -85,8 +88,8 @@ export async function signInWithOAuth(provider: 'google') {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/dashboard`
-      }
+        redirectTo: `${window.location.origin}/`,
+      },
     })
     if (error) throw error
     return { data, error: null }
@@ -95,4 +98,3 @@ export async function signInWithOAuth(provider: 'google') {
     return { data: null, error }
   }
 }
-
