@@ -22,7 +22,7 @@ export default function LandingPage() {
               Contact
             </Link>
             <Button asChild className="ml-4">
-              <Link href="/login">Login</Link>
+              <Link href="/auth/login">Login</Link>
             </Button>
           </nav>
         </div>
@@ -42,7 +42,7 @@ export default function LandingPage() {
               </div>
               <div className="space-x-4">
                 <Button asChild>
-                  <Link href="/login">Get Started</Link>
+                  <Link href="/auth/signup">Get Started</Link>
                 </Button>
                 <Button variant="outline" asChild>
                   <Link href="#features">Learn More</Link>
