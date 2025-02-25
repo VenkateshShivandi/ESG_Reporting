@@ -9,7 +9,7 @@
     "lint": "next lint",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx}\"",
-    "test": "jest --watch"
+    "test": "jest"
   },
   "dependencies": {
     "@hookform/resolvers": "^4.1.2",

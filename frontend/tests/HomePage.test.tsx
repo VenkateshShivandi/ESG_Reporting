@@ -2,10 +2,6 @@ import React from "react"
 import { render } from "@testing-library/react"
 import Home from "@/app/page"
 
-// tests/fe-tests/sample.test.tsx
-test('basic math works', () => {
-  expect(1 + 1).toBe(2);
-});
 
 describe("Home Page", () => {
   it("renders without crashing", () => {
