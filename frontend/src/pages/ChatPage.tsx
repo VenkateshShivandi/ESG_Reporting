@@ -1,87 +1,299 @@
-'use client'
+"use client"
 
-import { useState, useRef, useEffect } from 'react'
-import { useChat } from 'ai/react'
-import { Send, Loader2, Settings, HamIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { useState } from "react"
+import { useChat } from "ai/react"
+import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Search, FileText, File, Folder, Send, Bot } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useFilesStore } from "@/lib/store/files-store"
+import { toast } from "sonner"
 
-const ChatPage = () => {
-  const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat()
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const [showWelcome, setShowWelcome] = useState(true)
+export default function ChatPage() {
+  const { messages, input, handleInputChange, handleSubmit } = useChat()
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [selectedType, setSelectedType] = useState<string>("")
+  const { files } = useFilesStore()
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
+  const [searchQuery, setSearchQuery] = useState("")
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    if (messages.length > 0) {
-      setShowWelcome(false)
-    }
-  }, [messages])
+  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen)
 
-  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    handleSubmit(e)
+  const handleFileSelect = (fileId: string) => {
+    setSelectedFiles((prev) => {
+      const newSet = new Set(prev)
+      if (newSet.has(fileId)) {
+        newSet.delete(fileId)
+      } else {
+        newSet.add(fileId)
+      }
+      return newSet
+    })
   }
 
+  const handleGenerateReport = () => {
+    const selectedFilesList = files.filter((file) => selectedFiles.has(file.id))
+    if (selectedType && selectedFilesList.length > 0) {
+      toast.success(`Generating ${selectedType} report with ${selectedFilesList.length} files`)
+      setIsModalOpen(false)
+      setSelectedType("")
+      setSelectedFiles(new Set())
+    }
+  }
+
+  const filteredFiles = files.filter((file) => file.name.toLowerCase().includes(searchQuery.toLowerCase()))
+
   return (
-    <div className="flex h-screen flex-col bg-gray-100">
-      <Card className="flex h-full flex-col pl-12">
-        <CardHeader>
-          <div className="flex-start flex flex-row items-center gap-2">
-            <Button variant="ghost" size="icon">
-              <HamIcon className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm">
-              <span className="text-sm">Generate Report</span>
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="flex-grow overflow-hidden">
-          <ScrollArea className="h-full pr-4">
-            {showWelcome && (
-              <div className="flex h-full items-center justify-center">
-                <div className="text-center">
-                  <h2 className="mb-2 text-2xl font-bold">Welcome to ESG Analytics Chat</h2>
-                  <p className="text-gray-600">Ask questions about your ESG data and reports.</p>
+    <div className="flex h-screen bg-white">
+      <div className="flex-1 pl-16">
+        <div className="relative h-full flex flex-col">
+          {/* Sidebar */}
+          <div
+            className={`absolute top-0 left-0 h-full bg-white border-r shadow-lg transition-all duration-300 ease-in-out ${
+              isSidebarOpen ? "w-64" : "w-0"
+            } overflow-hidden z-20`}
+          >
+            <div className="p-4">
+              <div className="flex flex-col gap-4">
+                <div className="space-y-1.5">
+                  <h2 className="text-lg font-semibold text-slate-900">Search Files</h2>
+                  <p className="text-sm text-slate-500">
+                    {files.length > 0
+                      ? "Search and select files to analyze"
+                      : "Upload files in Documents to get started"}
+                  </p>
+                </div>
+                <div className="relative">
+                  <Input
+                    placeholder="Search files..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
                 </div>
               </div>
-            )}
-            {messages.map(m => (
-              <div key={m.id} className={`mb-4 ${m.role === 'user' ? 'text-right' : 'text-left'}`}>
-                <span
-                  className={`inline-block rounded-lg p-2 ${
-                    m.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-black'
-                  }`}
-                >
-                  {m.content}
-                </span>
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </ScrollArea>
-        </CardContent>
-        <CardFooter>
-          <form onSubmit={onSubmit} className="flex w-full space-x-2">
-            <Input
-              value={input}
-              onChange={handleInputChange}
-              placeholder="Ask about your ESG data..."
-              className="flex-grow"
-            />
-            <Button type="submit" disabled={isLoading}>
-              {isLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4" />
+
+              {selectedFiles.size > 0 && (
+                <div className="mt-4 px-2">
+                  <p className="text-sm text-slate-600">
+                    {selectedFiles.size} file{selectedFiles.size !== 1 ? "s" : ""} selected
+                  </p>
+                </div>
               )}
+
+              <ScrollArea className="h-[calc(100vh-8rem)] pr-4 mt-4">
+                {files.length > 0 ? (
+                  <div className="space-y-1">
+                    {filteredFiles.map((file) => (
+                      <div
+                        key={file.id}
+                        className={`flex items-center space-x-2 p-2 rounded-lg transition-colors
+                          ${selectedFiles.has(file.id) ? "bg-slate-100" : "hover:bg-slate-50"}`}
+                      >
+                        {file.type === "file" && (
+                          <Checkbox
+                            checked={selectedFiles.has(file.id)}
+                            onCheckedChange={() => handleFileSelect(file.id)}
+                          />
+                        )}
+                        {file.type === "file" ? (
+                          <File className="h-4 w-4 text-blue-500" />
+                        ) : (
+                          <Folder className="h-4 w-4 text-yellow-500" />
+                        )}
+                        <span className="text-sm text-slate-700 truncate">{file.name}</span>
+                      </div>
+                    ))}
+                    {filteredFiles.length === 0 && searchQuery && (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-slate-500">No files match your search</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <File className="h-8 w-8 text-slate-400 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-slate-900">No files available for analysis</p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Upload files in the Documents section to analyze them here
+                    </p>
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+          </div>
+
+          {/* Main Chat Area */}
+          <div className={`flex-1 flex flex-col transition-all duration-300 ${isSidebarOpen ? "ml-64" : "ml-0"}`}>
+            <div className="flex flex-col h-full mx-8 my-6 border rounded-lg overflow-hidden shadow-sm">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
+                <div className="flex items-center gap-4">
+                  <Button
+                    variant="ghost"
+                    onClick={toggleSidebar}
+                    className={`flex items-center gap-2 ${
+                      files.length > 0 ? "text-[#2E7D32] hover:text-[#1B5E20]" : "text-slate-600"
+                    }`}
+                  >
+                    <Search className="h-5 w-5" />
+                    <span className="text-sm font-medium">Search Files</span>
+                    {files.length > 0 && (
+                      <span className="flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 px-1 text-xs font-medium text-emerald-700">
+                        {selectedFiles.size > 0 ? `${selectedFiles.size}/${files.length}` : files.length}
+                      </span>
+                    )}
+                  </Button>
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <Bot className="h-6 w-6 text-emerald-600" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold">ESG Analytics Assistant</h2>
+                      <p className="text-sm text-slate-500">Powered by AI</p>
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsModalOpen(true)}
+                  disabled={files.length === 0}
+                  className="gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  Generate Report
+                </Button>
+              </div>
+
+              {/* Messages */}
+              <ScrollArea className="flex-1 p-6 bg-slate-50">
+                <div className="space-y-4">
+                  {messages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`flex ${message.role === "assistant" ? "justify-start" : "justify-end"}`}
+                    >
+                      <div
+                        className={`flex items-start gap-3 max-w-[80%] ${message.role === "assistant" ? "flex-row" : "flex-row-reverse"}`}
+                      >
+                        <Avatar className="h-8 w-8 mt-0.5">
+                          <AvatarImage
+                            src={message.role === "assistant" ? "/bot-avatar.png" : "/user-avatar.png"}
+                            className="object-cover"
+                          />
+                          <AvatarFallback>
+                            {message.role === "assistant" ? <Bot className="h-5 w-5 text-emerald-600" /> : "You"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div
+                          className={`rounded-2xl px-4 py-2.5 text-sm
+                            ${
+                              message.role === "assistant"
+                                ? "bg-white shadow-sm text-slate-700"
+                                : "bg-emerald-600 text-white"
+                            }`}
+                        >
+                          {message.content}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+
+              {/* Input */}
+              <div className="p-4 bg-white border-t">
+                <form onSubmit={handleSubmit} className="max-w-[1000px] mx-auto">
+                  <div className="relative">
+                    <Input
+                      placeholder="Type your message..."
+                      value={input}
+                      onChange={handleInputChange}
+                      className="w-full pr-12 py-6 text-base border-slate-200 shadow-sm focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl"
+                    />
+                    <Button
+                      type="submit"
+                      size="icon"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 bg-emerald-100 hover:bg-emerald-200 rounded-lg"
+                    >
+                      <Send className="h-5 w-5 text-emerald-600" />
+                      <span className="sr-only">Send message</span>
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Generate Report Modal */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="sm:max-w-[425px] p-6 z-50 bg-white shadow-lg border">
+          <DialogHeader className="space-y-3 p-0">
+            <DialogTitle className="text-xl font-semibold text-slate-900">Generate ESG Report</DialogTitle>
+            <DialogDescription className="text-base text-slate-700">
+              Select report type and review selected files
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-6 py-4">
+            <Select value={selectedType} onValueChange={setSelectedType}>
+              <SelectTrigger className="w-full h-11 px-3 text-base">
+                <SelectValue placeholder="Select report type" />
+              </SelectTrigger>
+              <SelectContent position="popper" className="z-50 w-full text-slate-900 bg-white border">
+                <SelectItem value="GRI" className="text-base">
+                  GRI
+                </SelectItem>
+                <SelectItem value="SASB" className="text-base">
+                  SASB
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <div className="space-y-3">
+              <h4 className="text-base font-medium text-slate-900">Selected Files:</h4>
+              <div className="rounded-lg border bg-white p-4">
+                {files.filter((file) => selectedFiles.has(file.id)).length > 0 ? (
+                  <ul className="space-y-2">
+                    {files
+                      .filter((file) => selectedFiles.has(file.id))
+                      .map((file) => (
+                        <li key={file.id} className="flex items-center gap-2 text-sm text-slate-700">
+                          <File className="h-4 w-4 text-blue-500" />
+                          {file.name}
+                        </li>
+                      ))}
+                  </ul>
+                ) : (
+                  <p className="text-base text-slate-700">No files selected</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 mt-6">
+            <Button variant="outline" onClick={() => setIsModalOpen(false)} className="h-10 px-4">
+              Cancel
             </Button>
-          </form>
-        </CardFooter>
-      </Card>
+            <Button
+              onClick={handleGenerateReport}
+              disabled={!selectedType || selectedFiles.size === 0}
+              className="h-10 px-4 bg-emerald-600 hover:bg-emerald-700"
+            >
+              Generate Report
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
-export default ChatPage

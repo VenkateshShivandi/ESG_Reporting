@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/breadcrumb"
 import { toast } from "sonner"
 import type { FileItem, UploadProgress } from "@/lib/types/documents"
+import { useFilesStore } from "@/lib/store/files-store"
 
 type Props = {}
 
@@ -33,16 +34,16 @@ const ALLOWED_FILE_TYPES = ".xlsx,.csv,.docx,.xml,.pdf"
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
 const DocumentsPage: NextPage<Props> = () => {
+  const { files, setFiles, addFile, removeFile, removeFiles } = useFilesStore()
   const [currentPath, setCurrentPath] = useState<string[]>([])
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>({})
-  const [items, setItems] = useState<FileItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   const getCurrentFolderItems = useCallback(() => {
-    return items.filter((item) => JSON.stringify(item.path) === JSON.stringify(currentPath))
-  }, [items, currentPath])
+    return files.filter((item) => JSON.stringify(item.path) === JSON.stringify(currentPath))
+  }, [files, currentPath])
 
   const loadFiles = useCallback(async () => {
     try {
@@ -111,14 +112,12 @@ const DocumentsPage: NextPage<Props> = () => {
           continue
         }
 
-        // Simulate upload progress
         setUploadProgress((prev) => ({ ...prev, [fileId]: 0 }))
-        await new Promise((resolve) => setTimeout(resolve, 500)) // Simulate delay
+        await new Promise((resolve) => setTimeout(resolve, 500))
         setUploadProgress((prev) => ({ ...prev, [fileId]: 50 }))
-        await new Promise((resolve) => setTimeout(resolve, 500)) // Simulate delay
+        await new Promise((resolve) => setTimeout(resolve, 500))
         setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }))
 
-        // Add file to items
         const newFile: FileItem = {
           id: fileId,
           name: file.name,
@@ -129,7 +128,7 @@ const DocumentsPage: NextPage<Props> = () => {
           file: file,
         }
 
-        setItems((prev) => [...prev, newFile])
+        addFile(newFile)
         toast.success(`File ${file.name} uploaded successfully`)
       }
     } catch (error) {
@@ -138,7 +137,6 @@ const DocumentsPage: NextPage<Props> = () => {
     } finally {
       setIsUploading(false)
       setUploadProgress({})
-      // Clear the input
       const input = document.getElementById("file-upload") as HTMLInputElement
       if (input) input.value = ""
     }
@@ -152,7 +150,7 @@ const DocumentsPage: NextPage<Props> = () => {
 
     // Check if folder already exists in current path
     if (
-      items.some(
+      files.some(
         (item) =>
           item.type === "folder" && item.name === name && JSON.stringify(item.path) === JSON.stringify(currentPath),
       )
@@ -169,20 +167,17 @@ const DocumentsPage: NextPage<Props> = () => {
       path: currentPath,
     }
 
-    setItems((prev) => [...prev, newFolder])
+    addFile(newFolder)
     toast.success(`Folder ${name} created successfully`)
   }
 
   const handleDelete = (itemId?: string) => {
     if (itemId) {
-      // Delete single item
-      setItems((prev) => prev.filter((item) => item.id !== itemId))
+      removeFile(itemId)
       toast.success("Item deleted successfully")
-      // Remove from selected items if it was selected
       setSelectedItems((prev) => prev.filter((id) => id !== itemId))
     } else {
-      // Delete all selected items
-      setItems((prev) => prev.filter((item) => !selectedItems.includes(item.id)))
+      removeFiles(selectedItems)
       toast.success("Selected items deleted successfully")
       setSelectedItems([])
     }
@@ -216,7 +211,7 @@ const DocumentsPage: NextPage<Props> = () => {
   }
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col h-full bg-background rounded-lg border shadow-sm">
       <div className="border-b">
         <div className="flex items-center justify-between p-4">
           <div className="flex items-center space-x-2">
@@ -374,7 +369,11 @@ const DocumentsPage: NextPage<Props> = () => {
                   </div>
                 </TableCell>
                 <TableCell>{formatFileSize(item.size)}</TableCell>
-                <TableCell>{item.modified.toLocaleDateString()}</TableCell>
+                <TableCell>
+                  {item.modified instanceof Date
+                    ? item.modified.toLocaleDateString()
+                    : new Date(item.modified).toLocaleDateString()}
+                </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center space-x-2">
                     <Button
