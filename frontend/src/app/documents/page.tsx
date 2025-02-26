@@ -2,6 +2,6 @@
 
 import DocumentsPage from '@/pages/DocumentsPage'
 
-export default function UploadPage() {
+export default function Documents() {
   return <DocumentsPage />
-}
+} 
