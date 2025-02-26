@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { BarChart3, FileText, MessageSquare, LogOut } from "lucide-react"
+import { BarChart3, FileText, MessageSquare, LogOut, UserIcon, Home } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -17,6 +17,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import ChatPage from "@/pages/ChatPage"
 import DocumentsPage from "@/pages/DocumentsPage"
 import AnalyticsPage from "@/pages/AnalyticsPage"
+import ProfilePage from "@/pages/ProfilePage"
+import { useAuth } from '@/hooks/use-auth'
+import { useSearchParams } from 'next/navigation'
 
 // Temporary Analytics Page component
 // const AnalyticsPage = () => (
@@ -30,9 +33,18 @@ import AnalyticsPage from "@/pages/AnalyticsPage"
 // )
 
 const tabs = [
+  // {
+  //   icon: Home,
+  //   label: "Home",
+  //   id: "home",
+  //   component: <HomePage />,
+  //   color: "text-green-500 hover:text-green-600",
+  //   description: "Dashboard overview",
+  // },
   {
     icon: BarChart3,
     label: "Analytics",
+    id: "analytics",
     component: <AnalyticsPage />,
     color: "text-emerald-500 hover:text-emerald-600",
     description: "View ESG metrics",
@@ -40,6 +52,7 @@ const tabs = [
   {
     icon: FileText,
     label: "Documents",
+    id: "documents",
     component: <DocumentsPage />,
     color: "text-blue-500 hover:text-blue-600",
     description: "Manage reports",
@@ -47,14 +60,60 @@ const tabs = [
   {
     icon: MessageSquare,
     label: "Chat",
+    id: "chat",
     component: <ChatPage />,
     color: "text-violet-500 hover:text-violet-600",
     description: "AI assistant",
   },
+  {
+    icon: UserIcon,
+    label: "Profile",
+    id: "profile",
+    component: <ProfilePage />,
+    color: "text-orange-500 hover:text-orange-600",
+    description: "Account settings",
+  },
 ]
 
 export function Container() {
-  const [activeTab, setActiveTab] = React.useState(tabs[0].label)
+  const searchParams = useSearchParams()
+  const tabParam = searchParams?.get('tab')
+  
+  // Initialize active tab based on URL parameter or default to Analytics
+  const [activeTab, setActiveTab] = React.useState(
+    tabParam && tabs.some(tab => tab.id === tabParam) 
+      ? tabs.find(tab => tab.id === tabParam)?.label || tabs[0].label
+      : tabs[0].label
+  )
+  
+  const { signOut } = useAuth()
+  
+  // Listen for tab change events from the navigation component
+  React.useEffect(() => {
+    const handleTabChange = (event: CustomEvent) => {
+      const tabId = event.detail.tab
+      const tab = tabs.find(t => t.id === tabId)
+      if (tab) {
+        setActiveTab(tab.label)
+      }
+    }
+    
+    window.addEventListener('tabChange', handleTabChange as EventListener)
+    
+    return () => {
+      window.removeEventListener('tabChange', handleTabChange as EventListener)
+    }
+  }, [])
+  
+  // Respond to URL parameter changes directly
+  React.useEffect(() => {
+    if (tabParam) {
+      const tab = tabs.find(t => t.id === tabParam)
+      if (tab) {
+        setActiveTab(tab.label)
+      }
+    }
+  }, [tabParam])
 
   return (
     <div className="flex h-screen bg-white">
@@ -63,7 +122,7 @@ export function Container() {
           <SidebarHeader className="h-16 border-b flex items-center justify-center">
             <Avatar className="h-9 w-9">
               <AvatarImage src="/logo.png" alt="ESG Logo" />
-              <AvatarFallback className="bg-emerald-100 text-emerald-700 text-sm">ESG</AvatarFallback>
+              <AvatarFallback className="text-[#2E7D32] text-sm">ESG</AvatarFallback>
             </Avatar>
           </SidebarHeader>
           <SidebarContent>
@@ -74,7 +133,14 @@ export function Container() {
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <SidebarMenuButton
-                          onClick={() => setActiveTab(tab.label)}
+                          onClick={() => {
+                            setActiveTab(tab.label)
+                            
+                            // Update URL without page reload
+                            const newUrl = new URL(window.location.href)
+                            newUrl.searchParams.set('tab', tab.id)
+                            window.history.pushState({}, '', newUrl)
+                          }}
                           isActive={activeTab === tab.label}
                           className={`flex w-full justify-center rounded-md p-3 transition-all duration-150 ease-in-out
                             ${
@@ -104,7 +170,7 @@ export function Container() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <SidebarMenuButton
-                    onClick={() => console.log("logout")}
+                    onClick={() => signOut()}
                     className="flex w-full justify-center rounded-md p-3 text-slate-600 hover:bg-slate-100 hover:text-red-500"
                   >
                     <LogOut className="h-5 w-5" />

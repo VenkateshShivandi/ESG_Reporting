@@ -5,7 +5,6 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { signUp, signInWithOAuth } from '@/lib/auth'
 import { signupSchema } from '@/lib/validators/authSchema'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +27,7 @@ import {
 import { Icons } from '@/components/ui/icons'
 import { toast } from 'sonner'
 import { PasswordStrengthMeter } from '@/components/auth/PasswordStrengthMeter'
+import { useAuth } from '@/hooks/use-auth'
 
 type SignupFormValues = {
   email: string
@@ -38,6 +38,8 @@ type SignupFormValues = {
 export default function SignupForm() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const { signUp, signInWithGoogle } = useAuth()
+  
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
     defaultValues: {
@@ -52,14 +54,19 @@ export default function SignupForm() {
     try {
       const { error } = await signUp(data.email, data.password)
       if (error) throw error
-      router.push('/')
+      
+      // After successful signup, redirect to dashboard
+      // The auth state change listener in useAuth will handle the actual redirect
+      // when the session is established
+      router.push('/dashboard')
+      
       toast.success('Welcome!', {
         description: 'Your account has been created successfully.',
       })
     } catch (error) {
       console.error(error)
       toast.error('Error', {
-        description: 'An error occurred. Please try again.',
+        description: error instanceof Error ? error.message : 'An error occurred. Please try again.',
       })
     } finally {
       setIsLoading(false)
@@ -135,7 +142,12 @@ export default function SignupForm() {
             <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
           </div>
         </div>
-        <Button variant="outline" className="w-full" onClick={() => signInWithOAuth('google')}>
+        <Button 
+          variant="outline" 
+          className="w-full" 
+          onClick={signInWithGoogle}
+          disabled={isLoading}
+        >
           <Icons.google className="mr-2 h-4 w-4" />
           Google
         </Button>

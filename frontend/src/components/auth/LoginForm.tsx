@@ -5,7 +5,6 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { signIn, signInWithOAuth } from '@/lib/auth'
 import { loginSchema } from '@/lib/validators/authSchema'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +27,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox'
 import { Icons } from '@/components/ui/icons'
 import { toast } from 'sonner'
+import { useAuth } from '@/hooks/use-auth'
 
 type LoginFormValues = {
   email: string
@@ -38,6 +38,8 @@ type LoginFormValues = {
 export default function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
+  const { signIn, signInWithGoogle } = useAuth()
+  
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -58,9 +60,20 @@ export default function LoginForm() {
       router.push('/')
     } catch (error) {
       console.error(error)
-      toast.error('Error', {
-        description: 'An error occurred. Please try again.',
-      })
+      // Toast handled by auth hook
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    setIsLoading(true)
+    try {
+      await signInWithGoogle()
+      // Redirect handled by OAuth provider
+    } catch (error) {
+      // Error handling done in the hook
+      console.error(error)
     } finally {
       setIsLoading(false)
     }
@@ -138,7 +151,13 @@ export default function LoginForm() {
             <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
           </div>
         </div>
-        <Button variant="outline" className="w-full" onClick={() => signInWithOAuth('google')}>
+        <Button 
+          variant="outline" 
+          className="w-full" 
+          onClick={handleGoogleSignIn}
+          disabled={isLoading}
+        >
+          {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
           <Icons.google className="mr-2 h-4 w-4" />
           Google
         </Button>
@@ -165,3 +184,4 @@ export default function LoginForm() {
     </Card>
   )
 }
+
