@@ -12,4 +12,9 @@ export interface FileItem {
     [key: string]: number
   }
   
+  export interface FileUploadResponse {
+    path: string
+    url: string
+  }
+  
   
