@@ -39,7 +39,7 @@ export default function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
   const router = useRouter()
   const { signIn, signInWithGoogle } = useAuth()
-  
+
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
@@ -80,16 +80,16 @@ export default function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader className="space-y-1">
+    <Card className="w-full shadow-lg border border-gray-200">
+      <CardHeader className="space-y-2 p-6">
         <CardTitle className="text-center text-2xl font-bold">Login</CardTitle>
         <CardDescription className="text-center">
           Track your sustainability metrics securely
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-6 pb-0 space-y-6">
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
             <FormField
               control={form.control}
               name="email"
@@ -97,7 +97,7 @@ export default function LoginForm() {
                 <FormItem>
                   <FormLabel>Email</FormLabel>
                   <FormControl>
-                    <Input placeholder="Enter your email" {...field} />
+                    <Input placeholder="Enter your email" className="h-11" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -110,7 +110,7 @@ export default function LoginForm() {
                 <FormItem>
                   <FormLabel>Password</FormLabel>
                   <FormControl>
-                    <Input type="password" placeholder="Enter your password" {...field} />
+                    <Input type="password" placeholder="Enter your password" className="h-11" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -135,7 +135,7 @@ export default function LoginForm() {
             </div>
             <Button
               type="submit"
-              className="w-full bg-[#2E7D32] hover:bg-[#1B5E20]"
+              className="w-full h-11 bg-[#2E7D32] hover:bg-[#1B5E20] mt-2"
               disabled={isLoading}
             >
               {isLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
@@ -143,17 +143,12 @@ export default function LoginForm() {
             </Button>
           </form>
         </Form>
-        <div className="relative my-4">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">Or continue with</span>
-          </div>
+        <div className="my-6 text-center">
+          <span className="text-xs text-gray-500">OR CONTINUE WITH</span>
         </div>
-        <Button 
-          variant="outline" 
-          className="w-full" 
+        <Button
+          variant="outline"
+          className="w-full h-11"
           onClick={handleGoogleSignIn}
           disabled={isLoading}
         >
@@ -162,7 +157,7 @@ export default function LoginForm() {
           Google
         </Button>
       </CardContent>
-      <CardFooter>
+      <CardFooter className="px-6 py-6">
         <div className="w-full space-y-4">
           <div className="flex items-center justify-center space-x-1 text-sm">
             <span className="text-muted-foreground">Don't have an account?</span>
