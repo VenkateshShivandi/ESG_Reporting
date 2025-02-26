@@ -55,6 +55,7 @@ export default function LoginForm() {
       toast.success('Welcome back!', {
         description: 'You have successfully logged in.',
       })
+      router.push('/')
     } catch (error) {
       console.error(error)
       toast.error('Error', {

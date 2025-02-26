@@ -16,17 +16,18 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import ChatPage from "@/pages/ChatPage"
 import DocumentsPage from "@/pages/DocumentsPage"
+import AnalyticsPage from "@/pages/AnalyticsPage"
 
 // Temporary Analytics Page component
-const AnalyticsPage = () => (
-  <div className="flex items-center justify-center h-full">
-    <div className="text-center">
-      <BarChart3 className="h-10 w-10 text-emerald-500 mx-auto mb-4" />
-      <h2 className="text-2xl font-semibold mb-2">Analytics Dashboard</h2>
-      <p className="text-slate-500">Coming soon</p>
-    </div>
-  </div>
-)
+// const AnalyticsPage = () => (
+//   <div className="flex items-center justify-center h-full">
+//     <div className="text-center">
+//       <BarChart3 className="h-10 w-10 text-emerald-500 mx-auto mb-4" />
+//       <h2 className="text-2xl font-semibold mb-2">Analytics Dashboard</h2>
+//       <p className="text-slate-500">Coming soon</p>
+//     </div>
+//   </div>
+// )
 
 const tabs = [
   {
