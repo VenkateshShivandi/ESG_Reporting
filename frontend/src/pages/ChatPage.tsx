@@ -1,28 +1,55 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useChat } from "ai/react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Search, FileText, File, Folder, Send, Bot } from "lucide-react"
+import { Search, FileText, File, Folder, Send, Bot, Eye, X, Calendar, GripVertical, Maximize2, Minimize2, ChevronsUp, ChevronsDown } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useFilesStore } from "@/lib/store/files-store"
 import { toast } from "sonner"
+import { ReportView } from "@/components/dashboard/report-view"
+import { Slider } from "@/components/ui/slider"
+
+// Define a type for reports
+interface Report {
+  id: string;
+  type: string;
+  timestamp: Date;
+  files: string[];
+}
 
 export default function ChatPage() {
   const { messages, input, handleInputChange, handleSubmit } = useChat()
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isReportListOpen, setIsReportListOpen] = useState(false)
   const [selectedType, setSelectedType] = useState<string>("")
   const { files } = useFilesStore()
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState("")
+  const [showReportView, setShowReportView] = useState(false)
+  const [reports, setReports] = useState<Report[]>([])
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null)
+  
+  // State for resizable panels
+  const [splitPosition, setSplitPosition] = useState(50) // Default to 50% split
+  const [isDragging, setIsDragging] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const dividerRef = useRef<HTMLDivElement>(null)
+
+  // State for main UI size
+  const [uiSize, setUiSize] = useState(100) // 100% by default
+  const [uiHeight, setUiHeight] = useState(100) // 100% by default
+  const [showSizeControls, setShowSizeControls] = useState(false)
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen)
+  
+  const toggleReportList = () => setIsReportListOpen(!isReportListOpen)
 
   const handleFileSelect = (fileId: string) => {
     setSelectedFiles((prev) => {
@@ -39,198 +66,449 @@ export default function ChatPage() {
   const handleGenerateReport = () => {
     const selectedFilesList = files.filter((file) => selectedFiles.has(file.id))
     if (selectedType && selectedFilesList.length > 0) {
-      toast.success(`Generating ${selectedType} report with ${selectedFilesList.length} files`)
+      // Create a new report
+      const newReport: Report = {
+        id: Date.now().toString(),
+        type: selectedType,
+        timestamp: new Date(),
+        files: selectedFilesList.map(file => file.id)
+      }
+      
+      // Add it to reports list
+      setReports(prev => [...prev, newReport])
+      
+      toast.success(`${selectedType} report generated and added to reports`)
       setIsModalOpen(false)
       setSelectedType("")
       setSelectedFiles(new Set())
+      
+      // Don't automatically show the report view
+    } else {
+      toast.error("Please select a report type and at least one file")
     }
   }
+
+  const handleSelectReport = (report: Report) => {
+    setSelectedReport(report)
+    setShowReportView(true)
+    setIsReportListOpen(false)
+  }
+
+  const closeReportView = () => {
+    setShowReportView(false)
+    setSelectedReport(null)
+  }
+
+  // Handle divider drag start
+  const handleDividerMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+  }
+
+  // Handle dragging to resize panels
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging || !containerRef.current) return
+      
+      const containerRect = containerRef.current.getBoundingClientRect()
+      const containerWidth = containerRect.width
+      const mouseX = e.clientX - containerRect.left
+      
+      // Calculate percentage position (constrained between 20% and 80%)
+      const newPosition = Math.max(20, Math.min(80, (mouseX / containerWidth) * 100))
+      setSplitPosition(newPosition)
+    }
+    
+    const handleMouseUp = () => {
+      setIsDragging(false)
+    }
+    
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+    }
+    
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDragging])
 
   const filteredFiles = files.filter((file) => file.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
   return (
-    <div className="flex h-screen bg-white">
-      <div className="flex-1 pl-16">
-        <div className="relative h-full flex flex-col">
-          {/* Sidebar */}
-          <div
-            className={`absolute top-0 left-0 h-full bg-white border-r shadow-lg transition-all duration-300 ease-in-out ${
-              isSidebarOpen ? "w-64" : "w-0"
-            } overflow-hidden z-20`}
+    <div className="flex h-screen bg-white overflow-hidden">
+      <div 
+        ref={containerRef} 
+        className="flex-1 pl-16 flex relative"
+        style={{ 
+          maxWidth: `${uiSize}%`, 
+          height: `${uiHeight}%`, 
+          margin: '0 auto',
+          transition: 'all 0.3s ease'
+        }}
+      >
+        {/* Size Controls */}
+        <div className="absolute -left-12 top-1/2 transform -translate-y-1/2 space-y-2 z-30">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            className="h-8 w-8 bg-white" 
+            onClick={() => setShowSizeControls(!showSizeControls)}
           >
-            <div className="p-4">
-              <div className="flex flex-col gap-4">
-                <div className="space-y-1.5">
-                  <h2 className="text-lg font-semibold text-slate-900">Search Files</h2>
-                  <p className="text-sm text-slate-500">
-                    {files.length > 0
-                      ? "Search and select files to analyze"
-                      : "Upload files in Documents to get started"}
-                  </p>
-                </div>
-                <div className="relative">
-                  <Input
-                    placeholder="Search files..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9"
+            {showSizeControls ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
+          
+          {showSizeControls && (
+            <div className="bg-white p-3 rounded-lg shadow-md border space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-slate-500">Width</p>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    className="h-6 w-6" 
+                    onClick={() => setUiSize(Math.max(50, uiSize - 5))}
+                  >
+                    <ChevronsDown className="h-3 w-3" />
+                  </Button>
+                  <Slider
+                    min={50}
+                    max={100}
+                    step={5}
+                    value={[uiSize]}
+                    onValueChange={(value: number[]) => setUiSize(value[0])}
+                    className="w-20"
                   />
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    className="h-6 w-6" 
+                    onClick={() => setUiSize(Math.min(100, uiSize + 5))}
+                  >
+                    <ChevronsUp className="h-3 w-3" />
+                  </Button>
                 </div>
               </div>
-
-              {selectedFiles.size > 0 && (
-                <div className="mt-4 px-2">
-                  <p className="text-sm text-slate-600">
-                    {selectedFiles.size} file{selectedFiles.size !== 1 ? "s" : ""} selected
-                  </p>
+              
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-slate-500">Height</p>
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    className="h-6 w-6" 
+                    onClick={() => setUiHeight(Math.max(50, uiHeight - 5))}
+                  >
+                    <ChevronsDown className="h-3 w-3" />
+                  </Button>
+                  <Slider
+                    min={50}
+                    max={100}
+                    step={5}
+                    value={[uiHeight]}
+                    onValueChange={(value: number[]) => setUiHeight(value[0])}
+                    className="w-20"
+                  />
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    className="h-6 w-6" 
+                    onClick={() => setUiHeight(Math.min(100, uiHeight + 5))}
+                  >
+                    <ChevronsUp className="h-3 w-3" />
+                  </Button>
                 </div>
-              )}
+              </div>
+              
+              <Button 
+                variant="default" 
+                size="sm" 
+                className="w-full text-xs h-7" 
+                onClick={() => {
+                  setUiSize(100);
+                  setUiHeight(100);
+                }}
+              >
+                Reset
+              </Button>
+            </div>
+          )}
+        </div>
 
-              <ScrollArea className="h-[calc(100vh-8rem)] pr-4 mt-4">
-                {files.length > 0 ? (
-                  <div className="space-y-1">
-                    {filteredFiles.map((file) => (
-                      <div
-                        key={file.id}
-                        className={`flex items-center space-x-2 p-2 rounded-lg transition-colors
-                          ${selectedFiles.has(file.id) ? "bg-slate-100" : "hover:bg-slate-50"}`}
-                      >
-                        {file.type === "file" && (
-                          <Checkbox
-                            checked={selectedFiles.has(file.id)}
-                            onCheckedChange={() => handleFileSelect(file.id)}
-                          />
-                        )}
-                        {file.type === "file" ? (
-                          <File className="h-4 w-4 text-blue-500" />
-                        ) : (
-                          <Folder className="h-4 w-4 text-yellow-500" />
-                        )}
-                        <span className="text-sm text-slate-700 truncate">{file.name}</span>
-                      </div>
-                    ))}
-                    {filteredFiles.length === 0 && searchQuery && (
-                      <div className="text-center py-8">
-                        <p className="text-sm text-slate-500">No files match your search</p>
-                      </div>
-                    )}
+        {/* Chat container */}
+        <div 
+          className={`${showReportView ? `w-[${splitPosition}%]` : 'w-full'} h-full transition-all duration-300 ${!showReportView && 'pr-0'} overflow-auto`} 
+          style={showReportView ? { width: `${splitPosition}%` } : undefined}
+        >
+          <div className="relative h-full flex flex-col">
+            {/* Sidebar */}
+            <div
+              className={`absolute top-0 left-0 h-full bg-white border-r shadow-lg transition-all duration-300 ease-in-out ${
+                isSidebarOpen ? "w-64" : "w-0"
+              } overflow-hidden z-20`}
+            >
+              <div className="p-4">
+                <div className="flex flex-col gap-4">
+                  <div className="space-y-1.5">
+                    <h2 className="text-lg font-semibold text-slate-900">Search Files</h2>
+                    <p className="text-sm text-slate-500">
+                      {files.length > 0
+                        ? "Search and select files to analyze"
+                        : "Upload files in Documents to get started"}
+                    </p>
                   </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <File className="h-8 w-8 text-slate-400 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-slate-900">No files available for analysis</p>
-                    <p className="text-sm text-slate-500 mt-1">
-                      Upload files in the Documents section to analyze them here
+                  <div className="relative">
+                    <Input
+                      placeholder="Search files..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9"
+                    />
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
+                  </div>
+                </div>
+
+                {selectedFiles.size > 0 && (
+                  <div className="mt-4 px-2">
+                    <p className="text-sm text-slate-600">
+                      {selectedFiles.size} file{selectedFiles.size !== 1 ? "s" : ""} selected
                     </p>
                   </div>
                 )}
-              </ScrollArea>
-            </div>
-          </div>
 
-          {/* Main Chat Area */}
-          <div className={`flex-1 flex flex-col transition-all duration-300 ${isSidebarOpen ? "ml-64" : "ml-0"}`}>
-            <div className="flex flex-col h-full mx-8 my-6 border rounded-lg overflow-hidden shadow-sm">
-              {/* Header */}
-              <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
-                <div className="flex items-center gap-4">
-                  <Button
-                    variant="ghost"
-                    onClick={toggleSidebar}
-                    className={`flex items-center gap-2 ${
-                      files.length > 0 ? "text-[#2E7D32] hover:text-[#1B5E20]" : "text-slate-600"
-                    }`}
-                  >
-                    <Search className="h-5 w-5" />
-                    <span className="text-sm font-medium">Search Files</span>
-                    {files.length > 0 && (
-                      <span className="flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 px-1 text-xs font-medium text-emerald-700">
-                        {selectedFiles.size > 0 ? `${selectedFiles.size}/${files.length}` : files.length}
-                      </span>
-                    )}
-                  </Button>
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
-                      <Bot className="h-6 w-6 text-emerald-600" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-semibold">ESG Analytics Assistant</h2>
-                      <p className="text-sm text-slate-500">Powered by AI</p>
-                    </div>
-                  </div>
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsModalOpen(true)}
-                  disabled={files.length === 0}
-                  className="gap-2"
-                >
-                  <FileText className="h-4 w-4" />
-                  Generate Report
-                </Button>
-              </div>
-
-              {/* Messages */}
-              <ScrollArea className="flex-1 p-6 bg-slate-50">
-                <div className="space-y-4">
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${message.role === "assistant" ? "justify-start" : "justify-end"}`}
-                    >
-                      <div
-                        className={`flex items-start gap-3 max-w-[80%] ${message.role === "assistant" ? "flex-row" : "flex-row-reverse"}`}
-                      >
-                        <Avatar className="h-8 w-8 mt-0.5">
-                          <AvatarImage
-                            src={message.role === "assistant" ? "/bot-avatar.png" : "/user-avatar.png"}
-                            className="object-cover"
-                          />
-                          <AvatarFallback>
-                            {message.role === "assistant" ? <Bot className="h-5 w-5 text-emerald-600" /> : "You"}
-                          </AvatarFallback>
-                        </Avatar>
+                <ScrollArea className="h-[calc(100vh-8rem)] pr-4 mt-4">
+                  {files.length > 0 ? (
+                    <div className="space-y-1">
+                      {filteredFiles.map((file) => (
                         <div
-                          className={`rounded-2xl px-4 py-2.5 text-sm
-                            ${
-                              message.role === "assistant"
-                                ? "bg-white shadow-sm text-slate-700"
-                                : "bg-emerald-600 text-white"
-                            }`}
+                          key={file.id}
+                          className={`flex items-center space-x-2 p-2 rounded-lg transition-colors
+                            ${selectedFiles.has(file.id) ? "bg-slate-100" : "hover:bg-slate-50"}`}
                         >
-                          {message.content}
+                          {file.type === "file" && (
+                            <Checkbox
+                              checked={selectedFiles.has(file.id)}
+                              onCheckedChange={() => handleFileSelect(file.id)}
+                            />
+                          )}
+                          {file.type === "file" ? (
+                            <File className="h-4 w-4 text-blue-500" />
+                          ) : (
+                            <Folder className="h-4 w-4 text-yellow-500" />
+                          )}
+                          <span className="text-sm text-slate-700 truncate">{file.name}</span>
                         </div>
-                      </div>
+                      ))}
+                      {filteredFiles.length === 0 && searchQuery && (
+                        <div className="text-center py-8">
+                          <p className="text-sm text-slate-500">No files match your search</p>
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
-              </ScrollArea>
+                  ) : (
+                    <div className="text-center py-8">
+                      <File className="h-8 w-8 text-slate-400 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-slate-900">No files available for analysis</p>
+                      <p className="text-sm text-slate-500 mt-1">
+                        Upload files in the Documents section to analyze them here
+                      </p>
+                    </div>
+                  )}
+                </ScrollArea>
+              </div>
+            </div>
 
-              {/* Input */}
-              <div className="p-4 bg-white border-t">
-                <form onSubmit={handleSubmit} className="max-w-[1000px] mx-auto">
-                  <div className="relative">
-                    <Input
-                      placeholder="Type your message..."
-                      value={input}
-                      onChange={handleInputChange}
-                      className="w-full pr-12 py-6 text-base border-slate-200 shadow-sm focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl"
-                    />
-                    <Button
-                      type="submit"
-                      size="icon"
-                      className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 bg-emerald-100 hover:bg-emerald-200 rounded-lg"
-                    >
-                      <Send className="h-5 w-5 text-emerald-600" />
-                      <span className="sr-only">Send message</span>
+            {/* Reports List Sidebar */}
+            <div
+              className={`absolute top-0 right-0 h-full bg-white border-l shadow-lg transition-all duration-300 ease-in-out ${
+                isReportListOpen ? "w-64" : "w-0"
+              } overflow-hidden z-20`}
+            >
+              <div className="p-4">
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-slate-900">Available Reports</h2>
+                    <Button variant="ghost" size="icon" onClick={toggleReportList}>
+                      <X className="h-4 w-4" />
                     </Button>
                   </div>
-                </form>
+                  {reports.length === 0 ? (
+                    <div className="text-center py-8">
+                      <FileText className="h-8 w-8 text-slate-400 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-slate-900">No reports generated</p>
+                      <p className="text-sm text-slate-500 mt-1">
+                        Generate a report to view it here
+                      </p>
+                    </div>
+                  ) : (
+                    <ScrollArea className="h-[calc(100vh-8rem)] pr-4 mt-4">
+                      <div className="space-y-2">
+                        {reports.map((report) => (
+                          <div
+                            key={report.id}
+                            className="p-3 rounded-md border hover:bg-slate-50 cursor-pointer"
+                            onClick={() => handleSelectReport(report)}
+                          >
+                            <div className="flex items-center gap-3">
+                              <FileText className="h-5 w-5 text-emerald-600" />
+                              <div>
+                                <p className="font-medium text-sm">{report.type} Report</p>
+                                <div className="flex items-center gap-1 text-xs text-slate-500">
+                                  <Calendar className="h-3 w-3" />
+                                  <span>
+                                    {report.timestamp.toLocaleDateString()} {report.timestamp.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Main Chat Area */}
+            <div className={`flex-1 flex flex-col transition-all duration-300 ${isSidebarOpen ? "ml-64" : "ml-0"} ${isReportListOpen ? "mr-64" : "mr-0"}`}>
+              <div className="flex flex-col h-full mx-8 my-6 border rounded-lg overflow-hidden shadow-sm">
+                {/* Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
+                  <div className="flex items-center gap-4">
+                    <Button
+                      variant="ghost"
+                      onClick={toggleSidebar}
+                      className={`flex items-center gap-2 ${
+                        files.length > 0 ? "text-[#2E7D32] hover:text-[#1B5E20]" : "text-slate-600"
+                      }`}
+                    >
+                      <Search className="h-5 w-5" />
+                      <span className="text-sm font-medium">Search Files</span>
+                      {files.length > 0 && (
+                        <span className="flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 px-1 text-xs font-medium text-emerald-700">
+                          {selectedFiles.size > 0 ? `${selectedFiles.size}/${files.length}` : files.length}
+                        </span>
+                      )}
+                    </Button>
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                        <Bot className="h-6 w-6 text-emerald-600" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold">ESG Analytics Assistant</h2>
+                        <p className="text-sm text-slate-500">Powered by AI</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant={isReportListOpen ? "default" : "outline"}
+                      onClick={toggleReportList}
+                      className="gap-2 relative"
+                    >
+                      <Eye className="h-4 w-4" />
+                      <span>View Reports</span>
+                      {reports.length > 0 && (
+                        <span className="absolute -top-2 -right-2 flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 px-1 text-xs font-medium text-emerald-700">
+                          {reports.length}
+                        </span>
+                      )}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsModalOpen(true)}
+                      disabled={files.length === 0}
+                      className="gap-2"
+                    >
+                      <FileText className="h-4 w-4" />
+                      Generate Report
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Messages */}
+                <ScrollArea className="flex-1 p-6 bg-slate-50">
+                  <div className="space-y-4 min-h-[200px]">
+                    {messages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={`flex ${message.role === "assistant" ? "justify-start" : "justify-end"}`}
+                      >
+                        <div
+                          className={`flex items-start gap-3 max-w-[80%] ${message.role === "assistant" ? "flex-row" : "flex-row-reverse"}`}
+                        >
+                          <Avatar className="h-8 w-8 mt-0.5">
+                            <AvatarImage
+                              src={message.role === "assistant" ? "/bot-avatar.png" : "/user-avatar.png"}
+                              className="object-cover"
+                            />
+                            <AvatarFallback>
+                              {message.role === "assistant" ? <Bot className="h-5 w-5 text-emerald-600" /> : "You"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div
+                            className={`rounded-2xl px-4 py-2.5 text-sm
+                              ${
+                                message.role === "assistant"
+                                  ? "bg-white shadow-sm text-slate-700"
+                                  : "bg-emerald-600 text-white"
+                              }`}
+                          >
+                            {message.content}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
+
+                {/* Input */}
+                <div className="p-4 bg-white border-t">
+                  <form onSubmit={handleSubmit} className="max-w-[1000px] mx-auto">
+                    <div className="relative">
+                      <Input
+                        placeholder="Type your message..."
+                        value={input}
+                        onChange={handleInputChange}
+                        className="w-full pr-12 py-6 text-base border-slate-200 shadow-sm focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl"
+                      />
+                      <Button
+                        type="submit"
+                        size="icon"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 bg-emerald-100 hover:bg-emerald-200 rounded-lg"
+                      >
+                        <Send className="h-5 w-5 text-emerald-600" />
+                        <span className="sr-only">Send message</span>
+                      </Button>
+                    </div>
+                  </form>
+                </div>
               </div>
             </div>
           </div>
         </div>
+        
+        {/* Resizable Divider */}
+        {showReportView && (
+          <div 
+            ref={dividerRef}
+            className="w-1 bg-gray-200 hover:bg-emerald-300 cursor-col-resize flex items-center justify-center active:bg-emerald-400 transition-colors"
+            onMouseDown={handleDividerMouseDown}
+          >
+            <div className="py-3 flex items-center justify-center">
+              <GripVertical className="h-6 w-6 text-slate-400" />
+            </div>
+          </div>
+        )}
+        
+        {/* Report View */}
+        {showReportView && selectedReport && (
+          <div className="h-full flex flex-col border-l overflow-auto" style={{ width: `${100 - splitPosition}%` }}>
+            <ReportView onClose={closeReportView} />
+          </div>
+        )}
       </div>
 
       {/* Generate Report Modal */}
