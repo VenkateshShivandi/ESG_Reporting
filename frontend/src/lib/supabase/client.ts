@@ -15,7 +15,27 @@ if (!supabaseUrl || !supabaseAnonKey) {
   Sentry.captureMessage('Missing Supabase environment variables')
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// Function to create a Supabase client with the current storage preference
+const createSupabaseClient = () => {
+  // Check if user has selected "Remember Me" from localStorage
+  const shouldRemember = typeof window !== 'undefined' && localStorage.getItem('rememberMe') === 'true'
+  
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true, // Always persist the session
+      storage: shouldRemember ? localStorage : sessionStorage // Use localStorage for "Remember Me", sessionStorage otherwise
+    }
+  })
+}
+
+// Create the initial Supabase client
+export let supabase = createSupabaseClient()
+
+// Function to refresh the client with current storage preferences
+export const refreshSupabaseClient = () => {
+  supabase = createSupabaseClient()
+  return supabase
+}
 
 // Export the client as the default export for easier imports
 export default supabase 

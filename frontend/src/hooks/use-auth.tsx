@@ -5,7 +5,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { User, Session } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import { toast } from 'sonner'
-import supabase from '@/lib/supabase/client'
+import supabase, { refreshSupabaseClient } from '@/lib/supabase/client'
 
 // Types for our authentication context
 interface AuthContextType {
@@ -13,7 +13,7 @@ interface AuthContextType {
   session: Session | null
   isLoading: boolean
   isAuthenticated: boolean
-  signIn: (email: string, password: string) => Promise<{
+  signIn: (email: string, password: string, rememberMe?: boolean) => Promise<{
     error: Error | null
   }>
   signUp: (email: string, password: string) => Promise<{
@@ -36,6 +36,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Check for active session on mount and listen for auth state changes
   useEffect(() => {
+    // Refresh the Supabase client with the current storage preference
+    refreshSupabaseClient()
+    
     // Get session on initial load
     const getSession = async () => {
       try {
@@ -89,8 +92,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [router, pathname])
 
   // Sign in with email and password
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string, rememberMe: boolean = false) => {
     try {
+      // Store the rememberMe preference in localStorage
+      if (rememberMe) {
+        localStorage.setItem('rememberMe', 'true')
+      } else {
+        localStorage.removeItem('rememberMe')
+      }
+      
+      // Refresh the Supabase client with the new storage preference
+      refreshSupabaseClient()
+      
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -169,6 +182,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Set a flag in sessionStorage to indicate an intentional signout
       // This will be used to prevent the dashboard layout from redirecting to login
       sessionStorage.setItem('intentionalSignOut', 'true')
+      
+      // Clear rememberMe preference
+      localStorage.removeItem('rememberMe')
+      
+      // Refresh the Supabase client with the new storage preference
+      refreshSupabaseClient()
       
       await supabase.auth.signOut()
       toast.success('Signed out successfully')

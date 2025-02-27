@@ -133,7 +133,6 @@ export function Container() {
         <Sidebar className="w-16 flex-shrink-0 border-r bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60">
           <SidebarHeader className="h-16 border-b flex items-center justify-center">
             <Avatar className="h-9 w-9">
-              <AvatarImage src="/logo.png" alt="ESG Logo" />
               <AvatarFallback className="text-[#2E7D32] text-sm">ESG</AvatarFallback>
             </Avatar>
           </SidebarHeader>
