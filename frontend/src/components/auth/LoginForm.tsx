@@ -52,7 +52,7 @@ export default function LoginForm() {
   async function onSubmit(data: LoginFormValues) {
     setIsLoading(true)
     try {
-      const { error } = await signIn(data.email, data.password)
+      const { error } = await signIn(data.email, data.password, data.rememberMe)
       if (error) throw error
       toast.success('Welcome back!', {
         description: 'You have successfully logged in.',
