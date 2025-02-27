@@ -6,8 +6,8 @@ import { createClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 
 // Create a single supabase client for interacting with your database
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
 
 // Initialize the Supabase client with error handling
 if (!supabaseUrl || !supabaseAnonKey) {
@@ -15,15 +15,40 @@ if (!supabaseUrl || !supabaseAnonKey) {
   Sentry.captureMessage('Missing Supabase environment variables')
 }
 
+// Check if in browser environment
+const isBrowser = typeof window !== 'undefined'
+
+// Create a custom storage handler
+const customStorage = {
+  getItem: (key: string) => {
+    if (isBrowser) {
+      return localStorage.getItem(key)
+    }
+    return null
+  },
+  setItem: (key: string, value: string) => {
+    if (isBrowser) {
+      localStorage.setItem(key, value)
+    }
+  },
+  removeItem: (key: string) => {
+    if (isBrowser) {
+      localStorage.removeItem(key)
+    }
+  }
+}
+
 // Function to create a Supabase client with the current storage preference
-const createSupabaseClient = () => {
-  // Check if user has selected "Remember Me" from localStorage
-  const shouldRemember = typeof window !== 'undefined' && localStorage.getItem('rememberMe') === 'true'
-  
+export const createSupabaseClient = (shouldRemember = true) => {
   return createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-      persistSession: true, // Always persist the session
-      storage: shouldRemember ? localStorage : sessionStorage // Use localStorage for "Remember Me", sessionStorage otherwise
+      persistSession: true,
+      // Only use storage in browser environment
+      storage: isBrowser
+        ? shouldRemember
+          ? localStorage 
+          : sessionStorage
+        : customStorage // Use custom storage on server side
     }
   })
 }
