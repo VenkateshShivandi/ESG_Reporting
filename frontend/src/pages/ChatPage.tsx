@@ -376,13 +376,13 @@ export default function ChatPage() {
                 </div>
               </div>
 
-                {selectedFiles.size > 0 && (
-                  <div className="mt-4 px-2">
-                    <p className="text-sm text-slate-600">
-                      {selectedFiles.size} file{selectedFiles.size !== 1 ? "s" : ""} selected
-                    </p>
-                  </div>
-                )}
+              {selectedFiles.size > 0 && (
+                <div className="mt-4 px-2">
+                  <p className="text-sm text-slate-600">
+                    {selectedFiles.size} file{selectedFiles.size !== 1 ? "s" : ""} selected
+                  </p>
+                </div>
+              )}
 
               <ScrollArea className="h-[calc(100vh-8rem)] pr-4 mt-4">
                 {files.length > 0 ? (
