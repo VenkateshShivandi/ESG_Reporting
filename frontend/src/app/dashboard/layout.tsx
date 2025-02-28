@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/hooks/use-auth'
-import AppNavigation from '@/components/navigation/AppNavigation'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth()
@@ -48,13 +47,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return null // Don't show anything while redirecting
   }
   
-  // Use the Container component for all authenticated routes
-  return (
-    <div className="flex min-h-screen">
-      <AppNavigation />
-      <div className="flex-1 pl-0 md:pl-64">
-        <main className="flex-1 p-4">{children}</main>
-      </div>
-    </div>
-  )
+  // Return just the children - the Container component now handles all layout
+  return children
 }
