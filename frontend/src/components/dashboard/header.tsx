@@ -31,9 +31,9 @@ export function Header({
           <Button variant="ghost" size="icon">
             <User2 className="h-5 w-5" />
           </Button>
-          <Button variant="ghost" size="icon">
+          {/* <Button variant="ghost" size="icon">
             <LogOut className="h-5 w-5" />
-          </Button>
+          </Button> */}
         </div>
       </div>
     </header>
