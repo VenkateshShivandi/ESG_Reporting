@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useFilesStore } from "@/lib/store/files-store"
 import { toast } from "sonner"
-import { ReportView } from "@/components/dashboard/report-view"
+import { InteractiveWorkspace } from "@/components/dashboard/interactive-workspace"
 import { Slider } from "@/components/ui/slider"
 
 // Define a type for reports
@@ -49,7 +49,33 @@ export default function ChatPage() {
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen)
   
-  const toggleReportList = () => setIsReportListOpen(!isReportListOpen)
+  // Function to always open the sidebar
+  const openSidebar = () => setIsSidebarOpen(true)
+  
+  // Function to close sidebar if open
+  const closeSidebarIfOpen = () => {
+    if (isSidebarOpen) {
+      setIsSidebarOpen(false)
+    }
+  }
+  
+  // Function to toggle the sidebar with special behavior for Search Files button
+  const handleSearchFilesClick = () => {
+    // Toggle the file search sidebar
+    setIsSidebarOpen(!isSidebarOpen)
+    
+    // Dispatch a custom event to collapse the main navigation sidebar if it's expanded
+    window.dispatchEvent(new CustomEvent('collapseMainSidebar'))
+  }
+  
+  // Function to toggle the reports list sidebar and collapse main sidebar
+  const toggleReportList = () => {
+    // Toggle the reports list
+    setIsReportListOpen(!isReportListOpen)
+    
+    // Dispatch a custom event to collapse the main navigation sidebar if it's expanded
+    window.dispatchEvent(new CustomEvent('collapseMainSidebar'))
+  }
 
   const handleFileSelect = (fileId: string) => {
     setSelectedFiles((prev) => {
@@ -92,6 +118,7 @@ export default function ChatPage() {
     setSelectedReport(report)
     setShowReportView(true)
     setIsReportListOpen(false)
+    setIsSidebarOpen(false)
   }
 
   const closeReportView = () => {
@@ -140,12 +167,10 @@ export default function ChatPage() {
     <div className="flex h-screen bg-white overflow-hidden">
       <div 
         ref={containerRef} 
-        className="flex-1 pl-16 flex relative"
+        className="flex-1 flex relative"
         style={{ 
           maxWidth: `${uiSize}%`, 
-          height: `${uiHeight}%`, 
-          margin: '0 auto',
-          transition: 'all 0.3s ease'
+          height: `${uiHeight}%`
         }}
       >
         {/* Size Controls */}
@@ -241,83 +266,83 @@ export default function ChatPage() {
           className={`${showReportView ? `w-[${splitPosition}%]` : 'w-full'} h-full transition-all duration-300 ${!showReportView && 'pr-0'} overflow-auto`} 
           style={showReportView ? { width: `${splitPosition}%` } : undefined}
         >
-          <div className="relative h-full flex flex-col">
-            {/* Sidebar */}
-            <div
-              className={`absolute top-0 left-0 h-full bg-white border-r shadow-lg transition-all duration-300 ease-in-out ${
-                isSidebarOpen ? "w-64" : "w-0"
-              } overflow-hidden z-20`}
-            >
-              <div className="p-4">
-                <div className="flex flex-col gap-4">
-                  <div className="space-y-1.5">
-                    <h2 className="text-lg font-semibold text-slate-900">Search Files</h2>
-                    <p className="text-sm text-slate-500">
-                      {files.length > 0
-                        ? "Search and select files to analyze"
-                        : "Upload files in Documents to get started"}
-                    </p>
-                  </div>
-                  <div className="relative">
-                    <Input
-                      placeholder="Search files..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
-                    />
-                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
-                  </div>
+        <div className="relative h-full flex flex-col">
+          {/* Sidebar */}
+          <div
+            className={`absolute top-0 left-0 h-full bg-white shadow-lg transition-all duration-300 ease-in-out ${
+              isSidebarOpen ? "w-64" : "w-0"
+            } overflow-hidden z-20`}
+          >
+            <div className="p-4">
+              <div className="flex flex-col gap-4">
+                <div className="space-y-1.5">
+                  <h2 className="text-lg font-semibold text-slate-900">Search Files</h2>
+                  <p className="text-sm text-slate-500">
+                    {files.length > 0
+                      ? "Search and select files to analyze"
+                      : "Upload files in Documents to get started"}
+                  </p>
                 </div>
+                <div className="relative">
+                  <Input
+                    placeholder="Search files..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
+                </div>
+              </div>
 
-                {selectedFiles.size > 0 && (
-                  <div className="mt-4 px-2">
-                    <p className="text-sm text-slate-600">
-                      {selectedFiles.size} file{selectedFiles.size !== 1 ? "s" : ""} selected
+              {selectedFiles.size > 0 && (
+                <div className="mt-4 px-2">
+                  <p className="text-sm text-slate-600">
+                    {selectedFiles.size} file{selectedFiles.size !== 1 ? "s" : ""} selected
+                  </p>
+                </div>
+              )}
+
+              <ScrollArea className="h-[calc(100vh-8rem)] pr-4 mt-4">
+                {files.length > 0 ? (
+                  <div className="space-y-1">
+                    {filteredFiles.map((file) => (
+                      <div
+                        key={file.id}
+                        className={`flex items-center space-x-2 p-2 rounded-lg transition-colors
+                          ${selectedFiles.has(file.id) ? "bg-slate-100" : "hover:bg-slate-50"}`}
+                      >
+                        {file.type === "file" && (
+                          <Checkbox
+                            checked={selectedFiles.has(file.id)}
+                            onCheckedChange={() => handleFileSelect(file.id)}
+                          />
+                        )}
+                        {file.type === "file" ? (
+                          <File className="h-4 w-4 text-blue-500" />
+                        ) : (
+                          <Folder className="h-4 w-4 text-yellow-500" />
+                        )}
+                        <span className="text-sm text-slate-700 truncate">{file.name}</span>
+                      </div>
+                    ))}
+                    {filteredFiles.length === 0 && searchQuery && (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-slate-500">No files match your search</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <File className="h-8 w-8 text-slate-400 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-slate-900">No files available for analysis</p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Upload files in the Documents section to analyze them here
                     </p>
                   </div>
                 )}
-
-                <ScrollArea className="h-[calc(100vh-8rem)] pr-4 mt-4">
-                  {files.length > 0 ? (
-                    <div className="space-y-1">
-                      {filteredFiles.map((file) => (
-                        <div
-                          key={file.id}
-                          className={`flex items-center space-x-2 p-2 rounded-lg transition-colors
-                            ${selectedFiles.has(file.id) ? "bg-slate-100" : "hover:bg-slate-50"}`}
-                        >
-                          {file.type === "file" && (
-                            <Checkbox
-                              checked={selectedFiles.has(file.id)}
-                              onCheckedChange={() => handleFileSelect(file.id)}
-                            />
-                          )}
-                          {file.type === "file" ? (
-                            <File className="h-4 w-4 text-blue-500" />
-                          ) : (
-                            <Folder className="h-4 w-4 text-yellow-500" />
-                          )}
-                          <span className="text-sm text-slate-700 truncate">{file.name}</span>
-                        </div>
-                      ))}
-                      {filteredFiles.length === 0 && searchQuery && (
-                        <div className="text-center py-8">
-                          <p className="text-sm text-slate-500">No files match your search</p>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <File className="h-8 w-8 text-slate-400 mx-auto mb-3" />
-                      <p className="text-sm font-medium text-slate-900">No files available for analysis</p>
-                      <p className="text-sm text-slate-500 mt-1">
-                        Upload files in the Documents section to analyze them here
-                      </p>
-                    </div>
-                  )}
-                </ScrollArea>
-              </div>
+              </ScrollArea>
             </div>
+          </div>
 
             {/* Reports List Sidebar */}
             <div
@@ -368,40 +393,40 @@ export default function ChatPage() {
                     </ScrollArea>
                   )}
                 </div>
-              </div>
             </div>
+          </div>
 
-            {/* Main Chat Area */}
+          {/* Main Chat Area */}
             <div className={`flex-1 flex flex-col transition-all duration-300 ${isSidebarOpen ? "ml-64" : "ml-0"} ${isReportListOpen ? "mr-64" : "mr-0"}`}>
-              <div className="flex flex-col h-full mx-8 my-6 border rounded-lg overflow-hidden shadow-sm">
-                {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
-                  <div className="flex items-center gap-4">
-                    <Button
-                      variant="ghost"
-                      onClick={toggleSidebar}
-                      className={`flex items-center gap-2 ${
-                        files.length > 0 ? "text-[#2E7D32] hover:text-[#1B5E20]" : "text-slate-600"
-                      }`}
-                    >
-                      <Search className="h-5 w-5" />
-                      <span className="text-sm font-medium">Search Files</span>
-                      {files.length > 0 && (
-                        <span className="flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 px-1 text-xs font-medium text-emerald-700">
-                          {selectedFiles.size > 0 ? `${selectedFiles.size}/${files.length}` : files.length}
-                        </span>
-                      )}
-                    </Button>
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
-                        <Bot className="h-6 w-6 text-emerald-600" />
-                      </div>
-                      <div>
-                        <h2 className="text-lg font-semibold">ESG Analytics Assistant</h2>
-                        <p className="text-sm text-slate-500">Powered by AI</p>
-                      </div>
+            <div className="flex flex-col h-full mx-2 my-6 border-0 rounded-lg overflow-hidden shadow-sm">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
+                <div className="flex items-center gap-4">
+                  <Button
+                    variant="ghost"
+                    onClick={handleSearchFilesClick}
+                    className={`flex items-center gap-2 ${
+                      files.length > 0 ? "text-[#2E7D32] hover:text-[#1B5E20]" : "text-slate-600"
+                    }`}
+                  >
+                    <Search className="h-5 w-5" />
+                    <span className="text-sm font-medium">Search Files</span>
+                    {files.length > 0 && (
+                      <span className="flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 px-1 text-xs font-medium text-emerald-700">
+                        {selectedFiles.size > 0 ? `${selectedFiles.size}/${files.length}` : files.length}
+                      </span>
+                    )}
+                  </Button>
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <Bot className="h-6 w-6 text-emerald-600" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold">ESG Analytics Assistant</h2>
+                      <p className="text-sm text-slate-500">Powered by AI</p>
                     </div>
                   </div>
+                </div>
                   <div className="flex gap-2">
                     <Button
                       variant={isReportListOpen ? "default" : "outline"}
@@ -416,78 +441,78 @@ export default function ChatPage() {
                         </span>
                       )}
                     </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => setIsModalOpen(true)}
-                      disabled={files.length === 0}
-                      className="gap-2"
-                    >
-                      <FileText className="h-4 w-4" />
-                      Generate Report
-                    </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsModalOpen(true)}
+                  disabled={files.length === 0}
+                  className="gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  Generate Report
+                </Button>
                   </div>
-                </div>
+              </div>
 
-                {/* Messages */}
-                <ScrollArea className="flex-1 p-6 bg-slate-50">
+              {/* Messages */}
+              <ScrollArea className="flex-1 p-6 bg-slate-50">
                   <div className="space-y-4 min-h-[200px]">
-                    {messages.map((message) => (
+                  {messages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`flex ${message.role === "assistant" ? "justify-start" : "justify-end"}`}
+                    >
                       <div
-                        key={message.id}
-                        className={`flex ${message.role === "assistant" ? "justify-start" : "justify-end"}`}
+                        className={`flex items-start gap-3 max-w-[80%] ${message.role === "assistant" ? "flex-row" : "flex-row-reverse"}`}
                       >
+                        <Avatar className="h-8 w-8 mt-0.5">
+                          <AvatarImage
+                            src={message.role === "assistant" ? "/bot-avatar.png" : "/user-avatar.png"}
+                            className="object-cover"
+                          />
+                          <AvatarFallback>
+                            {message.role === "assistant" ? <Bot className="h-5 w-5 text-emerald-600" /> : "You"}
+                          </AvatarFallback>
+                        </Avatar>
                         <div
-                          className={`flex items-start gap-3 max-w-[80%] ${message.role === "assistant" ? "flex-row" : "flex-row-reverse"}`}
+                          className={`rounded-2xl px-4 py-2.5 text-sm
+                            ${
+                              message.role === "assistant"
+                                ? "bg-white shadow-sm text-slate-700"
+                                : "bg-emerald-600 text-white"
+                            }`}
                         >
-                          <Avatar className="h-8 w-8 mt-0.5">
-                            <AvatarImage
-                              src={message.role === "assistant" ? "/bot-avatar.png" : "/user-avatar.png"}
-                              className="object-cover"
-                            />
-                            <AvatarFallback>
-                              {message.role === "assistant" ? <Bot className="h-5 w-5 text-emerald-600" /> : "You"}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div
-                            className={`rounded-2xl px-4 py-2.5 text-sm
-                              ${
-                                message.role === "assistant"
-                                  ? "bg-white shadow-sm text-slate-700"
-                                  : "bg-emerald-600 text-white"
-                              }`}
-                          >
-                            {message.content}
-                          </div>
+                          {message.content}
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-
-                {/* Input */}
-                <div className="p-4 bg-white border-t">
-                  <form onSubmit={handleSubmit} className="max-w-[1000px] mx-auto">
-                    <div className="relative">
-                      <Input
-                        placeholder="Type your message..."
-                        value={input}
-                        onChange={handleInputChange}
-                        className="w-full pr-12 py-6 text-base border-slate-200 shadow-sm focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl"
-                      />
-                      <Button
-                        type="submit"
-                        size="icon"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 bg-emerald-100 hover:bg-emerald-200 rounded-lg"
-                      >
-                        <Send className="h-5 w-5 text-emerald-600" />
-                        <span className="sr-only">Send message</span>
-                      </Button>
                     </div>
-                  </form>
+                  ))}
                 </div>
+              </ScrollArea>
+
+              {/* Input */}
+              <div className="p-4 bg-white border-t">
+                <form onSubmit={handleSubmit} className="max-w-[1000px] mx-auto">
+                  <div className="relative">
+                    <Input
+                      placeholder="Type your message..."
+                      value={input}
+                      onChange={handleInputChange}
+                      className="w-full pr-12 py-6 text-base border-slate-200 shadow-sm focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl"
+                    />
+                    <Button
+                      type="submit"
+                      size="icon"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 bg-emerald-100 hover:bg-emerald-200 rounded-lg"
+                    >
+                      <Send className="h-5 w-5 text-emerald-600" />
+                      <span className="sr-only">Send message</span>
+                    </Button>
+                  </div>
+                </form>
               </div>
             </div>
           </div>
+        </div>
         </div>
         
         {/* Resizable Divider */}
@@ -505,9 +530,19 @@ export default function ChatPage() {
         
         {/* Report View */}
         {showReportView && selectedReport && (
-          <div className="h-full flex flex-col border-l overflow-auto" style={{ width: `${100 - splitPosition}%` }}>
-            <ReportView onClose={closeReportView} />
-          </div>
+          <InteractiveWorkspace 
+            report={selectedReport} 
+            onClose={closeReportView}
+            append={message => {
+              if (typeof message.role === 'string' && 
+                  typeof message.content === 'string') {
+                append({
+                  role: message.role as 'user' | 'assistant' | 'system',
+                  content: message.content
+                });
+              }
+            }}
+          />
         )}
       </div>
 
