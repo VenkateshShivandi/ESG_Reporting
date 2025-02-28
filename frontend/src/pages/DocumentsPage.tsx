@@ -4,7 +4,7 @@ import React from "react"
 
 import { useState, useEffect, useCallback } from "react"
 import type { NextPage } from "next"
-import { Upload, Folder, File, Trash2, Download, ChevronRight, Loader2 } from "lucide-react"
+import { Upload, Folder, File as FileIcon, Trash2, Download, ChevronRight, Loader2, Info, FileText, TableProperties, GitGraph, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -27,6 +27,9 @@ import {
 import { toast } from "sonner"
 import type { FileItem, UploadProgress } from "@/lib/types/documents"
 import { useFilesStore } from "@/lib/store/files-store"
+import { processFile, ProcessedFileResult } from "@/lib/api/documents"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ScrollArea } from "@/components/ui/scroll-area"
 
 type Props = {}
 
@@ -34,12 +37,16 @@ const ALLOWED_FILE_TYPES = ".xlsx,.csv,.docx,.xml,.pdf"
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
 const DocumentsPage: NextPage<Props> = () => {
-  const { files, setFiles, addFile, removeFile, removeFiles } = useFilesStore()
+  const { files, setFiles, addFile, removeFile, removeFiles, updateFile } = useFilesStore()
   const [currentPath, setCurrentPath] = useState<string[]>([])
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>({})
   const [isLoading, setIsLoading] = useState(true)
+  const [processingFile, setProcessingFile] = useState<string | null>(null)
+  const [processingError, setProcessingError] = useState<string | null>(null)
+  const [fileDetails, setFileDetails] = useState<ProcessedFileResult | null>(null)
+  const [showFileDetails, setShowFileDetails] = useState(false)
 
   const getCurrentFolderItems = useCallback(() => {
     return files.filter((item) => JSON.stringify(item.path) === JSON.stringify(currentPath))
@@ -91,11 +98,13 @@ const DocumentsPage: NextPage<Props> = () => {
       return
     }
 
+    console.log("Files selected:", files.length);
     setIsUploading(true)
 
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
+        console.log(`Processing file ${i + 1}/${files.length}:`, file.name, file.size, file.type);
         const fileId = Math.random().toString(36).substring(7)
 
         // Validate file type
@@ -113,11 +122,8 @@ const DocumentsPage: NextPage<Props> = () => {
         }
 
         setUploadProgress((prev) => ({ ...prev, [fileId]: 0 }))
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        setUploadProgress((prev) => ({ ...prev, [fileId]: 50 }))
-        await new Promise((resolve) => setTimeout(resolve, 500))
-        setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }))
 
+        // First add the file to the UI
         const newFile: FileItem = {
           id: fileId,
           name: file.name,
@@ -126,16 +132,57 @@ const DocumentsPage: NextPage<Props> = () => {
           modified: new Date(),
           path: currentPath,
           file: file,
+          processing: true,
         }
 
         addFile(newFile)
-        toast.success(`File ${file.name} uploaded successfully`)
+        setUploadProgress((prev) => ({ ...prev, [fileId]: 50 }))
+
+        // Then process it with our backend
+        setProcessingFile(file.name)
+        console.log("About to call processFile for:", file.name);
+        try {
+          console.log("Starting actual API call...");
+          const result = await processFile(file)
+          console.log("API call successful, result:", result);
+
+          // Update the file with processing results
+          const updatedFile: FileItem = {
+            ...newFile,
+            processing: false,
+            processed: true,
+            processingResult: result,
+          }
+
+          // Replace the file in the store
+          updateFile(fileId, updatedFile)
+          toast.success(`File ${file.name} processed successfully`)
+        } catch (error) {
+          console.error("Complete processing error details:", error);
+          setProcessingError(error instanceof Error ? error.message : "Unknown error")
+          toast.error(`Failed to process file: ${file.name}`)
+
+          // Update the file to show processing failed
+          const updatedFile: FileItem = {
+            ...newFile,
+            processing: false,
+            processed: false,
+            processingError: error instanceof Error ? error.message : "Unknown error"
+          }
+
+          // Replace the file in the store
+          updateFile(fileId, updatedFile)
+        }
+
+        setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }))
       }
     } catch (error) {
-      console.error("File upload error:", error)
+      console.error("Outer catch - File upload error:", error);
       toast.error("Failed to upload file(s)")
     } finally {
       setIsUploading(false)
+      setProcessingFile(null)
+      setProcessingError(null)
       setUploadProgress({})
       const input = document.getElementById("file-upload") as HTMLInputElement
       if (input) input.value = ""
@@ -208,6 +255,235 @@ const DocumentsPage: NextPage<Props> = () => {
     const sizes = ["Bytes", "KB", "MB", "GB"]
     const i = Math.floor(Math.log(bytes) / Math.log(1024))
     return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`
+  }
+
+  const viewFileDetails = (file: FileItem) => {
+    if (file.processingResult) {
+      setFileDetails(file.processingResult)
+      setShowFileDetails(true)
+    }
+  }
+
+  const FileDetailsDialog = () => {
+    if (!fileDetails || !showFileDetails) return null;
+
+    return (
+      <div className="fixed inset-0 z-[9999] overflow-y-auto">
+        <div className="flex min-h-full items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black bg-opacity-30"
+            onClick={() => setShowFileDetails(false)}></div>
+          <div className="relative bg-white rounded-lg shadow-xl max-w-3xl max-h-[90vh] overflow-hidden w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">{fileDetails.filename} Details</h2>
+              <button
+                onClick={() => setShowFileDetails(false)}
+                className="rounded-full p-1 hover:bg-gray-100">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <Tabs defaultValue="summary" className="flex-1 overflow-hidden">
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="summary">
+                  <Info className="w-4 h-4 mr-2" /> Summary
+                </TabsTrigger>
+                <TabsTrigger value="content">
+                  <FileText className="w-4 h-4 mr-2" /> Content
+                </TabsTrigger>
+                <TabsTrigger value="data" disabled={!fileDetails.sample_data}>
+                  <TableProperties className="w-4 h-4 mr-2" /> Data
+                </TabsTrigger>
+                <TabsTrigger value="structure" disabled={!fileDetails.root}>
+                  <GitGraph className="w-4 h-4 mr-2" /> Structure
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="summary" className="overflow-auto">
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-muted rounded-lg p-4">
+                      <h3 className="font-medium mb-2">File Information</h3>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Type:</span>
+                          <span className="font-medium">{fileDetails.type.toUpperCase()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Size:</span>
+                          <span className="font-medium">{formatFileSize(fileDetails.size)}</span>
+                        </div>
+                        {fileDetails.pages && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Pages:</span>
+                            <span className="font-medium">{fileDetails.pages}</span>
+                          </div>
+                        )}
+                        {fileDetails.rows && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Rows:</span>
+                            <span className="font-medium">{fileDetails.rows}</span>
+                          </div>
+                        )}
+                        {fileDetails.columns && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Columns:</span>
+                            <span className="font-medium">{fileDetails.columns}</span>
+                          </div>
+                        )}
+                        {fileDetails.paragraph_count && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Paragraphs:</span>
+                            <span className="font-medium">{fileDetails.paragraph_count}</span>
+                          </div>
+                        )}
+                        {fileDetails.table_count && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Tables:</span>
+                            <span className="font-medium">{fileDetails.table_count}</span>
+                          </div>
+                        )}
+                        {fileDetails.element_count && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">XML Elements:</span>
+                            <span className="font-medium">{fileDetails.element_count}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {fileDetails.metadata && (
+                      <div className="bg-muted rounded-lg p-4">
+                        <h3 className="font-medium mb-2">Metadata</h3>
+                        <div className="space-y-2 text-sm">
+                          {fileDetails.metadata.title && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Title:</span>
+                              <span className="font-medium">{fileDetails.metadata.title}</span>
+                            </div>
+                          )}
+                          {fileDetails.metadata.author && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Author:</span>
+                              <span className="font-medium">{fileDetails.metadata.author}</span>
+                            </div>
+                          )}
+                          {fileDetails.metadata.creation_date && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Created:</span>
+                              <span className="font-medium">{fileDetails.metadata.creation_date}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="content" className="h-full overflow-hidden">
+                <ScrollArea className="h-[400px] rounded-md border p-4">
+                  {fileDetails.preview ? (
+                    <div className="whitespace-pre-wrap font-mono text-sm">
+                      {fileDetails.preview}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-muted-foreground">
+                      No preview available for this file type
+                    </div>
+                  )}
+                </ScrollArea>
+              </TabsContent>
+
+              <TabsContent value="data" className="h-full overflow-hidden">
+                {fileDetails.sample_data && fileDetails.column_names ? (
+                  <ScrollArea className="h-[400px] rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          {fileDetails.column_names.map((column, index) => (
+                            <TableHead key={index}>{column}</TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {fileDetails.sample_data.map((row, rowIndex) => (
+                          <TableRow key={rowIndex}>
+                            {fileDetails.column_names!.map((column, colIndex) => (
+                              <TableCell key={colIndex}>{row[column]}</TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </ScrollArea>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No tabular data available for this file type
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="structure" className="h-full overflow-hidden">
+                {fileDetails.root ? (
+                  <ScrollArea className="h-[400px] rounded-md border p-4">
+                    <div className="space-y-4">
+                      <div className="bg-muted p-3 rounded-md">
+                        <h3 className="font-medium">Root Element: {fileDetails.root.name}</h3>
+                        {Object.keys(fileDetails.root.attributes).length > 0 && (
+                          <div className="mt-2">
+                            <h4 className="text-sm font-medium">Attributes:</h4>
+                            <pre className="bg-background p-2 rounded text-xs mt-1">
+                              {JSON.stringify(fileDetails.root.attributes, null, 2)}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+
+                      {fileDetails.children_preview && fileDetails.children_preview.length > 0 && (
+                        <div>
+                          <h3 className="font-medium mb-2">Child Elements:</h3>
+                          <div className="space-y-2">
+                            {fileDetails.children_preview.map((child, index) => (
+                              <div key={index} className="border rounded-md p-3">
+                                <h4 className="font-medium text-sm">{child.tag}</h4>
+                                {Object.keys(child.attributes).length > 0 && (
+                                  <div className="mt-1">
+                                    <h5 className="text-xs font-medium">Attributes:</h5>
+                                    <pre className="bg-muted p-2 rounded text-xs mt-1">
+                                      {JSON.stringify(child.attributes, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                                {child.text && (
+                                  <div className="mt-1">
+                                    <h5 className="text-xs font-medium">Text:</h5>
+                                    <div className="bg-muted p-2 rounded text-xs mt-1 break-words">
+                                      {child.text}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </ScrollArea>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No structure information available for this file type
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
+
+            <div className="mt-6 flex justify-end">
+              <Button onClick={() => setShowFileDetails(false)}>Close</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -328,9 +604,8 @@ const DocumentsPage: NextPage<Props> = () => {
             {getCurrentFolderItems().map((item) => (
               <TableRow
                 key={item.id}
-                className={`${selectedItems.includes(item.id) ? "bg-muted" : ""} ${
-                  item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
-                }`}
+                className={`${selectedItems.includes(item.id) ? "bg-muted" : ""} ${item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
+                  }`}
                 onClick={(e) => {
                   // If it's a folder and the click wasn't on the checkbox, navigate into it
                   if (item.type === "folder" && !(e.target as HTMLElement).closest('input[type="checkbox"]')) {
@@ -355,7 +630,7 @@ const DocumentsPage: NextPage<Props> = () => {
                     {item.type === "folder" ? (
                       <Folder className="w-5 h-5 text-[#2E7D32]" />
                     ) : (
-                      <File className="w-5 h-5 text-[#2E7D32]" />
+                      <FileIcon className="w-5 h-5 text-[#2E7D32]" />
                     )}
                     <span>{item.name}</span>
                     {uploadProgress[item.id] !== undefined && (
@@ -376,6 +651,16 @@ const DocumentsPage: NextPage<Props> = () => {
                 </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center space-x-2">
+                    {item.type === "file" && item.processed && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => viewFileDetails(item)}
+                        title="View Details"
+                      >
+                        <Info className="w-4 h-4" />
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -398,6 +683,7 @@ const DocumentsPage: NextPage<Props> = () => {
           </TableBody>
         </Table>
       </div>
+      {fileDetails && <FileDetailsDialog />}
     </div>
   )
 }
