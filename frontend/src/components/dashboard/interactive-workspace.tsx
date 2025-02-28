@@ -459,10 +459,7 @@ export function InteractiveWorkspace({
       </div>
       
       {/* Editor Content */}
-      <div className="flex-1 p-6 bg-white overflow-auto" style={{ 
-        scrollbarWidth: 'none', /* Firefox */
-        msOverflowStyle: 'none' /* IE and Edge */
-      }}>
+      <ScrollArea className="flex-1 p-6 bg-white">
         <div className="max-w-3xl mx-auto">
           <div
             ref={editorRef}
@@ -473,13 +470,7 @@ export function InteractiveWorkspace({
             style={{ minHeight: "calc(100vh - 60px)" }}
           ></div>
         </div>
-        <style>{`
-          /* Hide scrollbar for Chrome, Safari and Opera */
-          ::-webkit-scrollbar {
-            display: none;
-          }
-        `}</style>
-      </div>
+      </ScrollArea>
     </div>
   );
 } 
