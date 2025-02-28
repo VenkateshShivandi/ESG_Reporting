@@ -8,14 +8,14 @@ import { LineChart } from "@/components/dashboard/line-chart"
 import { Heatmap } from "@/components/dashboard/heatmap"
 import { RadarChart } from "@/components/dashboard/radar-chart"
 import { DataTable } from "@/components/dashboard/data-table"
-import { DashboardHeader } from "@/components/dashboard/header"
+import { Header } from "@/components/dashboard/header"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { Leaf, Lightbulb, Trash2, Droplet, RefreshCw, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useDashboardStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
-export default function DashboardPage() {
+export default function AnalyticsPage() {
   const { dateRange, metrics, chartData, isLoading, setDateRange, refreshData, setSelectedYear } = useDashboardStore()
 
   // Auto refresh data every 30 seconds
@@ -53,7 +53,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <DashboardHeader />
+      <Header title="ESG Analytics Dashboard" description="Monitor and analyze your ESG metrics" />
       <main className="p-4 md:p-6">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <DateRangePicker dateRange={dateRange} onDateRangeChange={setDateRange} />
