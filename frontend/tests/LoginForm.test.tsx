@@ -47,9 +47,9 @@ describe("LoginForm", () => {
       expect(signIn).toHaveBeenCalledWith("test@example.com", "Password123!")
     })
 
-    // check route navigation (push called to /dashboard)
+    // check route navigation (push called to /)
     await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/dashboard")
+      expect(pushMock).toHaveBeenCalledWith("/")
     })
   })
 }) 

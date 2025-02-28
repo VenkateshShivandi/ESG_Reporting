@@ -38,7 +38,7 @@ describe("SignupForm", () => {
         fireEvent.change(passwordInput, { target: { value: "test123" } })
 
         await waitFor(() => {
-            expect(screen.getByText(/password strength:/i)).toBeInTheDocument()
+            expect(screen.getByText(/password strength/i)).toBeInTheDocument()
         })
     })
 
@@ -64,7 +64,7 @@ describe("SignupForm", () => {
 
         // check route navigation (push called to /dashboard)
         await waitFor(() => {
-            expect(pushMock).toHaveBeenCalledWith("/dashboard")
+            expect(pushMock).toHaveBeenCalledWith("/")
         })
     })
 

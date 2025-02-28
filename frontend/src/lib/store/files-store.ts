@@ -8,6 +8,7 @@ interface FilesState {
   addFile: (file: FileItem) => void
   removeFile: (fileId: string) => void
   removeFiles: (fileIds: string[]) => void
+  updateFile: (id: string, updatedFile: FileItem) => void
 }
 
 // Create a store with persistence
@@ -27,6 +28,12 @@ export const useFilesStore = create<FilesState>()(
       removeFiles: (fileIds) =>
         set((state) => ({
           files: state.files.filter((file) => !fileIds.includes(file.id)),
+        })),
+      updateFile: (id, updatedFile) =>
+        set((state) => ({
+          files: state.files.map(file => 
+            file.id === id ? updatedFile : file
+          )
         })),
     }),
     {
