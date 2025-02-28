@@ -234,37 +234,36 @@ export function Container() {
                     </SidebarMenuButton>
                   ) : (
                     // Collapsed view with tooltips - with highly visible active state
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <SidebarMenuButton
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <SidebarMenuButton
                             onClick={() => handleTabClick(tab.id)}
                             isActive={activeTabId === tab.id}
                             className={`flex w-full justify-center rounded-md p-3 transition-all duration-200 ease-in-out relative
                               ${activeTabId === tab.id
                                 ? "text-[#2E7D32] border-l-4 border-[#2E7D32]"
                                 : "text-slate-600 hover:bg-slate-100"
-                            }`}
+                              }`}
                             style={activeTabId === tab.id ? { backgroundColor: '#DCFFE4' } : {}}
-                        >
-                          <tab.icon
+                          >
+                            <tab.icon
                               className={`h-5 w-5 ${activeTabId === tab.id ? "text-[#2E7D32] scale-110 ml-[-2px]" : "text-slate-500 scale-100"} transition-transform`}
-                          />
-                          <span className="sr-only">{tab.label}</span>
-                        </SidebarMenuButton>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="flex flex-col items-start gap-1">
-                        <p className="font-medium">{tab.label}</p>
-                        <p className="text-xs text-muted-foreground">{tab.description}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+                            />
+                            <span className="sr-only">{tab.label}</span>
+                          </SidebarMenuButton>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="flex flex-col items-start gap-1">
+                          <p className="font-medium">{tab.label}</p>
+                          <p className="text-xs text-muted-foreground">{tab.description}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )}
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
           </SidebarContent>
-          
           <SidebarFooter className="border-t p-2">
             {/* User Profile Information */}
             {isExpanded ? (
@@ -321,22 +320,22 @@ export function Container() {
               </SidebarMenuButton>
             ) : (
               // Collapsed logout button with tooltip
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <SidebarMenuButton
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <SidebarMenuButton
                       onClick={() => signOut()}
                       className="flex w-full justify-center rounded-md p-3 text-slate-600 hover:bg-slate-100 hover:text-red-500 transition-colors"
-                  >
-                    <LogOut className="h-5 w-5" />
-                    <span className="sr-only">Logout</span>
-                  </SidebarMenuButton>
-                </TooltipTrigger>
-                <TooltipContent side="right" className="font-medium">
-                  <p>Logout</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+                    >
+                      <LogOut className="h-5 w-5" />
+                      <span className="sr-only">Logout</span>
+                    </SidebarMenuButton>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="font-medium">
+                    <p>Logout</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
           </SidebarFooter>
         </Sidebar>
