@@ -774,8 +774,6 @@ export default function ChatPage() {
               </SelectContent>
             </Select>
 
-            
-
             <div className="space-y-3">
               <h4 className="text-base font-medium text-slate-900">Report Prompt:</h4>
               <Textarea 
