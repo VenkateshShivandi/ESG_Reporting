@@ -28,14 +28,46 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 // Provider component that wraps your app and makes auth object available to any child component that calls useAuth().
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
-  const [isLoading, setIsLoading] = useState<boolean>(true)
+  // ===== DEV BYPASS - REMOVE BEFORE PRODUCTION =====
+  // This bypasses authentication for development purposes
+  const DEV_BYPASS_AUTH = false; // Changed to false to re-enable normal authentication
+  
+  // Keep the mock user and session definitions in case they need to be re-enabled for development
+  const mockUser = DEV_BYPASS_AUTH ? {
+    id: 'dev-user-123',
+    email: 'dev@example.com',
+    role: 'user',
+    app_metadata: {},
+    user_metadata: { name: 'Dev User' },
+    aud: 'authenticated',
+    created_at: new Date().toISOString()
+  } as User : null;
+  
+  const mockSession = DEV_BYPASS_AUTH ? {
+    access_token: 'mock-token',
+    refresh_token: 'mock-refresh-token',
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    token_type: 'bearer',
+    user: mockUser as User
+  } as Session : null;
+  // ===== END DEV BYPASS =====
+
+  const [user, setUser] = useState<User | null>(DEV_BYPASS_AUTH ? mockUser : null)
+  const [session, setSession] = useState<Session | null>(DEV_BYPASS_AUTH ? mockSession : null)
+  const [isLoading, setIsLoading] = useState<boolean>(!DEV_BYPASS_AUTH)
   const router = useRouter()
   const pathname = usePathname()
 
   // Check for active session on mount and listen for auth state changes
   useEffect(() => {
+    // Skip auth subscription if using DEV_BYPASS_AUTH
+    if (DEV_BYPASS_AUTH) {
+      setIsLoading(false)
+      return () => {}; // No cleanup needed
+    }
+    
+    // Regular auth flow
     // Refresh the Supabase client with the current storage preference
     refreshSupabaseClient()
     
@@ -51,13 +83,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(session.user)
         }
       } catch (error) {
-        Sentry.captureException(error)
         console.error('Error getting session:', error)
       } finally {
         setIsLoading(false)
       }
     }
-
+    
     getSession()
 
     // Set up auth state change listener
@@ -92,8 +123,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [router, pathname])
 
+  // Calculate if user is authenticated
+  const isAuthenticated = DEV_BYPASS_AUTH || !!user
+
   // Sign in with email and password
   const signIn = async (email: string, password: string, rememberMe: boolean = false) => {
+    if (DEV_BYPASS_AUTH) {
+      // Just pretend it worked
+      toast.success('Logged in as development user')
+      router.push('/dashboard')
+      return { error: null }
+    }
+    
     try {
       // Store the rememberMe preference in localStorage
       if (rememberMe) {
@@ -119,7 +160,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       return { error: null }
     } catch (error) {
-      Sentry.captureException(error)
       console.error('Error signing in:', error)
       toast.error('Login failed', {
         description: error instanceof Error ? error.message : 'An unexpected error occurred',
@@ -130,6 +170,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sign up with email and password
   const signUp = async (email: string, password: string) => {
+    if (DEV_BYPASS_AUTH) {
+      // Just pretend it worked
+      toast.success('Account created in development mode')
+      router.push('/dashboard')
+      return { error: null }
+    }
+    
     try {
       const { error } = await supabase.auth.signUp({
         email,
@@ -144,7 +191,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       return { error: null }
     } catch (error) {
-      Sentry.captureException(error)
       console.error('Error signing up:', error)
       toast.error('Signup failed', {
         description: error instanceof Error ? error.message : 'An unexpected error occurred',
@@ -155,6 +201,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sign in with Google
   const signInWithGoogle = async () => {
+    if (DEV_BYPASS_AUTH) {
+      // Just pretend it worked
+      toast.success('Google login simulated in development mode')
+      router.push('/dashboard')
+      return
+    }
+    
     try {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -168,7 +221,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) throw error      
       // No need for a toast here as we're redirecting to Google
     } catch (error) {
-      Sentry.captureException(error)
       console.error('Error signing in with Google:', error)
       toast.error('Google login failed', {
         description: error instanceof Error ? error.message : 'An unexpected error occurred',
@@ -178,6 +230,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sign out
   const signOut = async () => {
+    if (DEV_BYPASS_AUTH) {
+      // Pretend to sign out but stay authenticated in dev mode
+      toast.success('Sign out simulated (but staying authenticated in dev mode)')
+      router.push('/auth/login')
+      return
+    }
+    
     try {
       // Set a flag in sessionStorage to indicate an intentional signout
       // This will be used to prevent the dashboard layout from redirecting to login
@@ -197,7 +256,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Auth state change listener will still clean up the state
     } catch (error) {
-      Sentry.captureException(error)
       console.error('Error signing out:', error)
       toast.error('Sign out failed', {
         description: 'An unexpected error occurred',
@@ -210,7 +268,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     session,
     isLoading,
-    isAuthenticated: !!user,
+    isAuthenticated,
     signIn,
     signUp,
     signInWithGoogle,
