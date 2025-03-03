@@ -15,9 +15,10 @@ const customJestConfig = {
     "^@/hooks/(.)$": "<rootDir>/src/hooks/$1",
     "^@/ui/(.)$": "<rootDir>/src/components/ui/$1",
     '^@/lib/(.*)$': '<rootDir>/src/lib/$1',
+    '^@/(.*)$': '<rootDir>/src/$1',
   },
   transform: {
-    '^.+\\.(ts|tsx|js|jsx)$': 'babel-jest', 
+    '^.+\\.(ts|tsx|js|jsx)$': 'babel-jest',
   },
   transformIgnorePatterns: ['/node_modules/(?!lucide-react)/'],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
