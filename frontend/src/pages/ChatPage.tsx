@@ -5,7 +5,7 @@ import { useChat } from "ai/react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Search, FileText, File, Folder, Send, Bot, Eye, X, Calendar, GripVertical, Maximize2, Minimize2, ChevronsUp, ChevronsDown } from "lucide-react"
+import { Search, FileText, File, Folder, Send, Bot, Eye, X, Calendar, GripVertical, Maximize2, Minimize2, ChevronsUp, ChevronsDown, Loader2, CheckCircle } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -14,6 +14,7 @@ import { useFilesStore } from "@/lib/store/files-store"
 import { toast } from "sonner"
 import { InteractiveWorkspace } from "@/components/dashboard/interactive-workspace"
 import { Slider } from "@/components/ui/slider"
+import { Textarea } from "@/components/ui/textarea"
 
 // Define a type for reports
 interface Report {
@@ -46,6 +47,22 @@ export default function ChatPage() {
   const [uiSize, setUiSize] = useState(100) // 100% by default
   const [uiHeight, setUiHeight] = useState(100) // 100% by default
   const [showSizeControls, setShowSizeControls] = useState(false)
+
+  const [reportPrompt, setReportPrompt] = useState(
+    "Generate a detailed ESG report based on the selected files, focusing on environmental, social, and governance performance."
+  )
+
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false)
+  
+  // Define status messages only once at the component level
+  const statusMessages = [
+    "Generating your report...",
+    "Extracting ESG metrics...",
+    "Analyzing documents...",
+    "Compiling sustainability data...",
+    "Formatting report sections...",
+    "Finalizing report..."
+  ]
 
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen)
   
@@ -92,27 +109,92 @@ export default function ChatPage() {
   const handleGenerateReport = () => {
     const selectedFilesList = files.filter((file) => selectedFiles.has(file.id))
     if (selectedType && selectedFilesList.length > 0) {
-      // Create a new report
-      const newReport: Report = {
-        id: Date.now().toString(),
+      // Store report data for later creation
+      const reportData = {
         type: selectedType,
-        timestamp: new Date(),
         files: selectedFilesList.map(file => file.id)
       }
       
-      // Add it to reports list
-      setReports(prev => [...prev, newReport])
+      // Set generating state to true
+      setIsGeneratingReport(true)
       
-      toast.success(`${selectedType} report generated and added to reports`)
-      setIsModalOpen(false)
-      setSelectedType("")
-      setSelectedFiles(new Set())
+      // Clear any existing toasts
+      toast.dismiss();
       
-      // Don't automatically show the report view
+      // Use a consistent toast ID to ensure proper replacement
+      const toastId = "report-generation-toast";
+      
+      // Show first toast - Report generation started
+      toast(`${selectedType} report generation started`, {
+        id: toastId,
+        icon: <CheckCircle className="h-4 w-4" />,
+        duration: 3000
+      });
+      
+      // Create a sequence of toasts with proper timing
+      const sequence = [
+        {
+          message: "Generating your report...",
+          icon: <Loader2 className="h-4 w-4 animate-spin" />,
+          delay: 3000
+        },
+        {
+          message: "Analyzing documents...",
+          icon: <Loader2 className="h-4 w-4 animate-spin" />,
+          delay: 3000
+        },
+        {
+          message: "Finalizing report...",
+          icon: <Loader2 className="h-4 w-4 animate-spin" />,
+          delay: 3000
+        }
+      ];
+      
+      // Execute the sequence with proper timing
+      let cumulativeDelay = 0;
+      sequence.forEach((item) => {
+        cumulativeDelay += item.delay;
+        setTimeout(() => {
+          toast(item.message, {
+            id: toastId,
+            icon: item.icon,
+            duration: item.delay
+          });
+        }, cumulativeDelay);
+      });
+      
+      // After all processing toasts, show success and create report
+      setTimeout(() => {
+        // Create and add the new report
+        const newReport: Report = {
+          id: `report-${Date.now()}`,
+          type: reportData.type,
+          timestamp: new Date(),
+          files: reportData.files
+        };
+        
+        // Add to reports list - add new report at the beginning of the array
+        setReports(prev => [newReport, ...prev]);
+        
+        // Set generating state to false
+        setIsGeneratingReport(false);
+        
+        // Show success toast
+        toast("Report generated successfully", {
+          id: toastId,
+          icon: <CheckCircle className="h-4 w-4 text-green-500" />,
+          duration: 5000
+        });
+      }, cumulativeDelay + 3000);
+      
+      setIsModalOpen(false);
+      setSelectedType("");
+      setSelectedFiles(new Set());
+      setReportPrompt("Generate a detailed ESG report based on the selected files, focusing on environmental, social, and governance performance.");
     } else {
-      toast.error("Please select a report type and at least one file")
+      toast.error("Please select a report type and at least one file");
     }
-  }
+  };
 
   const handleSelectReport = (report: Report) => {
     setSelectedReport(report)
@@ -430,7 +512,10 @@ export default function ChatPage() {
                   <div className="flex gap-2">
                     <Button
                       variant={isReportListOpen ? "default" : "outline"}
-                      onClick={toggleReportList}
+                      onClick={() => {
+                        toggleReportList();
+                        closeSidebarIfOpen();
+                      }}
                       className="gap-2 relative"
                     >
                       <Eye className="h-4 w-4" />
@@ -443,7 +528,10 @@ export default function ChatPage() {
                     </Button>
                 <Button
                   variant="outline"
-                  onClick={() => setIsModalOpen(true)}
+                  onClick={() => {
+                    setIsModalOpen(true);
+                    closeSidebarIfOpen();
+                  }}
                   disabled={files.length === 0}
                   className="gap-2"
                 >
@@ -529,7 +617,10 @@ export default function ChatPage() {
         )}
         
         {/* Report View */}
-        {showReportView && selectedReport && (
+        {isGeneratingReport ? (
+          // Keep main content area empty during report generation
+          <div className="flex-1 h-full bg-slate-50"></div>
+        ) : showReportView && selectedReport ? (
           <InteractiveWorkspace 
             report={selectedReport} 
             onClose={closeReportView}
@@ -543,6 +634,9 @@ export default function ChatPage() {
               }
             }}
           />
+        ) : (
+          // Default state - show nothing in the report area
+          <div className="flex-1 h-full bg-slate-50"></div>
         )}
       </div>
 
@@ -572,6 +666,16 @@ export default function ChatPage() {
             </Select>
 
             
+
+            <div className="space-y-3">
+              <h4 className="text-base font-medium text-slate-900">Report Prompt:</h4>
+              <Textarea 
+                value={reportPrompt}
+                onChange={(e) => setReportPrompt(e.target.value)}
+                className="min-h-[100px] text-base"
+                placeholder="Enter instructions for the AI to generate your report"
+              />
+            </div>
 
             <div className="space-y-3">
               <h4 className="text-base font-medium text-slate-900">Selected Files:</h4>
