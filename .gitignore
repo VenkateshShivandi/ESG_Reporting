@@ -18,3 +18,7 @@ venv
 
 # rag/experiments
 rag/experiments/*
+
+.coverage
+
+.pytest_cache
