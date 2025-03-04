@@ -1,13 +1,13 @@
-def add_numbers(a: int, b: int) -> int:
+def add_numbers(a, b):
     """
     A simple function that adds two numbers together.
     
     Args:
-        a (int): First number
-        b (int): Second number
+        a (int/float): First number
+        b (int/float): Second number
         
     Returns:
-        int: Sum of the two numbers
+        int/float: Sum of the two numbers
     """
     return a + b
 

@@ -4,21 +4,20 @@
   "description": "This is a template repository to build assistants/ agents for future projects. This repository should have all the requirements, from branch access control to setup files, \r required for smooth initiation, testing of future projects with an automated system of CI/CD with Github Releases and Actions.",
   "main": "index.js",
   "scripts": {
-    "test:rag": "pytest",
     "test:fe": "jest --config jest.config.js",
     "prepare": "husky install",
     "prettier-check": "prettier --check .",
     "type-check": "tsc --noEmit",
-    "prettier-fix": "prettier --write .",
-    "lint-staged": {
-      "*.py": [
-        "flake8",
-        "black"
-      ],
-      "*.js": [
-        "eslint ."
-      ]
-    }
+    "prettier-fix": "prettier --write ."
+  },
+  "lint-staged": {
+    "*.py": [
+      "flake8",
+      "black"
+    ],
+    "*.js": [
+      "eslint ."
+    ]
   },
   "eslintConfig": {
     "settings": {
@@ -50,6 +49,7 @@
     "typescript-eslint": "^8.20.0"
   },
   "dependencies": {
+    "@radix-ui/react-slider": "^1.2.3",
     "jest-environment-jsdom": "^29.7.0"
   }
 }
