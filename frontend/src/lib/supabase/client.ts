@@ -15,40 +15,20 @@ if (!supabaseUrl || !supabaseAnonKey) {
   Sentry.captureMessage('Missing Supabase environment variables')
 }
 
-// Check if in browser environment
+// Safe checks for browser environment
 const isBrowser = typeof window !== 'undefined'
-
-// Create a custom storage handler
-const customStorage = {
-  getItem: (key: string) => {
-    if (isBrowser) {
-      return localStorage.getItem(key)
-    }
-    return null
-  },
-  setItem: (key: string, value: string) => {
-    if (isBrowser) {
-      localStorage.setItem(key, value)
-    }
-  },
-  removeItem: (key: string) => {
-    if (isBrowser) {
-      localStorage.removeItem(key)
-    }
-  }
-}
+const getLocalStorage = () => (isBrowser ? localStorage : undefined)
+const getSessionStorage = () => (isBrowser ? sessionStorage : undefined)
 
 // Function to create a Supabase client with the current storage preference
-export const createSupabaseClient = (shouldRemember = true) => {
+const createSupabaseClient = () => {
+  // Check if user has selected "Remember Me" from localStorage (only in browser)
+  const shouldRemember = isBrowser && localStorage.getItem('rememberMe') === 'true'
+  
   return createClient(supabaseUrl, supabaseAnonKey, {
     auth: {
-      persistSession: true,
-      // Only use storage in browser environment
-      storage: isBrowser
-        ? shouldRemember
-          ? localStorage 
-          : sessionStorage
-        : customStorage // Use custom storage on server side
+      persistSession: true, // Always persist the session
+      storage: shouldRemember ? getLocalStorage() : getSessionStorage() // Use appropriate storage based on "Remember Me"
     }
   })
 }
