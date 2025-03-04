@@ -13,7 +13,7 @@ from processors.csv_processor import process_csv
 from datetime import datetime
 
 # Load environment variables
-load_dotenv()
+load_dotenv('.env.local')
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -48,7 +48,6 @@ def home():
     """Render the home page."""
     return render_template('index.html')
 
-
 @app.route('/api/status')
 def status():
     """Public endpoint to check API status."""
@@ -57,12 +56,12 @@ def status():
         "api_version": "1.0.0"
     })
 
-
 @app.route('/api/profile')
 @require_auth
 def user_profile():
     """Get the authenticated user's profile information."""
     # User data is added to request by the require_auth decorator
+    
     return jsonify({
         "id": request.user['id'],
         "email": request.user['email'],
@@ -167,4 +166,4 @@ def process_file():
             os.remove(file_path)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5050)
