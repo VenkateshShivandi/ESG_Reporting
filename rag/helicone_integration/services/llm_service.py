@@ -3,6 +3,9 @@ import os
 import json
 import importlib.metadata
 
+# Check for CI environment
+IN_CI_ENVIRONMENT = os.environ.get("CI", "false").lower() == "true"
+
 # Check OpenAI version 
 OPENAI_VERSION = ""
 try:
@@ -12,13 +15,23 @@ except importlib.metadata.PackageNotFoundError:
 
 USING_OPENAI_V1 = OPENAI_VERSION.startswith("1.") if OPENAI_VERSION else False
 
+# Modified Helicone integration to support OpenAI 1.x
+# If Helicone is available, import it, otherwise just use OpenAI directly
+import openai
+HELICONE_AVAILABLE = False
 try:
-    from helicone.openai_proxy import openai as helicone_openai
-    HELICONE_AVAILABLE = True
+    # Skip trying to import helicone in CI environment
+    if not IN_CI_ENVIRONMENT:
+        from helicone.openai_proxy import openai as helicone_openai
+        HELICONE_AVAILABLE = True
+    else:
+        helicone_openai = openai
+        HELICONE_AVAILABLE = False
 except ImportError:
-    import openai
+    # For OpenAI 1.x, we'll add Helicone headers manually since the helicone package may not be compatible
     helicone_openai = openai
     HELICONE_AVAILABLE = False
+
 from ..config.config import (
     HELICONE_API_KEY,
     OPENAI_API_KEY,
@@ -37,19 +50,37 @@ class LLMService:
         if USING_OPENAI_V1:
             # For OpenAI v1.x.x
             # Using default_headers instead of headers for Helicone auth
-            self.client = helicone_openai.AsyncOpenAI(
-                api_key=self.api_key,
-                default_headers={
-                    "Helicone-Auth": f"Bearer {self.helicone_api_key}"
-                }
-            )
+            if HELICONE_AVAILABLE:
+                self.client = helicone_openai.AsyncOpenAI(
+                    api_key=self.api_key,
+                    default_headers={
+                        "Helicone-Auth": f"Bearer {self.helicone_api_key}"
+                    }
+                )
+            else:
+                # If Helicone is not available, use OpenAI directly with Helicone headers
+                self.client = openai.AsyncOpenAI(
+                    api_key=self.api_key,
+                    default_headers={
+                        "Helicone-Auth": f"Bearer {self.helicone_api_key}",
+                        "Helicone-Property-session":"manual-integration",
+                    },
+                    base_url="https://oai.hconeai.com/v1"  # Helicone proxy URL
+                )
         else:
             # For OpenAI v0.x.x
-            helicone_openai.api_key = self.api_key
-            self.client = helicone_openai
+            if HELICONE_AVAILABLE:
+                helicone_openai.api_key = self.api_key
+                self.client = helicone_openai
+            else:
+                # Use regular OpenAI with modified base_url for Helicone
+                openai.api_key = self.api_key
+                self.client = openai
+            
             # Set headers for older API
             self.headers = {
-                "Helicone-Auth": f"Bearer {self.helicone_api_key}"
+                "Helicone-Auth": f"Bearer {self.helicone_api_key}",
+                "Helicone-Property-session":"manual-integration",
             }
 
     async def generate_embeddings(self, text: str) -> List[float]:
@@ -78,11 +109,19 @@ class LLMService:
                 return response.data[0]["embedding"]
         else:
             # OpenAI v0.x.x API
-            response = await self.client.Embedding.create(
-                model="text-embedding-ada-002",
-                input=text,
-                headers=self.headers
-            )
+            if HELICONE_AVAILABLE:
+                response = await self.client.Embedding.create(
+                    model="text-embedding-ada-002",
+                    input=text,
+                    headers=self.headers
+                )
+            else:
+                # Direct call to OpenAI with Helicone headers
+                response = await self.client.Embedding.create(
+                    model="text-embedding-ada-002",
+                    input=text,
+                    headers=self.headers
+                )
             return response["data"][0]["embedding"]
 
     async def get_chat_completion(
@@ -106,7 +145,7 @@ class LLMService:
         if USING_OPENAI_V1:
             # OpenAI v1.x.x API
             headers = {}
-            if custom_properties and HELICONE_AVAILABLE:
+            if custom_properties:
                 headers["Helicone-Property-Custom"] = json.dumps(custom_properties)
                 
             response = await self.client.chat.completions.create(
@@ -134,15 +173,24 @@ class LLMService:
         else:
             # OpenAI v0.x.x API
             headers = self.headers.copy()
-            if custom_properties and HELICONE_AVAILABLE:
+            if custom_properties:
                 headers["Helicone-Property-Custom"] = json.dumps(custom_properties)
                 
-            response = await self.client.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=messages,
-                temperature=0.7,
-                headers=headers
-            )
+            if HELICONE_AVAILABLE:
+                response = await self.client.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=messages,
+                    temperature=0.7,
+                    headers=headers
+                )
+            else:
+                # Direct call to OpenAI with Helicone headers
+                response = await self.client.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=messages,
+                    temperature=0.7,
+                    headers=headers
+                )
             
             return {
                 "content": response["choices"][0]["message"]["content"],

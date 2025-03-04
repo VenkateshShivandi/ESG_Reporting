@@ -621,6 +621,7 @@ export default function ChatPage() {
           // Keep main content area empty during report generation
           <div className="flex-1 h-full bg-slate-50"></div>
         ) : showReportView && selectedReport ? (
+
           <InteractiveWorkspace 
             report={selectedReport} 
             onClose={closeReportView}
@@ -664,6 +665,8 @@ export default function ChatPage() {
                 </SelectItem>
               </SelectContent>
             </Select>
+
+            
 
             <div className="space-y-3">
               <h4 className="text-base font-medium text-slate-900">Report Prompt:</h4>
