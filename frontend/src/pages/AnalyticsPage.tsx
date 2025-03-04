@@ -5,21 +5,24 @@ import { Metric } from "@/components/dashboard/metric"
 import { BarChart } from "@/components/dashboard/bar-chart"
 import { DonutChart } from "@/components/dashboard/donut-chart"
 import { LineChart } from "@/components/dashboard/line-chart"
-import { DashboardHeader } from "@/components/dashboard/header"
+import { Heatmap } from "@/components/dashboard/heatmap"
+import { RadarChart } from "@/components/dashboard/radar-chart"
+import { DataTable } from "@/components/dashboard/data-table"
+import { Header } from "@/components/dashboard/header"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { Leaf, Lightbulb, Trash2, Droplet, RefreshCw, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useDashboardStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 
-export default function DashboardPage() {
+export default function AnalyticsPage() {
   const { dateRange, metrics, chartData, isLoading, setDateRange, refreshData, setSelectedYear } = useDashboardStore()
 
   // Auto refresh data every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       refreshData()
-    }, 30000) 
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [refreshData])
@@ -50,7 +53,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <DashboardHeader />
+      <Header title="ESG Analytics Dashboard" description="Monitor and analyze your ESG metrics" />
       <main className="p-4 md:p-6">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <DateRangePicker dateRange={dateRange} onDateRangeChange={setDateRange} />
@@ -88,8 +91,9 @@ export default function DashboardPage() {
           <Metric title="Water Usage" value={metrics.water} icon={Droplet} trend={metrics.water > 0 ? "up" : "down"} />
         </div>
 
+        {/* First row of charts */}
         <div className="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          <div className="col-span-1 rounded-lg bg-white p-6 shadow lg:col-span-1">
+          <div className="col-span-1 rounded-lg bg-white p-6 shadow">
             <h3 className="mb-4 text-lg font-semibold">ESG Metrics Overview</h3>
             <BarChart data={chartData.barChart} />
           </div>
@@ -100,6 +104,22 @@ export default function DashboardPage() {
           <div className="col-span-1 rounded-lg bg-white p-6 shadow">
             <h3 className="mb-4 text-lg font-semibold">Trends</h3>
             <LineChart data={chartData.lineChart} />
+          </div>
+        </div>
+
+        {/* Second row of charts */}
+        <div className="mt-6 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="col-span-1 rounded-lg bg-white p-6 shadow">
+            <h3 className="mb-4 text-lg font-semibold">Environmental Impact Heatmap</h3>
+            <Heatmap data={chartData.heatmap} />
+          </div>
+          <div className="col-span-1 rounded-lg bg-white p-6 shadow">
+            <h3 className="mb-4 text-lg font-semibold">ESG Performance</h3>
+            <RadarChart data={chartData.radarChart} />
+          </div>
+          <div className="col-span-1 rounded-lg bg-white p-6 shadow">
+            <h3 className="mb-4 text-lg font-semibold">Key Metrics</h3>
+            <DataTable data={chartData.tableData} />
           </div>
         </div>
       </main>
