@@ -139,27 +139,47 @@ def process_file():
     # Save the file temporarily
     file.save(file_path)
     
+    # Import parser modules dynamically to avoid circular imports
+    from parsers import parse_file, parse_pdf, parse_excel, parse_docx, parse_pptx, parse_csv, parse_image, parse_xml
+    
     # Process based on file type
     try:
+        # Use the appropriate parser based on file extension
         if file_extension == 'pdf':
-            result = process_pdf(file_path)
+            result = parse_pdf(file_path)
         elif file_extension in ['xlsx', 'xls']:
-            result = process_excel(file_path)
+            result = parse_excel(file_path)
         elif file_extension == 'docx':
-            result = process_docx(file_path)
-        elif file_extension == 'xml':
-            result = process_xml(file_path)
+            result = parse_docx(file_path)
+        elif file_extension == 'pptx':
+            result = parse_pptx(file_path)
         elif file_extension == 'csv':
-            result = process_csv(file_path)
+            result = parse_csv(file_path)
+        elif file_extension in ['jpg', 'jpeg', 'png']:
+            result = parse_image(file_path)
+        elif file_extension in ['xml', 'xhtml', 'svg', 'rss']:
+            result = parse_xml(file_path)
         else:
-            return jsonify({'error': f'Unsupported file type: {file_extension}'}), 400
+            # Try the generic parser for other file types
+            try:
+                result = parse_file(file_path)
+            except ValueError:
+                return jsonify({'error': f'Unsupported file type: {file_extension}'}), 400
         
-        # Add file metadata to result
-        result['filename'] = original_filename
-        result['size'] = os.path.getsize(file_path)
+        # Check if there was an error during parsing
+        if 'error' in result:
+            return jsonify({'error': result['error']}), 400
+            
+        # Add file metadata to result if not already included
+        if 'metadata' not in result:
+            result['metadata'] = {}
+            
+        result['metadata']['filename'] = original_filename
+        result['metadata']['size'] = os.path.getsize(file_path)
         
         return jsonify(result)
     except Exception as e:
+        app.logger.error(f"Error processing file: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
     finally:
         # Clean up the temporary file
