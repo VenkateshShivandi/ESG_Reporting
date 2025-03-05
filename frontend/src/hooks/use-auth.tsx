@@ -78,6 +78,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: { session } } = await supabase.auth.getSession()
         
         if (session) {
+          localStorage.setItem('jwt_token', session.access_token)
           setSession(session)
           setUser(session.user)
         }
@@ -208,7 +209,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/dashboard`,
@@ -217,8 +218,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       })
       
-      if (error) throw error
-      
+      if (error) throw error      
       // No need for a toast here as we're redirecting to Google
     } catch (error) {
       console.error('Error signing in with Google:', error)

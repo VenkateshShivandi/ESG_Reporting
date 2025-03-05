@@ -264,7 +264,6 @@ export function Container() {
               ))}
             </SidebarMenu>
           </SidebarContent>
-          
           <SidebarFooter className="border-t p-2">
             {/* User Profile Information */}
             {isExpanded ? (
