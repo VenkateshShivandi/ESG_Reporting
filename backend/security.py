@@ -9,17 +9,21 @@ access control to ensure GDPR compliance.
 """
 
 import os
+from dotenv import load_dotenv
 import json
 import requests
 from typing import Dict, List, Any, Optional, Union, Tuple
 from flask import request, current_app
 import jwt
 from functools import wraps
-
+from supabase import create_client
 # CONSTANTS
+load_dotenv('.env.local')
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY')
-
+from jwcrypto import jwk
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 def get_supabase_jwt_secrets() -> Dict[str, str]:
     """
@@ -30,7 +34,14 @@ def get_supabase_jwt_secrets() -> Dict[str, str]:
     """
     try:
         # Get Supabase JWT configuration
-        response = requests.get(f"{SUPABASE_URL}/auth/v1/jwt/keys")
+
+        headers = {
+            'apikey': SUPABASE_SERVICE_KEY,
+            'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}',
+            'Content-Type': 'application/json'
+        }
+
+        response = requests.get(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json", headers=headers)
         response.raise_for_status()
         return response.json()
     except Exception as e:
@@ -39,37 +50,37 @@ def get_supabase_jwt_secrets() -> Dict[str, str]:
 
 
 def verify_jwt_token(token: str) -> Dict[str, Any]:
-    """
-    Verify a JWT token from Supabase and extract claims.
-    
-    Args:
-        token (str): The JWT token to verify.
-        
-    Returns:
-        Dict[str, Any]: The decoded JWT claims.
-        
-    Raises:
-        Exception: If token verification fails.
-    """
+    """Verify JWT token using Supabase's auth.getUser endpoint"""
     try:
-        # Get the JWT keys from Supabase
-        jwt_secrets = get_supabase_jwt_secrets()
+        headers = {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": f"Bearer {token}"
+        }
         
-        # Decode and verify the token
-        decoded_token = jwt.decode(
-            token,
-            options={"verify_signature": True},
-            algorithms=["RS256"],
-            audience=SUPABASE_URL
+        response = requests.get(
+            f"{SUPABASE_URL}/auth/v1/user",
+            headers=headers
         )
         
-        return decoded_token
-    except jwt.PyJWTError as e:
-        current_app.logger.error(f"JWT validation error: {str(e)}")
-        raise
+        if response.status_code == 200:
+            user_data = response.json()
+            return {
+                "sub": user_data.get("id"),
+                "email": user_data.get("email"),
+                "app_metadata": user_data.get("app_metadata", {}),
+                "user_metadata": user_data.get("user_metadata", {})
+            }
+        elif response.status_code == 403:
+            # Check for token expiration
+            error_data = response.json()
+            if "token is expired" in error_data.get("msg", ""):
+                raise Exception("Token has expired")
+            else:
+                raise Exception(f"Invalid token: {response.text}")
+        else:
+            raise Exception(f"Invalid token: {response.text}")
     except Exception as e:
-        current_app.logger.error(f"Token verification error: {str(e)}")
-        raise
+        raise Exception(f"Token verification failed: {str(e)}")
 
 
 def require_auth(f):
@@ -136,8 +147,8 @@ def require_role(required_roles: List[str]):
         def decorated(*args, **kwargs):
             if not hasattr(request, 'user'):
                 return {"error": "Authentication required"}, 401
-            
-            user_role = request.user.get('role', 'user')
+            app_metadata = request.user.get('app_metadata', {})
+            user_role = app_metadata.get('role', 'user')
             if user_role not in required_roles:
                 return {"error": "Insufficient permissions"}, 403
             

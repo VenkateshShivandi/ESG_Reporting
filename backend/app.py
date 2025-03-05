@@ -13,7 +13,7 @@ from processors.csv_processor import process_csv
 from datetime import datetime
 
 # Load environment variables
-load_dotenv()
+load_dotenv('.env.local')
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -48,7 +48,6 @@ def home():
     """Render the home page."""
     return render_template('index.html')
 
-
 @app.route('/api/status')
 def status():
     """Public endpoint to check API status."""
@@ -57,19 +56,18 @@ def status():
         "api_version": "1.0.0"
     })
 
-
 @app.route('/api/profile')
 @require_auth
 def user_profile():
     """Get the authenticated user's profile information."""
     # User data is added to request by the require_auth decorator
+    
     return jsonify({
         "id": request.user['id'],
         "email": request.user['email'],
         "role": request.user['role'],
         "provider": request.user.get('app_metadata', {}).get('provider', 'email')
     })
-
 
 @app.route('/api/esg-data')
 @require_auth
@@ -102,7 +100,6 @@ def get_esg_data():
         ]
     })
 
-
 @app.route('/api/admin/users')
 @require_auth
 @require_role(['admin'])
@@ -115,9 +112,8 @@ def get_all_users():
         "message": "This endpoint is protected and only accessible to admins"
     })
 
-
 @app.route('/api/process-file', methods=['POST'])
-@cross_origin(origins=["http://localhost:3000"])
+@cross_origin(origins=[os.getenv('FRONTEND_URL')])
 def process_file():
     app.logger.info(f"Request received: {request.method} {request.path}")
     app.logger.info(f"Request headers: {dict(request.headers)}")
@@ -187,4 +183,4 @@ def process_file():
             os.remove(file_path)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5050)
