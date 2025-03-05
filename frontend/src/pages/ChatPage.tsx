@@ -774,6 +774,18 @@ export default function ChatPage() {
               </SelectContent>
             </Select>
 
+            
+
+            <div className="space-y-3">
+              <h4 className="text-base font-medium text-slate-900">Report Prompt:</h4>
+              <Textarea 
+                value={reportPrompt}
+                onChange={(e) => setReportPrompt(e.target.value)}
+                className="min-h-[100px] text-base"
+                placeholder="Enter instructions for the AI to generate your report"
+              />
+            </div>
+
             <div className="space-y-3">
               <h4 className="text-base font-medium text-slate-900">Report Prompt:</h4>
               <Textarea 
