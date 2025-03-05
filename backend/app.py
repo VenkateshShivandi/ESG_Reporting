@@ -69,7 +69,6 @@ def user_profile():
         "provider": request.user.get('app_metadata', {}).get('provider', 'email')
     })
 
-
 @app.route('/api/esg-data')
 @require_auth
 def get_esg_data():
@@ -101,7 +100,6 @@ def get_esg_data():
         ]
     })
 
-
 @app.route('/api/admin/users')
 @require_auth
 @require_role(['admin'])
@@ -114,9 +112,8 @@ def get_all_users():
         "message": "This endpoint is protected and only accessible to admins"
     })
 
-
 @app.route('/api/process-file', methods=['POST'])
-@cross_origin(origins=["http://localhost:3000"])
+@cross_origin(origins=[os.getenv('FRONTEND_URL')])
 def process_file():
     app.logger.info(f"Request received: {request.method} {request.path}")
     app.logger.info(f"Request headers: {dict(request.headers)}")

@@ -147,8 +147,8 @@ def require_role(required_roles: List[str]):
         def decorated(*args, **kwargs):
             if not hasattr(request, 'user'):
                 return {"error": "Authentication required"}, 401
-            
-            user_role = request.user.get('role', 'user')
+            app_metadata = request.user.get('app_metadata', {})
+            user_role = app_metadata.get('role', 'user')
             if user_role not in required_roles:
                 return {"error": "Insufficient permissions"}, 403
             
