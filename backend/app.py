@@ -5,11 +5,6 @@ from security import require_auth, require_role
 from flask_cors import CORS, cross_origin
 import uuid
 from werkzeug.utils import secure_filename
-from processors.pdf_processor import process_pdf
-from processors.excel_processor import process_excel
-from processors.docx_processor import process_docx
-from processors.xml_processor import process_xml
-from processors.csv_processor import process_csv
 from datetime import datetime
 
 # Load environment variables
