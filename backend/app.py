@@ -235,8 +235,7 @@ def chat():
                 return jsonify({'error': 'Failed to initialize assistant'}), 500
                 
         # Get the user's message
-        message = request.json.get('message')
-        
+        message = request.json.get('data', {}).get('content','')
         # Create or retrieve thread
         if(REDIS_URL):
             redis_client = redis.from_url(REDIS_URL)
@@ -279,19 +278,25 @@ def chat():
         # Get the assistant's response
         messages = client.beta.threads.messages.list(thread_id=thread_id)
         
-        # Extract the assistant's message content
-        assistant_messages = []
+        # Get the latest assistant message (messages are returned in reverse chronological order)
+        assistant_response = None
         for msg in messages.data:
             if msg.role == "assistant":
-                content = ""
                 for content_part in msg.content:
                     if content_part.type == 'text':
-                        content += content_part.text.value
-                assistant_messages.append(content)
+                        assistant_response = content_part.text.value
+                        break
+                if assistant_response:
+                    break
         
-        # Return the latest assistant message
-        if assistant_messages:
-            return jsonify({'success': True, 'message': assistant_messages[0]}), 200
+        # Return the assistant's message
+        if assistant_response:
+            print("assistant_response: ", assistant_response)
+            return jsonify({
+                'id': str(uuid.uuid4()),
+                'role': 'assistant',
+                'content': assistant_response
+            }), 200
         else:
             return jsonify({'error': 'No response from assistant'}), 500
             
