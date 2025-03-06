@@ -1,103 +1,62 @@
-import axios, { AxiosResponse } from 'axios';
-import { FileItem } from '../types/documents';
+import { FileItem, ProcessedFileResult } from '@/lib/types/documents'
+import { mockApi } from './mock/documents'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5050';
+// Export the mock API for now - will be replaced with real Supabase implementation
+export const documentsApi = {
+  // List all files in a directory
+  listFiles: async (path: string[] = []): Promise<FileItem[]> => {
+    return mockApi.listFiles(path)
+  },
 
-export interface ProcessedFileResult {
-  type: string;
-  filename: string;
-  size: number;
-  processed_at: string;
-  // PDF-specific fields
-  pages?: number;
-  preview?: string;
-  metadata?: {
-    title?: string;
-    author?: string;
-    creation_date?: string;
-  };
-  // Excel/CSV-specific fields
-  rows?: number;
-  columns?: number;
-  column_names?: string[];
-  sample_data?: any[];
-  // DOCX-specific fields
-  paragraph_count?: number;
-  table_count?: number;
-  // XML-specific fields
-  root?: {
-    name: string;
-    attributes: Record<string, string>;
-  };
-  element_count?: number;
-  children_preview?: Array<{
-    tag: string;
-    attributes: Record<string, string>;
-    text: string | null;
-  }>;
-}
+  // Upload and process a file
+  uploadFile: async (file: File, path: string[] = []): Promise<{ fileId: string }> => {
+    // First upload the file
+    const { fileId } = await mockApi.uploadFile(file, path)
+    return { fileId }
+  },
 
-export async function getFiles(): Promise<FileItem[]> {
-  const response = await axios.get(`${API_BASE_URL}/api/files`);
-  return response.data;
-}
+  // Process a file to extract metadata and content
+  processFile: async (file: File): Promise<ProcessedFileResult> => {
+    return mockApi.processFile(file)
+  },
 
-export async function deleteFile(fileId: string): Promise<AxiosResponse> {
-  console.log("Trying to delete file with ID:", fileId);
-  const token = localStorage.getItem('jwt_token');
-  try {
-    const response = await axios.delete(`${API_BASE_URL}/api/files/${fileId}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-    console.log("Delete response:", response.data);
-    return response;
-  } catch (error) {
-    console.error("Error deleting file:", error);
-    throw error;
-  }
-}
+  // Delete a file or folder
+  deleteFile: async (fileId: string): Promise<{ status: number; message: string }> => {
+    return mockApi.deleteFile(fileId)
+  },
 
-export async function processFile(file: File): Promise<ProcessedFileResult> {
-  console.log("processFile called with:", file.name, file.size, file.type);
-  
-  const formData = new FormData();
-  formData.append('file', file);
-  console.log("FormData:", formData);
-  // Verify FormData contains the file
-  for (const [key, value] of formData.entries()) {
-    console.log(`FormData contains: ${key}:`, value);
-  }
+  // Create a new folder
+  createFolder: async (name: string, path: string[] = []): Promise<{ folderId: string }> => {
+    return mockApi.createFolder(name, path)
+  },
 
-  console.log(`Sending POST request to: ${API_BASE_URL}/api/upload-file`);
-  
-  try {
-    const response = await axios.post(`${API_BASE_URL}/api/upload-file`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    
-    console.log("Response received:", response.status);
-    return response.data;
-  } catch (error) {
-    console.error("Axios error in processFile:", error);
-    
-    // Detailed error logging
-    if (axios.isAxiosError(error)) {
-      console.error("Request details:", {
-        method: error.config?.method,
-        url: error.config?.url,
-        headers: error.config?.headers,
-        data: error.config?.data,
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        responseData: error.response?.data
-      });
-    }
-    
-    throw error;
+  // Move a file or folder to a new location
+  moveItem: async (itemId: string, newPath: string[]): Promise<{ status: number }> => {
+    return mockApi.moveItem(itemId, newPath)
+  },
+
+  // Get a download URL for a file
+  getDownloadUrl: async (fileId: string): Promise<{ url: string }> => {
+    return mockApi.getDownloadUrl(fileId)
+  },
+
+  // Update file metadata
+  updateFileMetadata: async (fileId: string, metadata: Partial<FileItem>): Promise<{ status: number }> => {
+    return mockApi.updateFileMetadata(fileId, metadata)
+  },
+
+  // Search for files
+  searchFiles: async (query: string, filters?: { type?: string; path?: string[] }): Promise<FileItem[]> => {
+    return mockApi.searchFiles(query, filters)
+  },
+
+  // Get detailed information about a file
+  getFileDetails: async (fileId: string): Promise<FileItem | null> => {
+    return mockApi.getFileDetails(fileId)
+  },
+
+  // Get storage quota information
+  getStorageQuota: async (): Promise<{ used: number; total: number; percentage: number }> => {
+    return mockApi.getStorageQuota()
   }
 } 

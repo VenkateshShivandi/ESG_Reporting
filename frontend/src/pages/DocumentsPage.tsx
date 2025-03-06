@@ -1,10 +1,10 @@
 "use client"
 
 import React from "react"
-
 import { useState, useEffect, useCallback } from "react"
 import type { NextPage } from "next"
 import { Upload, Folder, File as FileIcon, Trash2, Download, ChevronRight, Loader2, Info, FileText, TableProperties, GitGraph, X } from "lucide-react"
+import { documentsApi } from "@/lib/api/documents"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -25,12 +25,9 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { toast } from "sonner"
-import type { FileItem, UploadProgress } from "@/lib/types/documents"
-import { useFilesStore } from "@/lib/store/files-store"
-import { processFile, ProcessedFileResult } from "@/lib/api/documents"
+import type { FileItem, UploadProgress, ProcessedFileResult } from "@/lib/types/documents"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { deleteFile } from "@/lib/api/documents"
 
 type Props = {}
 
@@ -38,7 +35,7 @@ const ALLOWED_FILE_TYPES = ".xlsx,.csv,.docx,.xml,.pdf"
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
 const DocumentsPage: NextPage<Props> = () => {
-  const { files, setFiles, addFile, removeFile, removeFiles, updateFile } = useFilesStore()
+  const [files, setFiles] = useState<FileItem[]>([])
   const [currentPath, setCurrentPath] = useState<string[]>([])
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [isUploading, setIsUploading] = useState(false)
@@ -56,16 +53,15 @@ const DocumentsPage: NextPage<Props> = () => {
   const loadFiles = useCallback(async () => {
     try {
       setIsLoading(true)
-      // const files = await listFiles(currentPath.join("/"))
-      // setItems(files)
-      setIsLoading(false)
+      const fetchedFiles = await documentsApi.listFiles(currentPath)
+      setFiles(fetchedFiles)
     } catch (error) {
-      // Sentry.captureException(error)
+      console.error("Error loading files:", error)
       toast.error("Failed to load files")
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [currentPath])
 
   useEffect(() => {
     loadFiles()
@@ -99,16 +95,14 @@ const DocumentsPage: NextPage<Props> = () => {
       return
     }
 
-    console.log("Files selected:", files.length);
     setIsUploading(true)
 
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
-        console.log(`Processing file ${i + 1}/${files.length}:`, file.name, file.size, file.type);
         const fileId = Math.random().toString(36).substring(7)
 
-        // Validate file type
+        // Validate file type and size (keeping existing validation)
         const fileType = file.name.split(".").pop()?.toLowerCase()
         const allowedTypes = ["xlsx", "csv", "docx", "xml", "pdf"]
         if (!fileType || !allowedTypes.includes(fileType)) {
@@ -116,69 +110,33 @@ const DocumentsPage: NextPage<Props> = () => {
           continue
         }
 
-        // Validate file size
         if (file.size > MAX_FILE_SIZE) {
           toast.error(`File too large: ${file.name}`)
           continue
         }
-
+        
         setUploadProgress((prev) => ({ ...prev, [fileId]: 0 }))
 
-        // First add the file to the UI
-        const newFile: FileItem = {
-          id: fileId,
-          name: file.name,
-          type: "file",
-          size: file.size,
-          modified: new Date(),
-          path: currentPath,
-          file: file,
-          processing: true,
-        }
-
-        addFile(newFile)
-        setUploadProgress((prev) => ({ ...prev, [fileId]: 50 }))
-
-        // Then process it with our backend
-        setProcessingFile(file.name)
-        console.log("About to call processFile for:", file.name);
         try {
-          console.log("Starting actual API call...");
-          const result = await processFile(file)
-          console.log("API call successful, result:", result);
-
-          // Update the file with processing results
-          const updatedFile: FileItem = {
-            ...newFile,
-            processing: false,
-            processed: true,
-            processingResult: result,
-          }
-
-          // Replace the file in the store
-          updateFile(fileId, updatedFile)
+          // Upload file to storage
+          const { fileId: uploadedFileId } = await documentsApi.uploadFile(file, currentPath)
+          setUploadProgress((prev) => ({ ...prev, [fileId]: 60 }))
+          
+          // Process the file
+          await documentsApi.processFile(file)
+          setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }))
+          
+          // Refresh the file list
+          await loadFiles()
+          
           toast.success(`File ${file.name} processed successfully`)
         } catch (error) {
-          console.error("Complete processing error details:", error);
-          setProcessingError(error instanceof Error ? error.message : "Unknown error")
+          console.error("File processing error:", error)
           toast.error(`Failed to process file: ${file.name}`)
-
-          // Update the file to show processing failed
-          const updatedFile: FileItem = {
-            ...newFile,
-            processing: false,
-            processed: false,
-            processingError: error instanceof Error ? error.message : "Unknown error"
-          }
-
-          // Replace the file in the store
-          updateFile(fileId, updatedFile)
         }
-
-        setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }))
       }
     } catch (error) {
-      console.error("Outer catch - File upload error:", error);
+      console.error("File upload error:", error)
       toast.error("Failed to upload file(s)")
     } finally {
       setIsUploading(false)
@@ -190,67 +148,77 @@ const DocumentsPage: NextPage<Props> = () => {
     }
   }
 
-  const handleCreateFolder = (name: string) => {
+  const handleCreateFolder = async (name: string) => {
     if (!name.trim()) {
       toast.error("Please enter a folder name")
       return
     }
 
     // Check if folder already exists in current path
-    if (
-      files.some(
-        (item) =>
-          item.type === "folder" && item.name === name && JSON.stringify(item.path) === JSON.stringify(currentPath),
-      )
-    ) {
+    if (files.some(item => 
+      item.type === "folder" && 
+      item.name === name && 
+      JSON.stringify(item.path) === JSON.stringify(currentPath)
+    )) {
       toast.error("A folder with this name already exists")
       return
     }
 
-    const newFolder: FileItem = {
-      id: Math.random().toString(36).substring(7),
-      name: name,
-      type: "folder",
-      modified: new Date(),
-      path: currentPath,
+    try {
+      await documentsApi.createFolder(name, currentPath)
+      // Refresh the file list
+      loadFiles()
+      toast.success(`Folder ${name} created successfully`)
+    } catch (error) {
+      console.error("Error creating folder:", error)
+      toast.error("Failed to create folder")
     }
-
-    addFile(newFolder)
-    toast.success(`Folder ${name} created successfully`)
   }
 
   const handleDelete = async (itemId?: string) => {
-    if (itemId) {
-      console.log("Deleting item:", itemId);
-      const result = await deleteFile(itemId)
-      console.log("Delete result:", result);
-      if (result.status === 200) {
-        toast.success("Item deleted successfully")
-        setSelectedItems((prev) => prev.filter((id) => id !== itemId))
+    try {
+      if (itemId) {
+        const result = await documentsApi.deleteFile(itemId)
+        if (result.status === 200) {
+          // Refresh the file list
+          loadFiles()
+          setSelectedItems((prev) => prev.filter((id) => id !== itemId))
+          toast.success("Item deleted successfully")
+        }
       } else {
-        toast.error("Failed to delete item")
+        // Delete multiple items
+        for (const id of selectedItems) {
+          await documentsApi.deleteFile(id)
+        }
+        // Refresh the file list
+        loadFiles()
+        setSelectedItems([])
+        toast.success("Selected items deleted successfully")
       }
-    } else {
-      removeFiles(selectedItems)
-      toast.success("Selected items deleted successfully")
-      setSelectedItems([])
+    } catch (error) {
+      console.error("Delete error:", error)
+      toast.error("Failed to delete item(s)")
     }
   }
 
   const handleDownload = async (item: FileItem) => {
     try {
-      if (!item.file) {
-        throw new Error("File not found")
+      const { url } = await documentsApi.getDownloadUrl(item.id)
+      
+      // If we have a local file, use it directly
+      if (item.file) {
+        const localUrl = URL.createObjectURL(item.file)
+        const a = document.createElement("a")
+        a.href = localUrl
+        a.download = item.name
+        document.body.appendChild(a)
+        a.click()
+        URL.revokeObjectURL(localUrl)
+        document.body.removeChild(a)
+      } else {
+        // Use the downloaded URL
+        window.open(url, '_blank')
       }
-
-      const url = URL.createObjectURL(item.file)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = item.name
-      document.body.appendChild(a)
-      a.click()
-      URL.revokeObjectURL(url)
-      document.body.removeChild(a)
     } catch (error) {
       console.error("Download error:", error)
       toast.error("Failed to download file")
