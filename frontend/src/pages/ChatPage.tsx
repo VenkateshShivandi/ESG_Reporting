@@ -5,7 +5,7 @@ import { useChat } from "ai/react"
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Search, FileText, File, Folder, Send, Bot, Eye, X, Calendar, GripVertical, Maximize2, Minimize2, ChevronsUp, ChevronsDown, Loader2, CheckCircle } from "lucide-react"
+import { Search, FileText, File, Folder, Send, Bot, Eye, X, Calendar, GripVertical, Maximize2, Minimize2, ChevronsUp, ChevronsDown, Loader2, CheckCircle, User } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -25,7 +25,18 @@ interface Report {
 }
 
 export default function ChatPage() {
-  const { messages, input, handleInputChange, handleSubmit, append } = useChat()
+  const { messages, input, handleInputChange, handleSubmit, append } = useChat({
+    api: "/api/chat",  // Point to your Flask backend endpoint
+    onResponse: (response) => {
+      if (!response.ok) {
+        toast.error("Failed to send message");
+      }
+    },
+    onError: (error) => {
+      console.error("Error sending message:", error);
+      toast.error("Error sending message");
+    }
+  })
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isReportListOpen, setIsReportListOpen] = useState(false)
@@ -244,6 +255,49 @@ export default function ChatPage() {
   }, [isDragging])
 
   const filteredFiles = files.filter((file) => file.name.toLowerCase().includes(searchQuery.toLowerCase()))
+
+  // Custom submit handler
+  const handleMessageSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    
+    // Add user message to chat
+    const userMessage = { 
+      role: 'user' as const, 
+      content: input, 
+      id: Date.now().toString() 
+    };
+    append(userMessage);
+    
+    // Clear input
+    handleInputChange({ target: { value: '' } } as React.ChangeEvent<HTMLInputElement>);
+    
+    try {
+      // Call your API
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
+        },
+        body: JSON.stringify({ message: userMessage.content })
+      });
+      
+      if (!response.ok) throw new Error('Failed to send message');
+      
+      const data = await response.json();
+      
+      // Add assistant response to chat
+      append({
+        role: 'assistant',
+        content: data.message,
+        id: Date.now().toString()
+      });
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error('Failed to get response');
+    }
+  }
 
   return (
     <div className="flex h-screen bg-white overflow-hidden">
@@ -558,7 +612,7 @@ export default function ChatPage() {
                             className="object-cover"
                           />
                           <AvatarFallback>
-                            {message.role === "assistant" ? <Bot className="h-5 w-5 text-emerald-600" /> : "You"}
+                            {message.role === "assistant" ? <Bot className="h-5 w-5 text-emerald-600" /> : <User className="h-5 w-5 text-emerald-600" />}
                           </AvatarFallback>
                         </Avatar>
                         <div
@@ -579,7 +633,7 @@ export default function ChatPage() {
 
               {/* Input */}
               <div className="p-4 bg-white border-t">
-                <form onSubmit={handleSubmit} className="max-w-[1000px] mx-auto">
+                <form onSubmit={handleMessageSubmit} className="max-w-[1000px] mx-auto">
                   <div className="relative">
                     <Input
                       placeholder="Type your message..."

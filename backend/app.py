@@ -1,19 +1,30 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 from security import require_auth, require_role
 from flask_cors import CORS, cross_origin
 import uuid
 from werkzeug.utils import secure_filename
-from processors.pdf_processor import process_pdf
-from processors.excel_processor import process_excel
-from processors.docx_processor import process_docx
-from processors.xml_processor import process_xml
-from processors.csv_processor import process_csv
 from datetime import datetime
-
+from supabase import create_client, Client
+from openai import OpenAI
+import time
+import redis
 # Load environment variables
-load_dotenv()
+load_dotenv('.env.local')
+
+# Get Supabase credentials
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')
+SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+OPENAI_ASSISTANT_ID = os.getenv('OPENAI_ASSISTANT_ID')
+REDIS_URL = os.getenv('REDIS_URL')
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+
+# Verify they exist
+if not SUPABASE_URL or not SUPABASE_ANON_KEY or not SUPABASE_SERVICE_ROLE_KEY:
+    raise ValueError("Missing Supabase credentials. Please check your .env file.")
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -41,7 +52,11 @@ if not app.debug:
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+    app.logger.info(f"Upload folder: {UPLOAD_FOLDER}")
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Initialize Supabase client
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 @app.route('/')
 def home():
@@ -115,56 +130,174 @@ def get_all_users():
         "message": "This endpoint is protected and only accessible to admins"
     })
 
-
-@app.route('/api/process-file', methods=['POST'])
-@cross_origin(origins=["http://localhost:3000"])
-def process_file():
-    app.logger.info(f"Request received: {request.method} {request.path}")
-    app.logger.info(f"Request headers: {dict(request.headers)}")
-    
-    if 'file' not in request.files:
-        app.logger.warning("No file part in request")
-        return jsonify({'error': 'No file part'}), 400
-    
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-    
-    # Generate a unique filename
-    original_filename = secure_filename(file.filename)
-    file_extension = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else ''
-    unique_filename = f"{uuid.uuid4().hex}.{file_extension}"
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-    
-    # Save the file temporarily
-    file.save(file_path)
-    
-    # Process based on file type
+@app.route('/api/upload-file', methods=['POST'])
+@cross_origin(origins=[os.getenv('FRONTEND_URL')])
+def upload_file_to_supabase():
     try:
-        if file_extension == 'pdf':
-            result = process_pdf(file_path)
-        elif file_extension in ['xlsx', 'xls']:
-            result = process_excel(file_path)
-        elif file_extension == 'docx':
-            result = process_docx(file_path)
-        elif file_extension == 'xml':
-            result = process_xml(file_path)
-        elif file_extension == 'csv':
-            result = process_csv(file_path)
-        else:
-            return jsonify({'error': f'Unsupported file type: {file_extension}'}), 400
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+            
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+            
+        # Create a unique filename
+        unique_filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
         
-        # Add file metadata to result
-        result['filename'] = original_filename
-        result['size'] = os.path.getsize(file_path)
+        # Save file temporarily
+        temp_path = os.path.join('/tmp', unique_filename)
+        file.save(temp_path)
         
-        return jsonify(result)
+        # Upload to Supabase from the temp file
+        with open(temp_path, 'rb') as f:
+            response = supabase.storage.from_('documents').upload(unique_filename, f)
+        
+        # Clean up temp file
+        os.remove(temp_path)
+        
+        return jsonify({'success': True, 'filename': unique_filename}), 200
     except Exception as e:
+        app.logger.error(f"Error uploading file: {str(e)}")
         return jsonify({'error': str(e)}), 500
-    finally:
-        # Clean up the temporary file
-        if os.path.exists(file_path):
-            os.remove(file_path)
+
+@app.route('/api/files', methods=['GET'])
+@require_auth
+def get_files():
+    """Get all files from Supabase storage."""
+    try:
+        response = supabase.storage.from_('documents').list()
+        files = [{'id': item.name, 'name': item.name, 'size': item.metadata.size} for item in response]
+        return jsonify(files), 200
+    except Exception as e:
+        app.logger.error(f"Error getting files: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/create-folder', methods=['POST'])
+@require_auth
+def create_folder():
+    """Create a new folder in Supabase storage."""
+    try:
+        folder_name = request.json.get('folder_name')
+        response = supabase.storage.from_('documents').create_folder(folder_name)
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        app.logger.error(f"Error creating folder: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/delete-folder', methods=['DELETE'])
+@require_auth
+def delete_folder():
+    """Delete a folder from Supabase storage."""
+    try:
+        folder_name = request.json.get('folder_name')
+        response = supabase.storage.from_('documents').remove([folder_name])
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        app.logger.error(f"Error deleting folder: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/files/<file_id>', methods=['DELETE'])
+@require_auth
+def delete_file(file_id):
+    """Delete a file from Supabase storage."""
+    try:
+        response = supabase.storage.from_('documents').remove([file_id])
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        app.logger.error(f"Error deleting file: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+def initialize_assistant():
+    """Initialize the assistant."""
+    try:
+        # Initialize the assistant
+        if(OPENAI_ASSISTANT_ID):
+            return OPENAI_ASSISTANT_ID
+        else:
+            response = client.beta.assistants.create(
+                name="ESG Reporting Assistant",
+                instructions="You are a helpful assistant that can answer questions about the ESG data.",
+            )
+            return response.id
+    except Exception as e:
+        app.logger.error(f"Error initializing assistant: {str(e)}")
+        return None
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """Chat with the AI."""
+    try:
+        if(OPENAI_ASSISTANT_ID):
+            assistant_id = OPENAI_ASSISTANT_ID
+        else:
+            assistant_id = initialize_assistant()
+            if not assistant_id:
+                return jsonify({'error': 'Failed to initialize assistant'}), 500
+                
+        # Get the user's message
+        message = request.json.get('message')
+        
+        # Create or retrieve thread
+        if(REDIS_URL):
+            redis_client = redis.from_url(REDIS_URL)
+            thread_id = redis_client.get('thread_id')
+            if not thread_id:
+                thread = client.beta.threads.create()
+                thread_id = thread.id
+                redis_client.set('thread_id', thread_id)
+            else:
+                # Convert bytes to string if needed
+                thread_id = thread_id.decode('utf-8') if isinstance(thread_id, bytes) else thread_id
+        else:
+            thread = client.beta.threads.create()
+            thread_id = thread.id
+            
+        # Add the user's message to the thread
+        client.beta.threads.messages.create(
+            thread_id=thread_id,  # Use thread_id instead of thread.id
+            role="user", 
+            content=message
+        )
+        
+        # Run the assistant
+        run = client.beta.threads.runs.create(
+            thread_id=thread_id,  # Use thread_id instead of thread.id
+            assistant_id=assistant_id
+        )
+        
+        # Wait for the run to complete
+        while run.status not in ["completed", "failed"]:
+            time.sleep(0.5)
+            run = client.beta.threads.runs.retrieve(
+                thread_id=thread_id,  # Use thread_id instead of thread.id
+                run_id=run.id
+            )
+            
+        if run.status == "failed":
+            return jsonify({'error': 'Assistant run failed'}), 500
+            
+        # Get the assistant's response
+        messages = client.beta.threads.messages.list(thread_id=thread_id)
+        
+        # Extract the assistant's message content
+        assistant_messages = []
+        for msg in messages.data:
+            if msg.role == "assistant":
+                content = ""
+                for content_part in msg.content:
+                    if content_part.type == 'text':
+                        content += content_part.text.value
+                assistant_messages.append(content)
+        
+        # Return the latest assistant message
+        if assistant_messages:
+            return jsonify({'success': True, 'message': assistant_messages[0]}), 200
+        else:
+            return jsonify({'error': 'No response from assistant'}), 500
+            
+    except Exception as e:
+        app.logger.error(f"Error in chat endpoint: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5050)

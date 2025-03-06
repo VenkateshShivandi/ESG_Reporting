@@ -1,6 +1,7 @@
-import axios from 'axios';
+import axios, { AxiosResponse } from 'axios';
+import { FileItem } from '../types/documents';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:5050';
 
 export interface ProcessedFileResult {
   type: string;
@@ -36,21 +37,44 @@ export interface ProcessedFileResult {
   }>;
 }
 
+export async function getFiles(): Promise<FileItem[]> {
+  const response = await axios.get(`${API_BASE_URL}/api/files`);
+  return response.data;
+}
+
+export async function deleteFile(fileId: string): Promise<AxiosResponse> {
+  console.log("Trying to delete file with ID:", fileId);
+  const token = localStorage.getItem('jwt_token');
+  try {
+    const response = await axios.delete(`${API_BASE_URL}/api/files/${fileId}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    console.log("Delete response:", response.data);
+    return response;
+  } catch (error) {
+    console.error("Error deleting file:", error);
+    throw error;
+  }
+}
+
 export async function processFile(file: File): Promise<ProcessedFileResult> {
   console.log("processFile called with:", file.name, file.size, file.type);
   
   const formData = new FormData();
   formData.append('file', file);
-  
+  console.log("FormData:", formData);
   // Verify FormData contains the file
   for (const [key, value] of formData.entries()) {
     console.log(`FormData contains: ${key}:`, value);
   }
 
-  console.log(`Sending POST request to: ${API_BASE_URL}/api/process-file`);
+  console.log(`Sending POST request to: ${API_BASE_URL}/api/upload-file`);
   
   try {
-    const response = await axios.post(`${API_BASE_URL}/api/process-file`, formData, {
+    const response = await axios.post(`${API_BASE_URL}/api/upload-file`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

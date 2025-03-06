@@ -30,6 +30,7 @@ import { useFilesStore } from "@/lib/store/files-store"
 import { processFile, ProcessedFileResult } from "@/lib/api/documents"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { deleteFile } from "@/lib/api/documents"
 
 type Props = {}
 
@@ -218,11 +219,17 @@ const DocumentsPage: NextPage<Props> = () => {
     toast.success(`Folder ${name} created successfully`)
   }
 
-  const handleDelete = (itemId?: string) => {
+  const handleDelete = async (itemId?: string) => {
     if (itemId) {
-      removeFile(itemId)
-      toast.success("Item deleted successfully")
-      setSelectedItems((prev) => prev.filter((id) => id !== itemId))
+      console.log("Deleting item:", itemId);
+      const result = await deleteFile(itemId)
+      console.log("Delete result:", result);
+      if (result.status === 200) {
+        toast.success("Item deleted successfully")
+        setSelectedItems((prev) => prev.filter((id) => id !== itemId))
+      } else {
+        toast.error("Failed to delete item")
+      }
     } else {
       removeFiles(selectedItems)
       toast.success("Selected items deleted successfully")
@@ -259,7 +266,13 @@ const DocumentsPage: NextPage<Props> = () => {
 
   const viewFileDetails = (file: FileItem) => {
     if (file.processingResult) {
-      setFileDetails(file.processingResult)
+      const fileResult: ProcessedFileResult = {
+        type: file.type,
+        filename: file.name,
+        size: file.size || 0,
+        processed_at: file.modified.toLocaleString(),
+      }
+      setFileDetails(fileResult)
       setShowFileDetails(true)
     }
   }
