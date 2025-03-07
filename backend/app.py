@@ -492,5 +492,197 @@ def delete_item():
         app.logger.error(f"❌ API Error in delete_item: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+# Analytics API endpoints
+@app.route('/api/analytics/metrics', methods=['GET'])
+@require_auth
+def get_metrics():
+    """Get ESG metrics and KPIs."""
+    try:
+        app.logger.info("📊 API Call - get_metrics")
+        # Mock response
+        metrics = {
+            "environmental": {
+                "carbon_emissions": {"value": 1250.5, "unit": "tons", "trend": -5.2},
+                "energy_consumption": {"value": 45000, "unit": "kWh", "trend": -2.1},
+                "waste_management": {"value": 85.5, "unit": "tons", "trend": -10.0}
+            },
+            "social": {
+                "employee_satisfaction": {"value": 4.2, "unit": "score", "trend": 0.3},
+                "diversity_ratio": {"value": 42, "unit": "percent", "trend": 5.0},
+                "training_hours": {"value": 1200, "unit": "hours", "trend": 15.0}
+            },
+            "governance": {
+                "board_diversity": {"value": 38, "unit": "percent", "trend": 8.0},
+                "compliance_rate": {"value": 98.5, "unit": "percent", "trend": 1.5},
+                "risk_assessment": {"value": 4.5, "unit": "score", "trend": 0.2}
+            }
+        }
+        app.logger.info("📥 API Response: Metrics data sent")
+        return jsonify(metrics), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_metrics: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/reports', methods=['GET'])
+@require_auth
+def get_reports():
+    """Get generated ESG reports."""
+    try:
+        app.logger.info("📊 API Call - get_reports")
+        # Mock response
+        reports = {
+            "recent_reports": [
+                {
+                    "id": "rep_001",
+                    "name": "Q4 2024 ESG Report",
+                    "type": "quarterly",
+                    "generated_at": "2024-12-31T23:59:59Z",
+                    "status": "completed"
+                },
+                {
+                    "id": "rep_002",
+                    "name": "Annual ESG Report 2024",
+                    "type": "annual",
+                    "generated_at": "2024-12-31T23:59:59Z",
+                    "status": "pending_review"
+                }
+            ],
+            "scheduled_reports": [
+                {
+                    "id": "rep_003",
+                    "name": "Q1 2025 ESG Report",
+                    "type": "quarterly",
+                    "scheduled_for": "2025-03-31T23:59:59Z",
+                    "status": "scheduled"
+                }
+            ]
+        }
+        app.logger.info("📥 API Response: Reports data sent")
+        return jsonify(reports), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_reports: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/trends', methods=['GET'])
+@require_auth
+def get_trends():
+    """Get ESG metric trends over time."""
+    try:
+        app.logger.info("📊 API Call - get_trends")
+        period = request.args.get('period', 'yearly')  # yearly, quarterly, monthly
+        metric = request.args.get('metric', 'all')
+        
+        # Mock response
+        trends = {
+            "timeline": ["2023-Q1", "2023-Q2", "2023-Q3", "2023-Q4"],
+            "metrics": {
+                "carbon_emissions": [1300, 1280, 1265, 1250.5],
+                "energy_consumption": [48000, 47000, 46000, 45000],
+                "waste_management": [95, 92, 88, 85.5]
+            },
+            "benchmarks": {
+                "industry_average": {
+                    "carbon_emissions": 1400,
+                    "energy_consumption": 50000,
+                    "waste_management": 100
+                }
+            }
+        }
+        app.logger.info("📥 API Response: Trends data sent")
+        return jsonify(trends), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_trends: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/benchmarks', methods=['GET'])
+@require_auth
+def get_benchmarks():
+    """Get industry benchmarks and comparisons."""
+    try:
+        app.logger.info("📊 API Call - get_benchmarks")
+        industry = request.args.get('industry', 'technology')
+        
+        # Mock response
+        benchmarks = {
+            "industry_averages": {
+                "environmental": {
+                    "carbon_emissions": 1400,
+                    "energy_consumption": 50000,
+                    "waste_management": 100
+                },
+                "social": {
+                    "employee_satisfaction": 3.8,
+                    "diversity_ratio": 35,
+                    "training_hours": 800
+                },
+                "governance": {
+                    "board_diversity": 30,
+                    "compliance_rate": 95,
+                    "risk_assessment": 4.0
+                }
+            },
+            "rankings": {
+                "overall": 12,
+                "total_companies": 100,
+                "percentile": 88
+            },
+            "peer_comparison": {
+                "better_than": 75,
+                "areas_of_improvement": ["waste_management", "training_hours"],
+                "leading_in": ["carbon_emissions", "board_diversity"]
+            }
+        }
+        app.logger.info("📥 API Response: Benchmarks data sent")
+        return jsonify(benchmarks), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_benchmarks: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/generate-report', methods=['POST'])
+@require_auth
+def generate_report():
+    """Generate a new ESG report."""
+    try:
+        app.logger.info("📊 API Call - generate_report")
+        data = request.json
+        report_type = data.get('type', 'quarterly')
+        
+        # Mock response
+        response = {
+            "report_id": str(uuid.uuid4()),
+            "status": "processing",
+            "estimated_completion": "2024-03-08T15:00:00Z",
+            "type": report_type,
+            "notification": "You will be notified when the report is ready."
+        }
+        app.logger.info("📥 API Response: Report generation initiated")
+        return jsonify(response), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in generate_report: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/report-status/<report_id>', methods=['GET'])
+@require_auth
+def get_report_status(report_id):
+    """Get the status of a report generation process."""
+    try:
+        app.logger.info(f"📊 API Call - get_report_status: {report_id}")
+        
+        # Mock response
+        status = {
+            "report_id": report_id,
+            "status": "processing",
+            "progress": 65,
+            "current_step": "Analyzing environmental metrics",
+            "steps_completed": ["Data collection", "Validation", "Initial analysis"],
+            "steps_remaining": ["Final review", "PDF generation"],
+            "estimated_completion": "2024-03-08T15:00:00Z"
+        }
+        app.logger.info("📥 API Response: Report status sent")
+        return jsonify(status), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_report_status: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5050)
