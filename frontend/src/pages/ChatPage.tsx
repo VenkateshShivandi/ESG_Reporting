@@ -1,11 +1,11 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { useChat } from "ai/react"
+import { useAssistant } from '@ai-sdk/react'
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Search, FileText, File, Folder, Send, Bot, Eye, X, Calendar, GripVertical, Maximize2, Minimize2, ChevronsUp, ChevronsDown, Loader2, CheckCircle } from "lucide-react"
+import { Search, FileText, File, Folder, Send, Bot, Eye, X, Calendar, GripVertical, Maximize2, Minimize2, ChevronsUp, ChevronsDown, Loader2, CheckCircle, User } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import { InteractiveWorkspace } from "@/components/dashboard/interactive-workspace"
 import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
+import ReactMarkdown from 'react-markdown'
 
 // Define a type for reports
 interface Report {
@@ -25,7 +26,25 @@ interface Report {
 }
 
 export default function ChatPage() {
-  const { messages, input, handleInputChange, handleSubmit, append } = useChat()
+  const { messages, handleInputChange, submitMessage, input, setInput, setMessages } = useAssistant({
+    api: `${process.env.NEXT_PUBLIC_BACKEND_URL}/api/chat`,
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
+    },
+  })
+  
+  // Add this useEffect to handle the scroll behavior
+  useEffect(() => {
+    if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+      setTimeout(() => {
+        window.scrollTo({
+          top: document.documentElement.scrollHeight,
+          behavior: 'smooth'
+        });
+      }, 100);
+    }
+  }, [messages]);
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isReportListOpen, setIsReportListOpen] = useState(false)
@@ -245,6 +264,51 @@ export default function ChatPage() {
   }, [isDragging])
 
   const filteredFiles = files.filter((file) => file.name.toLowerCase().includes(searchQuery.toLowerCase()))
+
+  // Custom submit handler
+  const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+
+    const userMessage = {
+      id: String(Date.now()),
+      role: "user" as const,
+      content: input
+    };
+
+    try {
+      // Add user message
+      const newMessages = [...messages, userMessage];
+      
+      // Make API call
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
+        },
+        body: JSON.stringify({ data: { role: "user", content: input } })
+      });
+
+      const data = await response.json();
+      
+      // Add assistant message if successful
+      if (response.ok && data) {
+        newMessages.push({
+          id: data.id,
+          role: "assistant" as const,
+          content: data.content
+        });
+      }
+
+      // Update messages state (assuming setMessages is available from useAssistant)
+      setMessages(newMessages);
+      setInput("");
+    } catch (error) {
+      console.error('Error sending message:', error);
+      toast.error('Failed to send message');
+    }
+  };
 
   return (
     <div className="flex h-screen bg-white overflow-hidden">
@@ -667,18 +731,22 @@ export default function ChatPage() {
                             className="object-cover"
                           />
                           <AvatarFallback>
-                            {message.role === "assistant" ? <Bot className="h-5 w-5 text-emerald-600" /> : "You"}
+                            {message.role === "assistant" ? <Bot className="h-5 w-5 text-emerald-600" /> : <User className="h-5 w-5 text-emerald-600" />}
                           </AvatarFallback>
                         </Avatar>
                         <div
-                          className={`rounded-2xl px-4 py-2.5 text-sm
+                          className={`rounded-2xl px-4 py-2.5 text-sm prose prose-sm max-w-none
                             ${
                               message.role === "assistant"
                                 ? "bg-white shadow-sm text-slate-700"
-                                : "bg-emerald-600 text-white"
+                                : "bg-emerald-600 text-white prose-invert"
                             }`}
                         >
-                          {message.content}
+                          {message.role === "assistant" ? (
+                            <ReactMarkdown>{message.content}</ReactMarkdown>
+                          ) : (
+                            message.content
+                          )}
                         </div>
                       </div>
                     </div>
@@ -688,7 +756,7 @@ export default function ChatPage() {
 
               {/* Input */}
               <div className="p-4 bg-white border-t">
-                <form onSubmit={handleSubmit} className="max-w-[1000px] mx-auto">
+                <form onSubmit={handleFormSubmit} className="max-w-[1000px] mx-auto">
                   <div className="relative">
                     <Input
                       placeholder="Type your message..."
@@ -733,15 +801,6 @@ export default function ChatPage() {
           <InteractiveWorkspace 
             report={selectedReport} 
             onClose={closeReportView}
-            append={message => {
-              if (typeof message.role === 'string' && 
-                  typeof message.content === 'string') {
-                append({
-                  role: message.role as 'user' | 'assistant' | 'system',
-                  content: message.content
-                });
-              }
-            }}
           />
         ) : (
           // Default state - show nothing in the report area

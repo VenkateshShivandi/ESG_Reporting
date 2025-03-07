@@ -1,5 +1,6 @@
 # Ignore folders and environment variables
 node_modules
+package-lock.json
 setup
 
 # vscode files to ignore
@@ -18,6 +19,16 @@ venv
 
 # rag/experiments
 rag/experiments/*
+
+
+# frontend/node_modules
+frontend/node_modules/*
+
+# frontend/package-lock.json
+frontend/package-lock.json
+
+# frontend/.next
+frontend/.next/*
 
 .coverage
 

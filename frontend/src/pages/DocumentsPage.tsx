@@ -1,10 +1,10 @@
 "use client"
 
 import React from "react"
-
 import { useState, useEffect, useCallback } from "react"
 import type { NextPage } from "next"
 import { Upload, Folder, File as FileIcon, Trash2, Download, ChevronRight, Loader2, Info, FileText, TableProperties, GitGraph, X } from "lucide-react"
+import { documentsApi } from "@/lib/api/documents"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -25,9 +25,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { toast } from "sonner"
-import type { FileItem, UploadProgress } from "@/lib/types/documents"
-import { useFilesStore } from "@/lib/store/files-store"
-import { processFile, ProcessedFileResult } from "@/lib/api/documents"
+import type { FileItem, UploadProgress, ProcessedFileResult } from "@/lib/types/documents"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
@@ -37,7 +35,7 @@ const ALLOWED_FILE_TYPES = ".xlsx,.csv,.docx,.xml,.pdf"
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
 const DocumentsPage: NextPage<Props> = () => {
-  const { files, setFiles, addFile, removeFile, removeFiles, updateFile } = useFilesStore()
+  const [files, setFiles] = useState<FileItem[]>([])
   const [currentPath, setCurrentPath] = useState<string[]>([])
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [isUploading, setIsUploading] = useState(false)
@@ -55,39 +53,41 @@ const DocumentsPage: NextPage<Props> = () => {
   const loadFiles = useCallback(async () => {
     try {
       setIsLoading(true)
-      // const files = await listFiles(currentPath.join("/"))
-      // setItems(files)
-      setIsLoading(false)
+      const fetchedFiles = await documentsApi.listFiles(currentPath)
+      setFiles(fetchedFiles)
     } catch (error) {
-      // Sentry.captureException(error)
+      console.error("Error loading files:", error)
       toast.error("Failed to load files")
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [currentPath])
 
   useEffect(() => {
     loadFiles()
   }, [loadFiles])
 
-  const handleSelectItem = (itemId: string) => {
+  const handleSelectItem = (itemName: string) => {
+    const itemPath = [...currentPath, itemName].join('/')
     setSelectedItems((prev) => {
-      if (prev.includes(itemId)) {
-        return prev.filter((id) => id !== itemId)
+      if (prev.includes(itemPath)) {
+        return prev.filter((path) => path !== itemPath)
       } else {
-        return [...prev, itemId]
+        return [...prev, itemPath]
       }
     })
   }
 
   const handleSelectAll = () => {
     const currentItems = getCurrentFolderItems()
+    const currentPaths = currentItems.map(item => [...currentPath, item.name].join('/'))
+    
     if (selectedItems.length === currentItems.length) {
       // If all items are selected, unselect all
       setSelectedItems([])
     } else {
       // Otherwise, select all items in the current folder
-      setSelectedItems(currentItems.map((item) => item.id))
+      setSelectedItems(currentPaths)
     }
   }
 
@@ -98,16 +98,14 @@ const DocumentsPage: NextPage<Props> = () => {
       return
     }
 
-    console.log("Files selected:", files.length);
     setIsUploading(true)
 
     try {
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
-        console.log(`Processing file ${i + 1}/${files.length}:`, file.name, file.size, file.type);
         const fileId = Math.random().toString(36).substring(7)
 
-        // Validate file type
+        // Validate file type and size (keeping existing validation)
         const fileType = file.name.split(".").pop()?.toLowerCase()
         const allowedTypes = ["xlsx", "csv", "docx", "xml", "pdf"]
         if (!fileType || !allowedTypes.includes(fileType)) {
@@ -115,69 +113,33 @@ const DocumentsPage: NextPage<Props> = () => {
           continue
         }
 
-        // Validate file size
         if (file.size > MAX_FILE_SIZE) {
           toast.error(`File too large: ${file.name}`)
           continue
         }
-
+        
         setUploadProgress((prev) => ({ ...prev, [fileId]: 0 }))
 
-        // First add the file to the UI
-        const newFile: FileItem = {
-          id: fileId,
-          name: file.name,
-          type: "file",
-          size: file.size,
-          modified: new Date(),
-          path: currentPath,
-          file: file,
-          processing: true,
-        }
-
-        addFile(newFile)
-        setUploadProgress((prev) => ({ ...prev, [fileId]: 50 }))
-
-        // Then process it with our backend
-        setProcessingFile(file.name)
-        console.log("About to call processFile for:", file.name);
         try {
-          console.log("Starting actual API call...");
-          const result = await processFile(file)
-          console.log("API call successful, result:", result);
-
-          // Update the file with processing results
-          const updatedFile: FileItem = {
-            ...newFile,
-            processing: false,
-            processed: true,
-            processingResult: result,
-          }
-
-          // Replace the file in the store
-          updateFile(fileId, updatedFile)
+          // Upload file to storage
+          const { fileId: uploadedFileId } = await documentsApi.uploadFile(file, currentPath)
+          setUploadProgress((prev) => ({ ...prev, [fileId]: 60 }))
+          
+          // Process the file
+          await documentsApi.processFile(file)
+          setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }))
+          
+          // Refresh the file list
+          await loadFiles()
+          
           toast.success(`File ${file.name} processed successfully`)
         } catch (error) {
-          console.error("Complete processing error details:", error);
-          setProcessingError(error instanceof Error ? error.message : "Unknown error")
+          console.error("File processing error:", error)
           toast.error(`Failed to process file: ${file.name}`)
-
-          // Update the file to show processing failed
-          const updatedFile: FileItem = {
-            ...newFile,
-            processing: false,
-            processed: false,
-            processingError: error instanceof Error ? error.message : "Unknown error"
-          }
-
-          // Replace the file in the store
-          updateFile(fileId, updatedFile)
         }
-
-        setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }))
       }
     } catch (error) {
-      console.error("Outer catch - File upload error:", error);
+      console.error("File upload error:", error)
       toast.error("Failed to upload file(s)")
     } finally {
       setIsUploading(false)
@@ -189,61 +151,84 @@ const DocumentsPage: NextPage<Props> = () => {
     }
   }
 
-  const handleCreateFolder = (name: string) => {
+  const handleCreateFolder = async (name: string) => {
     if (!name.trim()) {
       toast.error("Please enter a folder name")
       return
     }
 
     // Check if folder already exists in current path
-    if (
-      files.some(
-        (item) =>
-          item.type === "folder" && item.name === name && JSON.stringify(item.path) === JSON.stringify(currentPath),
-      )
-    ) {
+    if (files.some(item => 
+      item.type === "folder" && 
+      item.name === name && 
+      JSON.stringify(item.path) === JSON.stringify(currentPath)
+    )) {
       toast.error("A folder with this name already exists")
       return
     }
 
-    const newFolder: FileItem = {
-      id: Math.random().toString(36).substring(7),
-      name: name,
-      type: "folder",
-      modified: new Date(),
-      path: currentPath,
+    try {
+      await documentsApi.createFolder(name, currentPath)
+      // Refresh the file list
+      loadFiles()
+      toast.success(`Folder ${name} created successfully`)
+    } catch (error) {
+      console.error("Error creating folder:", error)
+      toast.error("Failed to create folder")
     }
-
-    addFile(newFolder)
-    toast.success(`Folder ${name} created successfully`)
   }
 
-  const handleDelete = (itemId?: string) => {
-    if (itemId) {
-      removeFile(itemId)
-      toast.success("Item deleted successfully")
-      setSelectedItems((prev) => prev.filter((id) => id !== itemId))
-    } else {
-      removeFiles(selectedItems)
-      toast.success("Selected items deleted successfully")
-      setSelectedItems([])
+  const handleDelete = async (itemPath?: string) => {
+    try {
+      console.log('Starting delete operation for:', itemPath || 'selected items')
+      
+      if (itemPath) {
+        // Single item delete
+        console.log('Attempting to delete single item:', itemPath)
+        await documentsApi.deleteFile(itemPath)
+        console.log('Successfully deleted item:', itemPath)
+        
+        // Refresh the file list
+        await loadFiles()
+        setSelectedItems((prev) => prev.filter((id) => id !== itemPath))
+        toast.success("Item deleted successfully")
+      } else {
+        // Multiple items delete
+        console.log('Attempting to delete multiple items:', selectedItems)
+        for (const path of selectedItems) {
+          await documentsApi.deleteFile(path)
+          console.log('Successfully deleted item:', path)
+        }
+        
+        // Refresh the file list
+        await loadFiles()
+        setSelectedItems([])
+        toast.success("Selected items deleted successfully")
+      }
+    } catch (error) {
+      console.error("Delete error:", error)
+      toast.error("Failed to delete item(s)")
     }
   }
 
   const handleDownload = async (item: FileItem) => {
     try {
-      if (!item.file) {
-        throw new Error("File not found")
+      const { url } = await documentsApi.getDownloadUrl(item.id)
+      
+      // If we have a local file, use it directly
+      if (item.file) {
+        const localUrl = URL.createObjectURL(item.file)
+        const a = document.createElement("a")
+        a.href = localUrl
+        a.download = item.name
+        document.body.appendChild(a)
+        a.click()
+        URL.revokeObjectURL(localUrl)
+        document.body.removeChild(a)
+      } else {
+        // Use the downloaded URL
+        window.open(url, '_blank')
       }
-
-      const url = URL.createObjectURL(item.file)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = item.name
-      document.body.appendChild(a)
-      a.click()
-      URL.revokeObjectURL(url)
-      document.body.removeChild(a)
     } catch (error) {
       console.error("Download error:", error)
       toast.error("Failed to download file")
@@ -259,7 +244,13 @@ const DocumentsPage: NextPage<Props> = () => {
 
   const viewFileDetails = (file: FileItem) => {
     if (file.processingResult) {
-      setFileDetails(file.processingResult)
+      const fileResult: ProcessedFileResult = {
+        type: file.type,
+        filename: file.name,
+        size: file.size || 0,
+        processed_at: file.modified.toLocaleString(),
+      }
+      setFileDetails(fileResult)
       setShowFileDetails(true)
     }
   }
@@ -589,7 +580,8 @@ const DocumentsPage: NextPage<Props> = () => {
                   type="checkbox"
                   className="h-4 w-4 rounded border-gray-300"
                   checked={
-                    getCurrentFolderItems().length > 0 && selectedItems.length === getCurrentFolderItems().length
+                    getCurrentFolderItems().length > 0 && 
+                    selectedItems.length === getCurrentFolderItems().length
                   }
                   onChange={handleSelectAll}
                 />
@@ -603,15 +595,18 @@ const DocumentsPage: NextPage<Props> = () => {
           <TableBody>
             {getCurrentFolderItems().map((item) => (
               <TableRow
-                key={item.id}
-                className={`${selectedItems.includes(item.id) ? "bg-muted" : ""} ${item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
-                  }`}
+                key={item.name}
+                className={`${
+                  selectedItems.includes([...currentPath, item.name].join('/')) ? "bg-muted" : ""
+                } ${
+                  item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
+                }`}
                 onClick={(e) => {
                   // If it's a folder and the click wasn't on the checkbox, navigate into it
                   if (item.type === "folder" && !(e.target as HTMLElement).closest('input[type="checkbox"]')) {
                     setCurrentPath([...currentPath, item.name])
                   } else {
-                    handleSelectItem(item.id)
+                    handleSelectItem(item.name)
                   }
                 }}
               >
@@ -619,10 +614,8 @@ const DocumentsPage: NextPage<Props> = () => {
                   <input
                     type="checkbox"
                     className="h-4 w-4 rounded border-gray-300"
-                    checked={selectedItems.includes(item.id)}
-                    onChange={(e) => {
-                      handleSelectItem(item.id)
-                    }}
+                    checked={selectedItems.includes([...currentPath, item.name].join('/'))}
+                    onChange={() => handleSelectItem(item.name)}
                   />
                 </TableCell>
                 <TableCell className="font-medium">
@@ -665,15 +658,15 @@ const DocumentsPage: NextPage<Props> = () => {
                       variant="ghost"
                       size="icon"
                       onClick={(e) => {
-                        if (item.type === "file") {
-                          handleDownload(item)
-                        }
+                        e.stopPropagation() // Prevent row click event
+                        // Construct full path by joining current path with filename
+                        const fullPath = currentPath.length > 0 
+                          ? `${currentPath.join('/')}/${item.name}`
+                          : item.name
+                        console.log('Delete button clicked for item:', fullPath)
+                        handleDelete(fullPath)
                       }}
-                      disabled={item.type === "folder"}
                     >
-                      <Download className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(item.id)}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>

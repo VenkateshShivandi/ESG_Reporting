@@ -5,7 +5,8 @@ import { useRouter, usePathname } from 'next/navigation'
 import { User, Session } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import { toast } from 'sonner'
-import supabase, { refreshSupabaseClient } from '@/lib/supabase/client'
+import supabase from '@/lib/supabase/client'
+import { storeAuthToken } from '@/lib/auth'
 
 // Types for our authentication context
 interface AuthContextType {
@@ -61,17 +62,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Check for active session on mount and listen for auth state changes
   useEffect(() => {
-    // Skip auth subscription if using DEV_BYPASS_AUTH
     if (DEV_BYPASS_AUTH) {
       setIsLoading(false)
-      return () => {}; // No cleanup needed
+      return () => {}
     }
     
-    // Regular auth flow
-    // Refresh the Supabase client with the current storage preference
-    refreshSupabaseClient()
-    
-    // Get session on initial load
     const getSession = async () => {
       try {
         setIsLoading(true)
@@ -94,21 +89,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Set up auth state change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log("🔑 Auth State Change Event:", event)
+        console.log("🔑 Session Present:", !!session)
+        
         if (session) {
           setSession(session)
           setUser(session.user)
           
-          // Check if on auth page and redirect if needed
+          // Store the complete session data
+          try {
+            localStorage.setItem('jwt_token', JSON.stringify(session))
+            console.log("🔑 Session stored successfully")
+          } catch (error) {
+            console.error("❌ Error storing session:", error)
+          }
+          
           if (pathname?.includes('/auth/') && pathname !== '/auth/update-password') {
             router.push('/dashboard')
           }
         } else {
           setSession(null)
           setUser(null)
+          localStorage.removeItem('jwt_token')
+          console.log("🔑 Session removed from storage")
           
-          // Handle "Signed Out" event and redirect to login
           if (event === 'SIGNED_OUT') {
-            // Prevent redirect loop by checking current path
             if (!pathname?.includes('/auth/') && pathname !== '/') {
               router.push('/auth/login')
             }
@@ -129,7 +134,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign in with email and password
   const signIn = async (email: string, password: string, rememberMe: boolean = false) => {
     if (DEV_BYPASS_AUTH) {
-      // Just pretend it worked
       toast.success('Logged in as development user')
       router.push('/dashboard')
       return { error: null }
@@ -143,9 +147,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem('rememberMe')
       }
       
-      // Refresh the Supabase client with the new storage preference
-      refreshSupabaseClient()
-      
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -153,7 +154,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (error) throw error
       
-      // Redirect will happen in auth state change listener
       toast.success('Welcome back!', {
         description: 'You have successfully logged in.',
       })
@@ -202,24 +202,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign in with Google
   const signInWithGoogle = async () => {
     if (DEV_BYPASS_AUTH) {
-      // Just pretend it worked
       toast.success('Google login simulated in development mode')
       router.push('/dashboard')
       return
     }
     
     try {
+      console.log("🔑 Attempting to login with Google")
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/dashboard`,
-          // Include these scopes for GDPR compliance
           scopes: 'email profile',
         }
       })
+      console.log("🔑 Google login response:", data)
+      if (error) throw error
       
-      if (error) throw error      
-      // No need for a toast here as we're redirecting to Google
+      if (data?.url) {
+        console.log("🔑 Redirecting to Google OAuth URL")
+        window.location.href = data.url
+      }
+      
     } catch (error) {
       console.error('Error signing in with Google:', error)
       toast.error('Google login failed', {
@@ -244,9 +248,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // Clear rememberMe preference
       localStorage.removeItem('rememberMe')
-      
-      // Refresh the Supabase client with the new storage preference
-      refreshSupabaseClient()
       
       await supabase.auth.signOut()
       toast.success('Signed out successfully')

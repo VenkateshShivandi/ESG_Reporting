@@ -47,6 +47,5 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return null // Don't show anything while redirecting
   }
   
-  // Return just the children - the Container component now handles all layout
   return children
 }

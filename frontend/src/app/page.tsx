@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { useAuth } from '@/hooks/use-auth'
 import { Button } from '@/components/ui/button'
 import { BarChart3, FileText, MessageSquare, Shield } from 'lucide-react'
+import Head from 'next/head'
 
 export default function Home() {
   const router = useRouter()
