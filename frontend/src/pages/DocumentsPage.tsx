@@ -67,24 +67,27 @@ const DocumentsPage: NextPage<Props> = () => {
     loadFiles()
   }, [loadFiles])
 
-  const handleSelectItem = (itemId: string) => {
+  const handleSelectItem = (itemName: string) => {
+    const itemPath = [...currentPath, itemName].join('/')
     setSelectedItems((prev) => {
-      if (prev.includes(itemId)) {
-        return prev.filter((id) => id !== itemId)
+      if (prev.includes(itemPath)) {
+        return prev.filter((path) => path !== itemPath)
       } else {
-        return [...prev, itemId]
+        return [...prev, itemPath]
       }
     })
   }
 
   const handleSelectAll = () => {
     const currentItems = getCurrentFolderItems()
+    const currentPaths = currentItems.map(item => [...currentPath, item.name].join('/'))
+    
     if (selectedItems.length === currentItems.length) {
       // If all items are selected, unselect all
       setSelectedItems([])
     } else {
       // Otherwise, select all items in the current folder
-      setSelectedItems(currentItems.map((item) => item.id))
+      setSelectedItems(currentPaths)
     }
   }
 
@@ -175,23 +178,30 @@ const DocumentsPage: NextPage<Props> = () => {
     }
   }
 
-  const handleDelete = async (itemId?: string) => {
+  const handleDelete = async (itemPath?: string) => {
     try {
-      if (itemId) {
-        const result = await documentsApi.deleteFile(itemId)
-        if (result.status === 200) {
-          // Refresh the file list
-          loadFiles()
-          setSelectedItems((prev) => prev.filter((id) => id !== itemId))
-          toast.success("Item deleted successfully")
-        }
-      } else {
-        // Delete multiple items
-        for (const id of selectedItems) {
-          await documentsApi.deleteFile(id)
-        }
+      console.log('Starting delete operation for:', itemPath || 'selected items')
+      
+      if (itemPath) {
+        // Single item delete
+        console.log('Attempting to delete single item:', itemPath)
+        await documentsApi.deleteFile(itemPath)
+        console.log('Successfully deleted item:', itemPath)
+        
         // Refresh the file list
-        loadFiles()
+        await loadFiles()
+        setSelectedItems((prev) => prev.filter((id) => id !== itemPath))
+        toast.success("Item deleted successfully")
+      } else {
+        // Multiple items delete
+        console.log('Attempting to delete multiple items:', selectedItems)
+        for (const path of selectedItems) {
+          await documentsApi.deleteFile(path)
+          console.log('Successfully deleted item:', path)
+        }
+        
+        // Refresh the file list
+        await loadFiles()
         setSelectedItems([])
         toast.success("Selected items deleted successfully")
       }
@@ -570,7 +580,8 @@ const DocumentsPage: NextPage<Props> = () => {
                   type="checkbox"
                   className="h-4 w-4 rounded border-gray-300"
                   checked={
-                    getCurrentFolderItems().length > 0 && selectedItems.length === getCurrentFolderItems().length
+                    getCurrentFolderItems().length > 0 && 
+                    selectedItems.length === getCurrentFolderItems().length
                   }
                   onChange={handleSelectAll}
                 />
@@ -584,15 +595,18 @@ const DocumentsPage: NextPage<Props> = () => {
           <TableBody>
             {getCurrentFolderItems().map((item) => (
               <TableRow
-                key={item.id}
-                className={`${selectedItems.includes(item.id) ? "bg-muted" : ""} ${item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
-                  }`}
+                key={item.name}
+                className={`${
+                  selectedItems.includes([...currentPath, item.name].join('/')) ? "bg-muted" : ""
+                } ${
+                  item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
+                }`}
                 onClick={(e) => {
                   // If it's a folder and the click wasn't on the checkbox, navigate into it
                   if (item.type === "folder" && !(e.target as HTMLElement).closest('input[type="checkbox"]')) {
                     setCurrentPath([...currentPath, item.name])
                   } else {
-                    handleSelectItem(item.id)
+                    handleSelectItem(item.name)
                   }
                 }}
               >
@@ -600,10 +614,8 @@ const DocumentsPage: NextPage<Props> = () => {
                   <input
                     type="checkbox"
                     className="h-4 w-4 rounded border-gray-300"
-                    checked={selectedItems.includes(item.id)}
-                    onChange={(e) => {
-                      handleSelectItem(item.id)
-                    }}
+                    checked={selectedItems.includes([...currentPath, item.name].join('/'))}
+                    onChange={() => handleSelectItem(item.name)}
                   />
                 </TableCell>
                 <TableCell className="font-medium">
@@ -646,15 +658,15 @@ const DocumentsPage: NextPage<Props> = () => {
                       variant="ghost"
                       size="icon"
                       onClick={(e) => {
-                        if (item.type === "file") {
-                          handleDownload(item)
-                        }
+                        e.stopPropagation() // Prevent row click event
+                        // Construct full path by joining current path with filename
+                        const fullPath = currentPath.length > 0 
+                          ? `${currentPath.join('/')}/${item.name}`
+                          : item.name
+                        console.log('Delete button clicked for item:', fullPath)
+                        handleDelete(fullPath)
                       }}
-                      disabled={item.type === "folder"}
                     >
-                      <Download className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={() => handleDelete(item.id)}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>

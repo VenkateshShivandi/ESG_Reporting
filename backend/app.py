@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, send_file
 import os
 from dotenv import load_dotenv
 from security import require_auth, require_role
@@ -38,8 +38,13 @@ if not app.debug:
     # Ensure log directory exists
     os.makedirs('logs', exist_ok=True)
     
+    # Remove existing log file if it exists
+    log_file = 'logs/app.log'
+    if os.path.exists(log_file):
+        os.remove(log_file)
+    
     # Set up file logging
-    file_handler = RotatingFileHandler('logs/app.log', maxBytes=10240, backupCount=10)
+    file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(logging.Formatter(
         '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
     ))
@@ -130,81 +135,219 @@ def get_all_users():
         "message": "This endpoint is protected and only accessible to admins"
     })
 
-@app.route('/api/upload-file', methods=['POST'])
-@cross_origin(origins=[os.getenv('FRONTEND_URL')])
-def upload_file_to_supabase():
+@app.route('/api/list-tree', methods=['GET'])
+@require_auth
+def list_tree():
+    """List files and folders in a directory."""
     try:
+        path = request.args.get('path', '')
+        app.logger.info(f"📞 API Call - list_tree: {path}")
+        
+        # Get files from Supabase storage for the given path
+        response = supabase.storage.from_('documents').list(path=path)
+        
+        # Filter out .emptyFolderPlaceholder files and transform the response
+        files = []
+        for item in response:
+            if not item['name'].endswith('.emptyFolderPlaceholder'):
+                metadata = item.get('metadata', {}) or {}  # Handle None metadata
+                files.append({
+                    'id': item.get('id', ''),
+                    'name': os.path.basename(item['name']),
+                    'type': 'folder' if metadata.get('mimetype') == 'folder' else 'file',
+                    'size': metadata.get('size', 0),
+                    'modified': item.get('last_accessed_at'),
+                    'path': path.split('/') if path else [],
+                    'metadata': {
+                        'mimetype': metadata.get('mimetype', 'application/octet-stream'),
+                        'lastModified': metadata.get('lastModified'),
+                        'contentLength': metadata.get('contentLength'),
+                    },
+                    'created_at': item.get('created_at'),
+                    'updated_at': item.get('updated_at')
+                })
+        
+        app.logger.info(f"📥 API Response: {files}")
+        return jsonify(files), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in list_tree: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/upload-file', methods=['POST'])
+@require_auth
+def upload_file():
+    """Upload a file to a specific path."""
+    try:
+        app.logger.info("📞 API Call - upload_file")
         if 'file' not in request.files:
             return jsonify({'error': 'No file part'}), 400
             
         file = request.files['file']
+        path = request.form.get('path', '')
+        
         if file.filename == '':
             return jsonify({'error': 'No selected file'}), 400
             
-        # Create a unique filename
-        unique_filename = f"{uuid.uuid4()}_{secure_filename(file.filename)}"
+        # Use the original filename, just make it secure
+        filename = secure_filename(file.filename)
         
-        # Save file temporarily
-        temp_path = os.path.join('/tmp', unique_filename)
-        file.save(temp_path)
+        # Read the file data
+        file_data = file.read()
         
-        # Upload to Supabase from the temp file
-        with open(temp_path, 'rb') as f:
-            response = supabase.storage.from_('documents').upload(unique_filename, f)
+        # Upload to Supabase with original filename
+        file_path = os.path.join(path, filename) if path else filename
+        response = supabase.storage.from_('documents').upload(
+            file_path,
+            file_data,
+            file_options={"contentType": file.content_type}
+        )
         
-        # Clean up temp file
-        os.remove(temp_path)
+        app.logger.info(f"📥 API Response: {response}")
         
-        return jsonify({'success': True, 'filename': unique_filename}), 200
+        # Return the file path as the ID since Supabase storage doesn't return an ID
+        return jsonify({
+            'fileId': file_path,
+            'name': filename,
+            'path': path.split('/') if path else []
+        }), 200
     except Exception as e:
-        app.logger.error(f"Error uploading file: {str(e)}")
+        app.logger.error(f"❌ API Error in upload_file: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/files', methods=['GET'])
+@app.route('/api/process-file', methods=['POST'])
 @require_auth
-def get_files():
-    """Get all files from Supabase storage."""
+def process_file():
+    """Process a file and extract metadata."""
     try:
-        response = supabase.storage.from_('documents').list()
-        files = [{'id': item.name, 'name': item.name, 'size': item.metadata.size} for item in response]
-        return jsonify(files), 200
+        app.logger.info("📞 API Call - process_file")
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+            
+        file = request.files['file']
+        file_type = file.filename.split('.')[-1].lower()
+        
+        # Mock processing result based on file type
+        result = {
+            'type': file_type,
+            'filename': file.filename,
+            'size': file.content_length,
+            'processed_at': datetime.now().isoformat()
+        }
+        
+        # Add type-specific metadata
+        if file_type == 'pdf':
+            result.update({
+                'pages': 10,  # You would actually count pages
+                'metadata': {
+                    'title': 'Sample PDF',
+                    'author': 'ESG Reporter',
+                    'creation_date': datetime.now().isoformat()
+                }
+            })
+        elif file_type in ['xlsx', 'csv']:
+            result.update({
+                'rows': 100,  # You would actually count rows
+                'columns': 5,  # You would actually count columns
+                'column_names': ['Date', 'Metric', 'Value', 'Unit']
+            })
+            
+        app.logger.info(f"📥 API Response: {result}")
+        return jsonify(result)
     except Exception as e:
-        app.logger.error(f"Error getting files: {str(e)}")
+        app.logger.error(f"❌ API Error in process_file: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/create-folder', methods=['POST'])
 @require_auth
 def create_folder():
-    """Create a new folder in Supabase storage."""
+    """Create a new folder."""
     try:
-        folder_name = request.json.get('folder_name')
-        response = supabase.storage.from_('documents').create_folder(folder_name)
-        return jsonify({'success': True}), 200
+        data = request.json
+        name = data.get('name')
+        path = data.get('path', '')
+        
+        app.logger.info(f"📞 API Call - create_folder: {name} in {path}")
+        
+        # Construct the folder path
+        folder_path = os.path.join(path, name) if path else name
+        # Create a placeholder file path
+        placeholder_path = os.path.join(folder_path, '.folder')
+            
+        # Create a placeholder file with minimal content
+        response = supabase.storage.from_('documents').upload(
+            placeholder_path,
+            'folder'.encode(),  # Convert string to bytes
+            {"contentType": "application/x-directory"}
+        )
+        
+        app.logger.info(f"📥 API Response: {response}")
+        return jsonify({
+            'folderId': folder_path,
+            'name': name,
+            'path': path.split('/') if path else [],
+            'type': 'folder'
+        }), 200
     except Exception as e:
-        app.logger.error(f"Error creating folder: {str(e)}")
+        app.logger.error(f"❌ API Error in create_folder: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/delete-folder', methods=['DELETE'])
+@app.route('/api/files/<file_id>/download', methods=['GET'])
 @require_auth
-def delete_folder():
-    """Delete a folder from Supabase storage."""
+def get_download_url(file_id):
+    """Get a download URL for a file."""
     try:
-        folder_name = request.json.get('folder_name')
-        response = supabase.storage.from_('documents').remove([folder_name])
-        return jsonify({'success': True}), 200
+        app.logger.info(f"📞 API Call - get_download_url: {file_id}")
+        
+        # Generate signed URL from Supabase
+        response = supabase.storage.from_('documents').create_signed_url(file_id, 3600)
+        
+        app.logger.info(f"📥 API Response: {response}")
+        return jsonify({'url': response['signedURL']})
     except Exception as e:
-        app.logger.error(f"Error deleting folder: {str(e)}")
+        app.logger.error(f"❌ API Error in get_download_url: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/files/<file_id>', methods=['DELETE'])
+@app.route('/api/search-files', methods=['GET'])
 @require_auth
-def delete_file(file_id):
-    """Delete a file from Supabase storage."""
+def search_files():
+    """Search for files."""
     try:
-        response = supabase.storage.from_('documents').remove([file_id])
-        return jsonify({'success': True}), 200
+        query = request.args.get('query', '')
+        file_type = request.args.get('type')
+        path = request.args.get('path', '')
+        
+        app.logger.info(f"📞 API Call - search_files: {query}")
+        
+        # Implement search logic here using Supabase
+        # This is a placeholder implementation
+        response = supabase.storage.from_('documents').list(path=path)
+        files = [file for file in response if query.lower() in file.name.lower()]
+        
+        app.logger.info(f"📥 API Response: {files}")
+        return jsonify(files)
     except Exception as e:
-        app.logger.error(f"Error deleting file: {str(e)}")
+        app.logger.error(f"❌ API Error in search_files: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/storage-quota', methods=['GET'])
+@require_auth
+def get_storage_quota():
+    """Get storage quota information."""
+    try:
+        app.logger.info("📞 API Call - get_storage_quota")
+        
+        # Implement actual storage calculation here
+        # This is a placeholder implementation
+        quota = {
+            'used': 1024 * 1024 * 500,  # 500MB
+            'total': 1024 * 1024 * 1000,  # 1GB
+            'percentage': 50
+        }
+        
+        app.logger.info(f"📥 API Response: {quota}")
+        return jsonify(quota)
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_storage_quota: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 def initialize_assistant():
@@ -302,6 +445,51 @@ def chat():
             
     except Exception as e:
         app.logger.error(f"Error in chat endpoint: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/delete', methods=['DELETE'])
+@require_auth
+def delete_item():
+    """Delete a file or folder."""
+    try:
+        path = request.args.get('path', '')
+        app.logger.info(f"📞 API Call - delete_item: {path}")
+        
+        if not path:
+            return jsonify({'error': 'No path provided'}), 400
+            
+        # Check if path ends with a file extension to determine if it's a file
+        if '.' in os.path.basename(path):
+            # It's a file
+            app.logger.info(f"🔺 Attempting to delete file: {path}")
+            supabase.storage.from_('documents').remove([path])
+            app.logger.info(f"🔺 Successfully deleted file: {path}")
+        else:
+            # It's a folder
+            app.logger.info(f"🔺 Attempting to delete folder: {path}")
+            try:
+                contents = supabase.storage.from_('documents').list(path=path)
+                # Delete all contents first
+                for item in contents:
+                    item_path = os.path.join(path, item['name'])
+                    app.logger.info(f"🔺 Deleting folder content: {item_path}")
+                    supabase.storage.from_('documents').remove([item_path])
+                
+                # Delete the folder placeholder
+                folder_placeholder = os.path.join(path, '.folder')
+                app.logger.info(f"🔺 Deleting folder placeholder: {folder_placeholder}")
+                supabase.storage.from_('documents').remove([folder_placeholder])
+            except Exception as folder_error:
+                app.logger.error(f"❌ Failed to delete folder contents: {str(folder_error)}")
+                raise folder_error
+        
+        app.logger.info(f"📥 API Response: Successfully deleted {path}")
+        return jsonify({
+            'success': True,
+            'path': path
+        }), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in delete_item: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
