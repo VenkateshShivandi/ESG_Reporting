@@ -1,10 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+import supabase from '@/lib/supabase/client'
 
 export async function signIn(email: string, password: string) {
   try {
@@ -38,6 +34,7 @@ export async function signOut() {
   try {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
+    localStorage.removeItem('jwt_token')
     return { error: null }
   } catch (error) {
     Sentry.captureException(error)
@@ -52,6 +49,11 @@ export async function getSession() {
       error,
     } = await supabase.auth.getSession()
     if (error) throw error
+    
+    if (session) {
+      await storeAuthToken(session)
+    }
+    
     return { session, error: null }
   } catch (error) {
     Sentry.captureException(error)
@@ -83,18 +85,39 @@ export async function updatePassword(password: string) {
   }
 }
 
-export async function signInWithOAuth(provider: 'google') {
+export async function getCurrentSession() {
   try {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: `${window.location.origin}/`,
-      },
-    })
+    const { data: { session }, error } = await supabase.auth.getSession()
     if (error) throw error
-    return { data, error: null }
+    return session
   } catch (error) {
+    console.error("Error getting current session:", error)
+    return null
+  }
+}
+
+export async function storeAuthToken(session: any) {
+  try {
+    if (session?.access_token) {
+      localStorage.setItem('jwt_token', session.access_token)
+      console.log("🔑 JWT Token stored:", {
+        token: session.access_token.slice(0, 20) + "...",
+        stored: !!localStorage.getItem('jwt_token'),
+        type: session.token_type  // Usually 'Bearer'
+      })
+    }
+  } catch (error) {
+    console.error("Error storing JWT token:", error)
     Sentry.captureException(error)
-    return { data: null, error }
+  }
+}
+
+export function getAuthToken(): string | null {
+  try {
+    return localStorage.getItem('jwt_token')
+  } catch (error) {
+    console.error("Error getting JWT token:", error)
+    Sentry.captureException(error)
+    return null
   }
 }
