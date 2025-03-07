@@ -9,32 +9,27 @@ access control to ensure GDPR compliance.
 """
 
 import os
+from dotenv import load_dotenv
 import json
 import requests
 from typing import Dict, List, Any, Optional, Union, Tuple
 from flask import request, current_app
 import jwt
 from functools import wraps
-
+from supabase import create_client
 # CONSTANTS
+load_dotenv('.env.local')
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
+SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY')
+from jwcrypto import jwk
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 
 def verify_jwt_token(token: str) -> Dict[str, Any]:
-    """
-    Verify a JWT token from Supabase and extract claims.
-    
-    Args:
-        token (str): The JWT token to verify.
-        
-    Returns:
-        Dict[str, Any]: The decoded JWT claims.
-        
-    Raises:
-        Exception: If token verification fails.
-    """
+    """Verify JWT token using Supabase's auth.getUser endpoint"""
     try:
+
         # Decode the token without verification
         decoded_token = jwt.decode(
             token,
@@ -51,8 +46,7 @@ def verify_jwt_token(token: str) -> Dict[str, Any]:
         current_app.logger.error(f"JWT validation error: {str(e)}")
         raise
     except Exception as e:
-        current_app.logger.error(f"Token verification error: {str(e)}")
-        raise
+        raise Exception(f"Token verification failed: {str(e)}")
 
 
 def require_auth(f):
@@ -108,8 +102,8 @@ def require_role(required_roles: List[str]):
         def decorated(*args, **kwargs):
             if not hasattr(request, 'user'):
                 return {"error": "Authentication required"}, 401
-            
-            user_role = request.user.get('role', 'user')
+            app_metadata = request.user.get('app_metadata', {})
+            user_role = app_metadata.get('role', 'user')
             if user_role not in required_roles:
                 return {"error": "Insufficient permissions"}, 403
             

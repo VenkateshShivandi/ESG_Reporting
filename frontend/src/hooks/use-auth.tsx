@@ -73,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: { session } } = await supabase.auth.getSession()
         
         if (session) {
+          localStorage.setItem('jwt_token', session.access_token)
           setSession(session)
           setUser(session.user)
         }

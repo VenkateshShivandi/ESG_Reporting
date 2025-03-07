@@ -20,6 +20,7 @@ venv
 # rag/experiments
 rag/experiments/*
 
+
 # frontend/node_modules
 frontend/node_modules/*
 
@@ -29,3 +30,6 @@ frontend/package-lock.json
 # frontend/.next
 frontend/.next/*
 
+.coverage
+
+.pytest_cache

@@ -13,6 +13,7 @@ import redis
 # Load environment variables
 load_dotenv('.env.local')
 
+
 # Get Supabase credentials
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')
@@ -68,7 +69,6 @@ def home():
     """Render the home page."""
     return render_template('index.html')
 
-
 @app.route('/api/status')
 def status():
     """Public endpoint to check API status."""
@@ -77,19 +77,18 @@ def status():
         "api_version": "1.0.0"
     })
 
-
 @app.route('/api/profile')
 @require_auth
 def user_profile():
     """Get the authenticated user's profile information."""
     # User data is added to request by the require_auth decorator
+    
     return jsonify({
         "id": request.user['id'],
         "email": request.user['email'],
         "role": request.user['role'],
         "provider": request.user.get('app_metadata', {}).get('provider', 'email')
     })
-
 
 @app.route('/api/esg-data')
 @require_auth
@@ -121,7 +120,6 @@ def get_esg_data():
             }
         ]
     })
-
 
 @app.route('/api/admin/users')
 @require_auth

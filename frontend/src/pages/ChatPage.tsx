@@ -220,6 +220,7 @@ export default function ChatPage() {
     setShowReportView(true)
     setIsReportListOpen(false)
     setIsSidebarOpen(false)
+    setIsSidebarOpen(false)
   }
 
   const closeReportView = () => {
@@ -439,6 +440,33 @@ export default function ChatPage() {
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
                 </div>
               </div>
+        <div className="relative h-full flex flex-col">
+          {/* Sidebar */}
+          <div
+            className={`absolute top-0 left-0 h-full bg-white shadow-lg transition-all duration-300 ease-in-out ${
+              isSidebarOpen ? "w-64" : "w-0"
+            } overflow-hidden z-20`}
+          >
+            <div className="p-4">
+              <div className="flex flex-col gap-4">
+                <div className="space-y-1.5">
+                  <h2 className="text-lg font-semibold text-slate-900">Search Files</h2>
+                  <p className="text-sm text-slate-500">
+                    {files.length > 0
+                      ? "Search and select files to analyze"
+                      : "Upload files in Documents to get started"}
+                  </p>
+                </div>
+                <div className="relative">
+                  <Input
+                    placeholder="Search files..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                  />
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-500" />
+                </div>
+              </div>
 
               {selectedFiles.size > 0 && (
                 <div className="mt-4 px-2">
@@ -447,7 +475,55 @@ export default function ChatPage() {
                   </p>
                 </div>
               )}
+              {selectedFiles.size > 0 && (
+                <div className="mt-4 px-2">
+                  <p className="text-sm text-slate-600">
+                    {selectedFiles.size} file{selectedFiles.size !== 1 ? "s" : ""} selected
+                  </p>
+                </div>
+              )}
 
+              <ScrollArea className="h-[calc(100vh-8rem)] pr-4 mt-4">
+                {files.length > 0 ? (
+                  <div className="space-y-1">
+                    {filteredFiles.map((file) => (
+                      <div
+                        key={file.id}
+                        className={`flex items-center space-x-2 p-2 rounded-lg transition-colors
+                          ${selectedFiles.has(file.id) ? "bg-slate-100" : "hover:bg-slate-50"}`}
+                      >
+                        {file.type === "file" && (
+                          <Checkbox
+                            checked={selectedFiles.has(file.id)}
+                            onCheckedChange={() => handleFileSelect(file.id)}
+                          />
+                        )}
+                        {file.type === "file" ? (
+                          <File className="h-4 w-4 text-blue-500" />
+                        ) : (
+                          <Folder className="h-4 w-4 text-yellow-500" />
+                        )}
+                        <span className="text-sm text-slate-700 truncate">{file.name}</span>
+                      </div>
+                    ))}
+                    {filteredFiles.length === 0 && searchQuery && (
+                      <div className="text-center py-8">
+                        <p className="text-sm text-slate-500">No files match your search</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8">
+                    <File className="h-8 w-8 text-slate-400 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-slate-900">No files available for analysis</p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Upload files in the Documents section to analyze them here
+                    </p>
+                  </div>
+                )}
+              </ScrollArea>
+            </div>
+          </div>
               <ScrollArea className="h-[calc(100vh-8rem)] pr-4 mt-4">
                 {files.length > 0 ? (
                   <div className="space-y-1">
@@ -541,9 +617,41 @@ export default function ChatPage() {
                 </div>
             </div>
           </div>
+            </div>
+          </div>
 
           {/* Main Chat Area */}
+          {/* Main Chat Area */}
             <div className={`flex-1 flex flex-col transition-all duration-300 ${isSidebarOpen ? "ml-64" : "ml-0"} ${isReportListOpen ? "mr-64" : "mr-0"}`}>
+            <div className="flex flex-col h-full mx-2 my-6 border-0 rounded-lg overflow-hidden shadow-sm">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
+                <div className="flex items-center gap-4">
+                  <Button
+                    variant="ghost"
+                    onClick={handleSearchFilesClick}
+                    className={`flex items-center gap-2 ${
+                      files.length > 0 ? "text-[#2E7D32] hover:text-[#1B5E20]" : "text-slate-600"
+                    }`}
+                  >
+                    <Search className="h-5 w-5" />
+                    <span className="text-sm font-medium">Search Files</span>
+                    {files.length > 0 && (
+                      <span className="flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 px-1 text-xs font-medium text-emerald-700">
+                        {selectedFiles.size > 0 ? `${selectedFiles.size}/${files.length}` : files.length}
+                      </span>
+                    )}
+                  </Button>
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                      <Bot className="h-6 w-6 text-emerald-600" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-semibold">ESG Analytics Assistant</h2>
+                      <p className="text-sm text-slate-500">Powered by AI</p>
+                    </div>
+                  </div>
+                </div>
             <div className="flex flex-col h-full mx-2 my-6 border-0 rounded-lg overflow-hidden shadow-sm">
               {/* Header */}
               <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
@@ -603,6 +711,7 @@ export default function ChatPage() {
                   Generate Report
                 </Button>
                   </div>
+              </div>
               </div>
 
               {/* Messages */}
@@ -723,6 +832,28 @@ export default function ChatPage() {
                 </SelectItem>
               </SelectContent>
             </Select>
+
+            
+
+            <div className="space-y-3">
+              <h4 className="text-base font-medium text-slate-900">Report Prompt:</h4>
+              <Textarea 
+                value={reportPrompt}
+                onChange={(e) => setReportPrompt(e.target.value)}
+                className="min-h-[100px] text-base"
+                placeholder="Enter instructions for the AI to generate your report"
+              />
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-base font-medium text-slate-900">Report Prompt:</h4>
+              <Textarea 
+                value={reportPrompt}
+                onChange={(e) => setReportPrompt(e.target.value)}
+                className="min-h-[100px] text-base"
+                placeholder="Enter instructions for the AI to generate your report"
+              />
+            </div>
 
             <div className="space-y-3">
               <h4 className="text-base font-medium text-slate-900">Report Prompt:</h4>
