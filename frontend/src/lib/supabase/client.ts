@@ -18,36 +18,42 @@ if (!supabaseUrl || !supabaseAnonKey) {
 // Custom storage implementation that works in both client and server environments
 const customStorage = {
   getItem: (key: string) => {
+    // Early return if we're in a server context
     if (typeof window === 'undefined') return null
+    
     try {
       const item = window.localStorage.getItem(key)
       if (!item) return null
-      // If it's a JWT token, return as is without parsing
-      if (item.startsWith('eyJ')) return item
-      // Otherwise try to parse as JSON
-      return JSON.parse(item)
+      
+      // Check if it's a JWT token (only if item exists)
+      if (typeof item === 'string' && item.startsWith('eyJ')) {
+        return item as string | null
+      }
+      
+      // Try to parse as JSON
+      try {
+        return JSON.parse(item)
+      } catch {
+        // If parsing fails, return the raw value
+        return item as string | null
+      }
     } catch (error) {
       console.error('Storage getItem error:', error)
       return null
     }
   },
   setItem: (key: string, value: any) => {
-    if (typeof window === 'undefined') return
     try {
-      // If it's a string (like a JWT), store directly
-      if (typeof value === 'string') {
-        window.localStorage.setItem(key, value)
-      } else {
-        // Otherwise stringify the object
-        window.localStorage.setItem(key, JSON.stringify(value))
-      }
+      if (typeof window === 'undefined') return
+      const valueToStore = typeof value === 'string' ? value : JSON.stringify(value)
+      window.localStorage.setItem(key, valueToStore)
     } catch (error) {
       console.error('Storage setItem error:', error)
     }
   },
   removeItem: (key: string) => {
-    if (typeof window === 'undefined') return
     try {
+      if (typeof window === 'undefined') return
       window.localStorage.removeItem(key)
     } catch (error) {
       console.error('Storage removeItem error:', error)
@@ -55,15 +61,7 @@ const customStorage = {
   }
 }
 
-// Clear any potentially corrupted tokens from storage
-if (typeof window !== 'undefined') {
-  customStorage.removeItem('supabase.auth.token')
-  customStorage.removeItem('supabase.auth.expires_at')
-  customStorage.removeItem('supabase.auth.refresh_token')
-  customStorage.removeItem('jwt_token')
-}
-
-// Create a single instance
+// Create a single instance with the custom storage
 const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: customStorage,
@@ -73,8 +71,18 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 })
 
-// Add verification log
+// Only clear tokens in client-side environment
 if (typeof window !== 'undefined') {
+  // Clear any potentially corrupted tokens from storage
+  const tokensToRemove = [
+    'supabase.auth.token',
+    'supabase.auth.expires_at',
+    'supabase.auth.refresh_token',
+    'jwt_token'
+  ]
+  tokensToRemove.forEach(token => customStorage.removeItem(token))
+  
+  // Add verification log
   console.log("🔑 Supabase client initialized with browser-safe storage")
 }
 
