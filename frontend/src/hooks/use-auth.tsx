@@ -70,10 +70,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const getSession = async () => {
       try {
         setIsLoading(true)
-        const { data: { session } } = await supabase.auth.getSession()
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
+        if (error) {
+          console.error('Error getting session:', error)
+          return
+        }
         
         if (session) {
-          localStorage.setItem('jwt_token', session.access_token)
+          console.log("🔑 Initial session loaded")
           setSession(session)
           setUser(session.user)
         }
@@ -90,34 +95,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log("🔑 Auth State Change Event:", event)
-        console.log("🔑 Session Present:", !!session)
         
-        if (session) {
-          setSession(session)
-          setUser(session.user)
-          
-          // Store the complete session data
-          try {
-            localStorage.setItem('jwt_token', JSON.stringify(session))
-            console.log("🔑 Session stored successfully")
-          } catch (error) {
-            console.error("❌ Error storing session:", error)
-          }
-          
-          if (pathname?.includes('/auth/') && pathname !== '/auth/update-password') {
-            router.push('/dashboard')
-          }
-        } else {
-          setSession(null)
-          setUser(null)
-          localStorage.removeItem('jwt_token')
-          console.log("🔑 Session removed from storage")
-          
-          if (event === 'SIGNED_OUT') {
+        switch (event) {
+          case 'SIGNED_IN':
+            console.log("👤 User signed in")
+            if (session) {
+              setSession(session)
+              setUser(session.user)
+              if (pathname?.includes('/auth/') && pathname !== '/auth/update-password') {
+                router.push('/dashboard')
+              }
+            }
+            break
+            
+          case 'SIGNED_OUT':
+            console.log("👋 User signed out")
+            setSession(null)
+            setUser(null)
             if (!pathname?.includes('/auth/') && pathname !== '/') {
               router.push('/auth/login')
             }
-          }
+            break
+            
+          case 'TOKEN_REFRESHED':
+            console.log("🔄 Token refreshed")
+            if (session) {
+              setSession(session)
+              setUser(session.user)
+            }
+            break
+            
+          case 'USER_UPDATED':
+            console.log("📝 User updated")
+            if (session) {
+              setSession(session)
+              setUser(session.user)
+            }
+            break
         }
       }
     )
@@ -209,23 +223,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     try {
       console.log("🔑 Attempting to login with Google")
+      
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/dashboard`,
-          scopes: 'email profile',
+          skipBrowserRedirect: false // Ensure automatic redirect
         }
       })
-      console.log("🔑 Google login response:", data)
+      
       if (error) throw error
       
-      if (data?.url) {
-        console.log("🔑 Redirecting to Google OAuth URL")
-        window.location.href = data.url
-      }
+      // The redirect will happen automatically, no need to handle it manually
+      console.log("🔑 Redirecting to Google OAuth...")
       
     } catch (error) {
-      console.error('Error signing in with Google:', error)
+      console.error('❌ Error signing in with Google:', error)
       toast.error('Google login failed', {
         description: error instanceof Error ? error.message : 'An unexpected error occurred',
       })
