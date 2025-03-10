@@ -3,7 +3,24 @@
 import React from "react"
 import { useState, useEffect, useCallback } from "react"
 import type { NextPage } from "next"
-import { Upload, Folder, File as FileIcon, Trash2, Download, ChevronRight, Loader2, Info, FileText, TableProperties, GitGraph, X } from "lucide-react"
+import { 
+  Upload, 
+  FolderClosed,
+  FolderOpen,
+  FileText, 
+  FileSpreadsheet, 
+  FileType,
+  File,
+  FileCheck,
+  Trash2, 
+  Download, 
+  ChevronRight, 
+  Loader2, 
+  Info, 
+  TableProperties, 
+  GitGraph, 
+  X 
+} from "lucide-react"
 import { documentsApi } from "@/lib/api/documents"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -33,6 +50,30 @@ type Props = {}
 
 const ALLOWED_FILE_TYPES = ".xlsx,.csv,.docx,.xml,.pdf"
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+
+// Function to get the appropriate icon based on file extension
+const getFileIcon = (filename: string, type: string) => {
+  if (type === "folder") {
+    return <FolderClosed className="w-5 h-5 text-yellow-600" />
+  }
+
+  const extension = filename.split('.').pop()?.toLowerCase()
+  
+  switch (extension) {
+    case 'docx':
+    case 'doc':
+      return <FileText className="w-5 h-5 text-blue-600" />
+    case 'xlsx':
+    case 'xls':
+      return <FileSpreadsheet className="w-5 h-5 text-green-600" />
+    case 'csv':
+      return <FileType className="w-5 h-5 text-green-500" />
+    case 'pdf':
+      return <FileCheck className="w-5 h-5 text-red-600" />
+    default:
+      return <File className="w-5 h-5 text-slate-600" />
+  }
+}
 
 const DocumentsPage: NextPage<Props> = () => {
   const [files, setFiles] = useState<FileItem[]>([])
@@ -508,7 +549,7 @@ const DocumentsPage: NextPage<Props> = () => {
             <Dialog>
               <DialogTrigger asChild>
                 <Button variant="outline">
-                  <Folder className="w-4 h-4 mr-2" />
+                  <FolderOpen className="w-4 h-4 mr-2" />
                   New Folder
                 </Button>
               </DialogTrigger>
@@ -620,11 +661,7 @@ const DocumentsPage: NextPage<Props> = () => {
                 </TableCell>
                 <TableCell className="font-medium">
                   <div className="flex items-center space-x-2">
-                    {item.type === "folder" ? (
-                      <Folder className="w-5 h-5 text-[#2E7D32]" />
-                    ) : (
-                      <FileIcon className="w-5 h-5 text-[#2E7D32]" />
-                    )}
+                    {getFileIcon(item.name, item.type)}
                     <span>{item.name}</span>
                     {uploadProgress[item.id] !== undefined && (
                       <div className="w-24 h-1 ml-2 bg-gray-200 rounded-full">
