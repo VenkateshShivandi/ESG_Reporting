@@ -17,6 +17,7 @@ import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
 import ReactMarkdown from 'react-markdown'
 import { useAuth, withAuth } from '@/hooks/use-auth'
+import { useChatStore } from '@/lib/store/chat-store'
 
 // Define a type for reports
 interface Report {
@@ -29,6 +30,7 @@ interface Report {
 function ChatPage() {
   const { session, isLoading: authLoading } = useAuth()
   const [isInitialized, setIsInitialized] = useState(false)
+  const { messages: storedMessages, setMessages: setStoredMessages } = useChatStore()
   
   // Initialize chat with proper auth token
   const chatConfig = useMemo(() => ({
@@ -40,9 +42,24 @@ function ChatPage() {
   
   const { messages, handleInputChange, input, setInput, setMessages } = useAssistant(chatConfig)
 
+  // Restore messages from store on mount
+  useEffect(() => {
+    if (storedMessages.length > 0 && !isInitialized) {
+      setMessages(storedMessages)
+      setIsInitialized(true)
+    }
+  }, [storedMessages, setMessages, isInitialized])
+
+  // Update store when messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      setStoredMessages(messages)
+    }
+  }, [messages, setStoredMessages])
+
   // Initialize messages if empty
   useEffect(() => {
-    if (!isInitialized && !authLoading && session && messages.length === 0) {
+    if (!isInitialized && !authLoading && session && messages.length === 0 && storedMessages.length === 0) {
       setMessages([{
         id: 'welcome',
         role: 'assistant',
@@ -51,7 +68,7 @@ function ChatPage() {
       setIsInitialized(true)
       console.log("💬 Chat initialized with welcome message")
     }
-  }, [authLoading, session, messages, isInitialized, setMessages])
+  }, [authLoading, session, messages, isInitialized, setMessages, storedMessages])
 
   // Show loading state while auth is initializing
   if (authLoading) {
@@ -310,6 +327,7 @@ function ChatPage() {
 
     // Immediately show user message and clear input
     setMessages(prev => [...prev, userMessage]);
+    setStoredMessages([...messages, userMessage]);
     setInput("");
     setIsGeneratingResponse(true);
 
@@ -320,6 +338,7 @@ function ChatPage() {
       content: '●●●'
     };
     setMessages(prev => [...prev, loadingMessage]);
+    setStoredMessages([...messages, loadingMessage]);
 
     // Animate the loading dots
     let dots = 0;
@@ -361,11 +380,16 @@ function ChatPage() {
             content: data.content
           });
         }
+        setStoredMessages(messages);
         return messages;
       });
     } catch (error) {
       // Remove loading message and show error
-      setMessages(prev => prev.filter(msg => msg.id !== 'loading'));
+      setMessages(prev => {
+        const messages = prev.filter(msg => msg.id !== 'loading');
+        setStoredMessages(messages);
+        return messages;
+      });
       console.error('Error sending message:', error);
       toast.error('Failed to send message. Please try again.');
     } finally {

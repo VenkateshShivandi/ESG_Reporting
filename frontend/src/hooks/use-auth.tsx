@@ -6,7 +6,7 @@ import { User, Session } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import { toast } from 'sonner'
 import supabase from '@/lib/supabase/client'
-import { storeAuthToken } from '@/lib/auth'
+import { signIn as authSignIn, signUp as authSignUp, signOut as authSignOut } from '@/lib/auth'
 
 // Types for our authentication context
 interface AuthContextType {
@@ -94,11 +94,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Set up auth state change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log("🔑 Auth State Change Event:", event)
+        console.log("🔑 Auth State Change:", { 
+          event, 
+          hasSession: !!session,
+          path: pathname,
+          loading: isLoading
+        })
         
         switch (event) {
           case 'SIGNED_IN':
-            console.log("👤 User signed in")
+            console.log("👤 User signed in", {
+              user: session?.user?.email,
+              currentPath: pathname
+            })
             if (session) {
               setSession(session)
               setUser(session.user)
@@ -154,19 +162,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     
     try {
-      // Store the rememberMe preference in localStorage
-      if (rememberMe) {
-        localStorage.setItem('rememberMe', 'true')
-      } else {
-        localStorage.removeItem('rememberMe')
-      }
-      
       const { error } = await supabase.auth.signInWithPassword({
         email,
-        password,
+        password
       })
       
       if (error) throw error
+      
+      // Set session persistence after successful login
+      await supabase.auth.setSession({
+        access_token: (await supabase.auth.getSession()).data.session?.access_token ?? '',
+        refresh_token: (await supabase.auth.getSession()).data.session?.refresh_token ?? ''
+      })
       
       toast.success('Welcome back!', {
         description: 'You have successfully logged in.',
@@ -248,7 +255,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign out
   const signOut = async () => {
     if (DEV_BYPASS_AUTH) {
-      // Pretend to sign out but stay authenticated in dev mode
       toast.success('Sign out simulated (but staying authenticated in dev mode)')
       router.push('/auth/login')
       return
@@ -256,11 +262,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     try {
       // Set a flag in sessionStorage to indicate an intentional signout
-      // This will be used to prevent the dashboard layout from redirecting to login
       sessionStorage.setItem('intentionalSignOut', 'true')
-      
-      // Clear rememberMe preference
-      localStorage.removeItem('rememberMe')
       
       await supabase.auth.signOut()
       toast.success('Signed out successfully')
@@ -311,15 +313,25 @@ export function withAuth(Component: React.ComponentType) {
     
     useEffect(() => {
       if (!isLoading && !isAuthenticated) {
+        console.log("🔒 Not authenticated, redirecting to login")
         router.push('/auth/login')
       }
     }, [isAuthenticated, isLoading, router])
     
     if (isLoading) {
-      return <div>Loading...</div>
+      // Show a loading state while checking authentication
+      return (
+        <div className="flex h-screen items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin h-8 w-8 border-4 border-emerald-600 border-t-transparent rounded-full mx-auto" />
+            <p className="mt-2 text-sm text-slate-600">Loading...</p>
+          </div>
+        </div>
+      )
     }
     
-    if (!isAuthenticated) {
+    // Don't render anything if not authenticated (prevents flash of content)
+    if (!isLoading && !isAuthenticated) {
       return null
     }
     
