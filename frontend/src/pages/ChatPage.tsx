@@ -29,7 +29,7 @@ interface Report {
 
 function ChatPage() {
   const { session, isLoading: authLoading } = useAuth()
-  const [isInitialized, setIsInitialized] = useState(false)
+  const initRef = useRef(false)
   const { messages: storedMessages, setMessages: setStoredMessages } = useChatStore()
   
   // Initialize chat with proper auth token
@@ -42,33 +42,36 @@ function ChatPage() {
   
   const { messages, handleInputChange, input, setInput, setMessages } = useAssistant(chatConfig)
 
-  // Restore messages from store on mount
+  // Handle initial messages setup
   useEffect(() => {
-    if (storedMessages.length > 0 && !isInitialized) {
-      setMessages(storedMessages)
-      setIsInitialized(true)
-    }
-  }, [storedMessages, setMessages, isInitialized])
-
-  // Update store when messages change
+    if (initRef.current) return;
+    
+    const initializeChat = async () => {
+      if (!authLoading && session) {
+        if (storedMessages.length > 0) {
+          // Restore stored messages
+          setMessages(storedMessages);
+        } else if (messages.length === 0) {
+          // Set welcome message if no stored messages
+          setMessages([{
+            id: 'welcome',
+            role: 'assistant',
+            content: 'Hello! I am your ESG Analytics Assistant. How can I help you today?'
+          }]);
+        }
+        initRef.current = true;
+      }
+    };
+    
+    initializeChat();
+  }, [authLoading, session, storedMessages, messages.length, setMessages]);
+  
+  // Update store when messages change, but only after initialization
   useEffect(() => {
-    if (messages.length > 0) {
-      setStoredMessages(messages)
+    if (initRef.current && messages.length > 0) {
+      setStoredMessages(messages);
     }
-  }, [messages, setStoredMessages])
-
-  // Initialize messages if empty
-  useEffect(() => {
-    if (!isInitialized && !authLoading && session && messages.length === 0 && storedMessages.length === 0) {
-      setMessages([{
-        id: 'welcome',
-        role: 'assistant',
-        content: 'Hello! I am your ESG Analytics Assistant. How can I help you today?'
-      }])
-      setIsInitialized(true)
-      console.log("💬 Chat initialized with welcome message")
-    }
-  }, [authLoading, session, messages, isInitialized, setMessages, storedMessages])
+  }, [messages, setStoredMessages]);
 
   // Show loading state while auth is initializing
   if (authLoading) {
@@ -327,7 +330,6 @@ function ChatPage() {
 
     // Immediately show user message and clear input
     setMessages(prev => [...prev, userMessage]);
-    setStoredMessages([...messages, userMessage]);
     setInput("");
     setIsGeneratingResponse(true);
 
@@ -338,7 +340,6 @@ function ChatPage() {
       content: '●●●'
     };
     setMessages(prev => [...prev, loadingMessage]);
-    setStoredMessages([...messages, loadingMessage]);
 
     // Animate the loading dots
     let dots = 0;
@@ -380,14 +381,12 @@ function ChatPage() {
             content: data.content
           });
         }
-        setStoredMessages(messages);
         return messages;
       });
     } catch (error) {
       // Remove loading message and show error
       setMessages(prev => {
         const messages = prev.filter(msg => msg.id !== 'loading');
-        setStoredMessages(messages);
         return messages;
       });
       console.error('Error sending message:', error);
