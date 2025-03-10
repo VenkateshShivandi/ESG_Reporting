@@ -34,7 +34,6 @@ export async function signOut() {
   try {
     const { error } = await supabase.auth.signOut()
     if (error) throw error
-    localStorage.removeItem('jwt_token')
     return { error: null }
   } catch (error) {
     Sentry.captureException(error)
@@ -49,11 +48,6 @@ export async function getSession() {
       error,
     } = await supabase.auth.getSession()
     if (error) throw error
-    
-    if (session) {
-      await storeAuthToken(session)
-    }
-    
     return { session, error: null }
   } catch (error) {
     Sentry.captureException(error)
@@ -96,27 +90,13 @@ export async function getCurrentSession() {
   }
 }
 
-export async function storeAuthToken(session: any) {
+// Get the current access token from the session
+export async function getAuthToken(): Promise<string | null> {
   try {
-    if (session?.access_token) {
-      localStorage.setItem('jwt_token', session.access_token)
-      console.log("🔑 JWT Token stored:", {
-        token: session.access_token.slice(0, 20) + "...",
-        stored: !!localStorage.getItem('jwt_token'),
-        type: session.token_type  // Usually 'Bearer'
-      })
-    }
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ?? null
   } catch (error) {
-    console.error("Error storing JWT token:", error)
-    Sentry.captureException(error)
-  }
-}
-
-export function getAuthToken(): string | null {
-  try {
-    return localStorage.getItem('jwt_token')
-  } catch (error) {
-    console.error("Error getting JWT token:", error)
+    console.error("Error getting access token:", error)
     Sentry.captureException(error)
     return null
   }
