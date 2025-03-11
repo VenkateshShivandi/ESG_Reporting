@@ -12,6 +12,7 @@ def extract_text_from_docx(file_path: str) -> str:
     try:
         doc = Document(file_path)
         return "\n".join(filter(None, (para.text.strip() for para in doc.paragraphs)))
+
     except Exception as e:
         logger.error(f"Error extracting text from DOCX: {str(e)}")
         return ""
@@ -29,6 +30,7 @@ def extract_tables_with_context(doc: Document) -> List[Dict[str, Any]]:
 
 def extract_metadata_from_docx(file_path: str) -> Dict[str, Any]:
     """Extract metadata including author, file size, and document statistics."""
+
     try:
         doc = Document(file_path)
         metadata = {
@@ -89,3 +91,4 @@ def parse_docx(file_path: str) -> Dict[str, Any]:
         "sections": extract_sections_from_docx(file_path),
         "tables": extract_tables_with_context(doc)
     }
+
