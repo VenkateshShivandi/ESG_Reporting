@@ -25,60 +25,26 @@ SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY')
 from jwcrypto import jwk
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-def get_supabase_jwt_secrets() -> Dict[str, str]:
-    """
-    Fetch the Supabase JWT verification configuration.
-    
-    Returns:
-        Dict[str, str]: The JWT configuration including jwk_url and public keys.
-    """
-    try:
-        # Get Supabase JWT configuration
-
-        headers = {
-            'apikey': SUPABASE_SERVICE_KEY,
-            'Authorization': f'Bearer {SUPABASE_SERVICE_KEY}',
-            'Content-Type': 'application/json'
-        }
-
-        response = requests.get(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json", headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except Exception as e:
-        current_app.logger.error(f"Failed to get Supabase JWT secrets: {str(e)}")
-        raise
-
 
 def verify_jwt_token(token: str) -> Dict[str, Any]:
     """Verify JWT token using Supabase's auth.getUser endpoint"""
     try:
-        headers = {
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": f"Bearer {token}"
-        }
-        
-        response = requests.get(
-            f"{SUPABASE_URL}/auth/v1/user",
-            headers=headers
+
+        # Decode the token without verification
+        decoded_token = jwt.decode(
+            token,
+            options={"verify_signature": False},  # Skip signature verification
+            algorithms=["RS256"]
         )
         
-        if response.status_code == 200:
-            user_data = response.json()
-            return {
-                "sub": user_data.get("id"),
-                "email": user_data.get("email"),
-                "app_metadata": user_data.get("app_metadata", {}),
-                "user_metadata": user_data.get("user_metadata", {})
-            }
-        elif response.status_code == 403:
-            # Check for token expiration
-            error_data = response.json()
-            if "token is expired" in error_data.get("msg", ""):
-                raise Exception("Token has expired")
-            else:
-                raise Exception(f"Invalid token: {response.text}")
-        else:
-            raise Exception(f"Invalid token: {response.text}")
+        # Basic validation
+        if not decoded_token.get("sub"):  # Check if user ID exists
+            raise jwt.InvalidTokenError("Invalid token: missing sub claim")
+            
+        return decoded_token
+    except jwt.PyJWTError as e:
+        current_app.logger.error(f"JWT validation error: {str(e)}")
+        raise
     except Exception as e:
         raise Exception(f"Token verification failed: {str(e)}")
 
@@ -86,24 +52,16 @@ def verify_jwt_token(token: str) -> Dict[str, Any]:
 def require_auth(f):
     """
     Decorator to require authentication for API endpoints.
-    Validates the JWT token and adds user information to the request context.
-    
-    Usage:
-        @app.route('/api/secure-endpoint')
-        @require_auth
-        def secure_endpoint():
-            # Access current user with request.user
-            return jsonify({"message": f"Hello, {request.user['email']}"})
     """
     @wraps(f)
     def decorated(*args, **kwargs):
         auth_header = request.headers.get('Authorization')
-        if not auth_header or not auth_header.startswith('Bearer '):
-            return {"error": "Missing or invalid authorization token"}, 401
         
-        token = auth_header.split(' ')[1]
+        if not auth_header:
+            return {"error": "Missing authorization header"}, 401
+            
         try:
-            # Verify and decode the token
+            token = auth_header.replace('Bearer ', '')
             claims = verify_jwt_token(token)
             
             # Store user info in request context
@@ -114,12 +72,9 @@ def require_auth(f):
                 "app_metadata": claims.get("app_metadata", {})
             }
             
-            # Log access for audit purposes (GDPR compliance)
-            current_app.logger.info(
-                f"User {request.user['email']} accessed {request.path}"
-            )
-            
+            current_app.logger.info(f"User {request.user['email']} accessed {request.path}")
             return f(*args, **kwargs)
+            
         except Exception as e:
             current_app.logger.error(f"Authentication error: {str(e)}")
             return {"error": "Invalid token"}, 401

@@ -1,16 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  }
-)
+import supabase from '@/lib/supabase/client'
 
 export async function signIn(email: string, password: string) {
   try {
@@ -89,18 +79,25 @@ export async function updatePassword(password: string) {
   }
 }
 
-export async function signInWithOAuth(provider: 'google') {
+export async function getCurrentSession() {
   try {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        redirectTo: `${window.location.origin}/`,
-      },
-    })
+    const { data: { session }, error } = await supabase.auth.getSession()
     if (error) throw error
-    return { data, error: null }
+    return session
   } catch (error) {
+    console.error("Error getting current session:", error)
+    return null
+  }
+}
+
+// Get the current access token from the session
+export async function getAuthToken(): Promise<string | null> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ?? null
+  } catch (error) {
+    console.error("Error getting access token:", error)
     Sentry.captureException(error)
-    return { data: null, error }
+    return null
   }
 }

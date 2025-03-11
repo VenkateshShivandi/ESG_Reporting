@@ -1,26 +1,54 @@
-import { ProcessedFileResult } from "@/lib/api/documents"
+export type FileItem = {
+  id: string
+  name: string
+  type: "file" | "folder"
+  size?: number
+  modified: Date
+  path: string[]
+  file?: File
+  processing?: boolean
+  processed?: boolean
+  processingResult?: ProcessedFileResult
+  processingError?: string
+}
 
-export interface FileItem {
-    id: string
+export type UploadProgress = {
+  [key: string]: number
+}
+
+export type ProcessedFileResult = {
+  type: string
+  filename: string
+  size: number
+  processed_at: string
+  pages?: number
+  rows?: number
+  columns?: number
+  column_names?: string[]
+  sample_data?: Record<string, string>[]
+  metadata?: {
+    title?: string
+    author?: string
+    creation_date?: string
+  }
+  preview?: string
+  paragraph_count?: number
+  table_count?: number
+  element_count?: number
+  root?: {
     name: string
-    type: "file" | "folder"
-    size?: number
-    modified: Date
-    path: string[]
-    file?: File // Store the actual File object for local storage
-    processing?: boolean
-    processed?: boolean
-    processingError?: string
-    processingResult?: ProcessedFileResult
+    attributes: Record<string, string>
   }
-  
-  export interface UploadProgress {
-    [key: string]: number
-  }
-  
-  export interface FileUploadResponse {
-    path: string
-    url: string
-  }
+  children_preview?: Array<{
+    tag: string
+    attributes: Record<string, string>
+    text?: string
+  }>
+}
+
+export interface FileUploadResponse {
+  path: string
+  url: string
+}
   
   

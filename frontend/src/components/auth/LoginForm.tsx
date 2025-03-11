@@ -72,7 +72,7 @@ export default function LoginForm() {
       await signInWithGoogle()
       // Redirect handled by OAuth provider
     } catch (error) {
-      // Error handling done in the hook
+      console.log("🔑 Error logging in with Google")
       console.error(error)
     } finally {
       setIsLoading(false)
