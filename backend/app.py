@@ -29,7 +29,13 @@ if not SUPABASE_URL or not SUPABASE_ANON_KEY or not SUPABASE_SERVICE_ROLE_KEY:
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+        "methods": ["GET", "POST"],
+        "allow_headers": ["*"]
+    }
+})
 
 # Configure logging
 if not app.debug:
@@ -218,10 +224,10 @@ def process_file():
     """Process a file and extract metadata."""
     try:
         app.logger.info("📞 API Call - process_file")
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file part'}), 400
-            
-        file = request.files['file']
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part'}), 400
+    
+    file = request.files['file']
         file_type = file.filename.split('.')[-1].lower()
         
         # Mock processing result based on file type
