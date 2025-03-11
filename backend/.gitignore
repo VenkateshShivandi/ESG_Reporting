@@ -2,4 +2,12 @@
 
 node_modules
 
+<<<<<<< HEAD
 logs/*
+=======
+logs/*
+
+output/*
+
+dump.rdb
+>>>>>>> 63ed9bd (Parser for RAG - Docx v1.1)
