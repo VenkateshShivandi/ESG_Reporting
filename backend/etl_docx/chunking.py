@@ -32,7 +32,7 @@ def semantic_chunk_text(sections: List[Dict], similarity_threshold=0.25, max_chu
             similarity = util.pytorch_cos_sim(embedding1, embedding2).item()
             
             if (similarity < similarity_threshold and len(current_chunk) >= 3) or chunk_length >= max_chunk_size:
-                if prev_title == section_title and len(chunks) > 0:  # 合并相邻相同标题的 chunk
+                if prev_title == section_title and len(chunks) > 0:  # merge chunks with the same title
                     chunks[-1]["text"] += " " + " ".join(current_chunk)
                 else:
                     chunks.append({"title": section_title, "text": " ".join(current_chunk)})
@@ -40,12 +40,12 @@ def semantic_chunk_text(sections: List[Dict], similarity_threshold=0.25, max_chu
                 current_chunk, chunk_length = [], 0
         
         if current_chunk:
-            if prev_title == section_title and len(chunks) > 0:  # 继续合并
+            if prev_title == section_title and len(chunks) > 0:  # merge chunks with the same title
                 chunks[-1]["text"] += " " + " ".join(current_chunk)
             else:
                 chunks.append({"title": section_title, "text": " ".join(current_chunk)})
     
-    # 处理可能的孤立短 chunk
+    # handle possible isolated short chunks
     if len(chunks) > 1 and len(chunks[-1]["text"]) < 50:
         chunks[-2]["text"] += " " + chunks[-1]["text"]
         chunks.pop()

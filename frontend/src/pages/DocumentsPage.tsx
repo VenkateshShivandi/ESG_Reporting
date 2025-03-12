@@ -3,23 +3,24 @@
 import React from "react"
 import { useState, useEffect, useCallback } from "react"
 import type { NextPage } from "next"
-import { 
-  Upload, 
+import {
+  Upload,
   FolderClosed,
   FolderOpen,
-  FileText, 
-  FileSpreadsheet, 
+  FileText,
+  FileSpreadsheet,
   FileType,
   File,
   FileCheck,
-  Trash2, 
-  Download, 
-  ChevronRight, 
-  Loader2, 
-  Info, 
-  TableProperties, 
-  GitGraph, 
-  X 
+  Trash2,
+  Download,
+  ChevronRight,
+  Loader2,
+  Info,
+  TableProperties,
+  GitGraph,
+  X,
+  Folder
 } from "lucide-react"
 import { documentsApi } from "@/lib/api/documents"
 import { Button } from "@/components/ui/button"
@@ -51,14 +52,16 @@ type Props = {}
 const ALLOWED_FILE_TYPES = ".xlsx,.csv,.docx,.xml,.pdf"
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
-// Function to get the appropriate icon based on file extension
-const getFileIcon = (filename: string, type: string) => {
-  if (type === "folder") {
-    return <FolderClosed className="w-5 h-5 text-yellow-600" />
+// Get icon for file or folder
+const getFileIcon = (filename: string, type?: string) => {
+  // If it's a folder type (case insensitive), return folder icon
+  if (type && (type.toLowerCase() === "folder" || type.toLowerCase() === "directory")) {
+    return <Folder className="w-5 h-5 text-yellow-600" />
   }
 
+  // Return corresponding icon based on file extension
   const extension = filename.split('.').pop()?.toLowerCase()
-  
+
   switch (extension) {
     case 'docx':
     case 'doc':
@@ -122,12 +125,10 @@ const DocumentsPage: NextPage<Props> = () => {
   const handleSelectAll = () => {
     const currentItems = getCurrentFolderItems()
     const currentPaths = currentItems.map(item => [...currentPath, item.name].join('/'))
-    
+
     if (selectedItems.length === currentItems.length) {
-      // If all items are selected, unselect all
       setSelectedItems([])
     } else {
-      // Otherwise, select all items in the current folder
       setSelectedItems(currentPaths)
     }
   }
@@ -146,7 +147,6 @@ const DocumentsPage: NextPage<Props> = () => {
         const file = files[i]
         const fileId = Math.random().toString(36).substring(7)
 
-        // Validate file type and size (keeping existing validation)
         const fileType = file.name.split(".").pop()?.toLowerCase()
         const allowedTypes = ["xlsx", "csv", "docx", "xml", "pdf"]
         if (!fileType || !allowedTypes.includes(fileType)) {
@@ -158,21 +158,15 @@ const DocumentsPage: NextPage<Props> = () => {
           toast.error(`File too large: ${file.name}`)
           continue
         }
-        
+
         setUploadProgress((prev) => ({ ...prev, [fileId]: 0 }))
 
         try {
-          // Upload file to storage
           const { fileId: uploadedFileId } = await documentsApi.uploadFile(file, currentPath)
           setUploadProgress((prev) => ({ ...prev, [fileId]: 60 }))
-          
-          // Process the file
           await documentsApi.processFile(file)
           setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }))
-          
-          // Refresh the file list
           await loadFiles()
-          
           toast.success(`File ${file.name} processed successfully`)
         } catch (error) {
           console.error("File processing error:", error)
@@ -198,10 +192,9 @@ const DocumentsPage: NextPage<Props> = () => {
       return
     }
 
-    // Check if folder already exists in current path
-    if (files.some(item => 
-      item.type === "folder" && 
-      item.name === name && 
+    if (files.some(item =>
+      item.type === "folder" &&
+      item.name === name &&
       JSON.stringify(item.path) === JSON.stringify(currentPath)
     )) {
       toast.error("A folder with this name already exists")
@@ -210,7 +203,6 @@ const DocumentsPage: NextPage<Props> = () => {
 
     try {
       await documentsApi.createFolder(name, currentPath)
-      // Refresh the file list
       loadFiles()
       toast.success(`Folder ${name} created successfully`)
     } catch (error) {
@@ -221,27 +213,15 @@ const DocumentsPage: NextPage<Props> = () => {
 
   const handleDelete = async (itemPath?: string) => {
     try {
-      console.log('Starting delete operation for:', itemPath || 'selected items')
-      
       if (itemPath) {
-        // Single item delete
-        console.log('Attempting to delete single item:', itemPath)
         await documentsApi.deleteFile(itemPath)
-        console.log('Successfully deleted item:', itemPath)
-        
-        // Refresh the file list
         await loadFiles()
         setSelectedItems((prev) => prev.filter((id) => id !== itemPath))
         toast.success("Item deleted successfully")
       } else {
-        // Multiple items delete
-        console.log('Attempting to delete multiple items:', selectedItems)
         for (const path of selectedItems) {
           await documentsApi.deleteFile(path)
-          console.log('Successfully deleted item:', path)
         }
-        
-        // Refresh the file list
         await loadFiles()
         setSelectedItems([])
         toast.success("Selected items deleted successfully")
@@ -255,8 +235,7 @@ const DocumentsPage: NextPage<Props> = () => {
   const handleDownload = async (item: FileItem) => {
     try {
       const { url } = await documentsApi.getDownloadUrl(item.id)
-      
-      // If we have a local file, use it directly
+
       if (item.file) {
         const localUrl = URL.createObjectURL(item.file)
         const a = document.createElement("a")
@@ -267,7 +246,6 @@ const DocumentsPage: NextPage<Props> = () => {
         URL.revokeObjectURL(localUrl)
         document.body.removeChild(a)
       } else {
-        // Use the downloaded URL
         window.open(url, '_blank')
       }
     } catch (error) {
@@ -621,7 +599,7 @@ const DocumentsPage: NextPage<Props> = () => {
                   type="checkbox"
                   className="h-4 w-4 rounded border-gray-300"
                   checked={
-                    getCurrentFolderItems().length > 0 && 
+                    getCurrentFolderItems().length > 0 &&
                     selectedItems.length === getCurrentFolderItems().length
                   }
                   onChange={handleSelectAll}
@@ -637,13 +615,10 @@ const DocumentsPage: NextPage<Props> = () => {
             {getCurrentFolderItems().map((item) => (
               <TableRow
                 key={item.name}
-                className={`${
-                  selectedItems.includes([...currentPath, item.name].join('/')) ? "bg-muted" : ""
-                } ${
-                  item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
-                }`}
+                className={`${selectedItems.includes([...currentPath, item.name].join('/')) ? "bg-muted" : ""
+                  } ${item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
+                  }`}
                 onClick={(e) => {
-                  // If it's a folder and the click wasn't on the checkbox, navigate into it
                   if (item.type === "folder" && !(e.target as HTMLElement).closest('input[type="checkbox"]')) {
                     setCurrentPath([...currentPath, item.name])
                   } else {
@@ -675,9 +650,11 @@ const DocumentsPage: NextPage<Props> = () => {
                 </TableCell>
                 <TableCell>{formatFileSize(item.size)}</TableCell>
                 <TableCell>
-                  {item.modified instanceof Date
-                    ? item.modified.toLocaleDateString()
-                    : new Date(item.modified).toLocaleDateString()}
+                  {typeof item.modified === 'string'
+                    ? new Date(item.modified).toLocaleDateString()
+                    : item.modified instanceof Date
+                      ? item.modified.toLocaleDateString()
+                      : new Date().toLocaleDateString()}
                 </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center space-x-2">
@@ -695,12 +672,10 @@ const DocumentsPage: NextPage<Props> = () => {
                       variant="ghost"
                       size="icon"
                       onClick={(e) => {
-                        e.stopPropagation() // Prevent row click event
-                        // Construct full path by joining current path with filename
-                        const fullPath = currentPath.length > 0 
+                        e.stopPropagation()
+                        const fullPath = currentPath.length > 0
                           ? `${currentPath.join('/')}/${item.name}`
                           : item.name
-                        console.log('Delete button clicked for item:', fullPath)
                         handleDelete(fullPath)
                       }}
                     >

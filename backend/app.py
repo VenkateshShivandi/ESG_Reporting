@@ -29,7 +29,13 @@ if not SUPABASE_URL or not SUPABASE_ANON_KEY or not SUPABASE_SERVICE_ROLE_KEY:
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+        "methods": ["GET", "POST", "DELETE"],
+        "allow_headers": ["*"]
+    }
+})
 
 # Configure logging
 if not app.debug:
@@ -136,23 +142,40 @@ def get_all_users():
 @app.route('/api/list-tree', methods=['GET'])
 @require_auth
 def list_tree():
-    """List files and folders in a directory."""
     try:
         path = request.args.get('path', '')
-        app.logger.info(f"📞 API Call - list_tree: {path}")
+        app.logger.info(f"📞 API Call - list_tree: Requested path={path}")
         
-        # Get files from Supabase storage for the given path
+        # Get file list from Supabase
         response = supabase.storage.from_('documents').list(path=path)
         
-        # Filter out .emptyFolderPlaceholder files and transform the response
+        # Process the returned data
         files = []
         for item in response:
-            if not item['name'].endswith('.emptyFolderPlaceholder'):
-                metadata = item.get('metadata', {}) or {}  # Handle None metadata
+            if item['id'] is None:
+                # Folder
                 files.append({
-                    'id': item.get('id', ''),
-                    'name': os.path.basename(item['name']),
-                    'type': 'folder' if metadata.get('mimetype') == 'folder' else 'file',
+                    'id': None,
+                    'name': item['name'],
+                    'type': 'folder',
+                    'size': 0,
+                    'modified': item.get('last_accessed_at'),
+                    'path': path.split('/') if path else [],
+                    'metadata': {
+                        'mimetype': 'folder',
+                        'lastModified': None,
+                        'contentLength': 0,
+                    },
+                    'created_at': item.get('created_at'),
+                    'updated_at': item.get('updated_at')
+                })
+            else:
+                # File
+                metadata = item.get('metadata', {}) or {}
+                files.append({
+                    'id': item['id'],
+                    'name': item['name'],
+                    'type': 'file',
                     'size': metadata.get('size', 0),
                     'modified': item.get('last_accessed_at'),
                     'path': path.split('/') if path else [],
@@ -164,8 +187,8 @@ def list_tree():
                     'created_at': item.get('created_at'),
                     'updated_at': item.get('updated_at')
                 })
-        
-        app.logger.info(f"📥 API Response: {files}")
+
+        app.logger.info(f"📤 Returning response: {files}")
         return jsonify(files), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in list_tree: {str(e)}")
@@ -220,7 +243,7 @@ def process_file():
         app.logger.info("📞 API Call - process_file")
         if 'file' not in request.files:
             return jsonify({'error': 'No file part'}), 400
-            
+        
         file = request.files['file']
         file_type = file.filename.split('.')[-1].lower()
         
@@ -432,7 +455,6 @@ def chat():
         
         # Return the assistant's message
         if assistant_response:
-            print("assistant_response: ", assistant_response)
             return jsonify({
                 'id': str(uuid.uuid4()),
                 'role': 'assistant',
