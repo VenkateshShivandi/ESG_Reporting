@@ -1,37 +1,18 @@
-"""
-DOCX Parser Module
-
-This module provides functionality to parse DOCX (Microsoft Word) files using:
-- python-docx: Extract text and tables from Word documents
-
-The main function is parse_docx(), which extracts text, tables, and metadata
-from DOCX files and returns them in a structured format.
-"""
-
 import os
 import logging
-from typing import Dict, List, Any, Union
-
-# Import utility functions
-from .utils import safe_parse, create_result_dict
+from typing import Dict, List, Any
+from docx import Document
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Try to import the required libraries
-try:
-    import docx
-    DOCX_AVAILABLE = True
-except ImportError:
-    DOCX_AVAILABLE = False
-    logger.warning("python-docx not available. DOCX parsing will not work.")
 
 def extract_text_from_docx(file_path: str) -> str:
     """Extract full text from a DOCX file, cleaning up unnecessary whitespace."""
     try:
         doc = Document(file_path)
         return "\n".join(filter(None, (para.text.strip() for para in doc.paragraphs)))
+
     except Exception as e:
         logger.error(f"Error extracting text from DOCX: {str(e)}")
         return ""
@@ -49,6 +30,7 @@ def extract_tables_with_context(doc: Document) -> List[Dict[str, Any]]:
 
 def extract_metadata_from_docx(file_path: str) -> Dict[str, Any]:
     """Extract metadata including author, file size, and document statistics."""
+
     try:
         doc = Document(file_path)
         metadata = {
@@ -61,32 +43,20 @@ def extract_metadata_from_docx(file_path: str) -> Dict[str, Any]:
         }
         try:
             core_props = doc.core_properties
-            if core_props.author:
-                metadata["author"] = core_props.author
-            if core_props.title:
-                metadata["title"] = core_props.title
-            if core_props.created:
-                metadata["created"] = core_props.created.isoformat()
-            if core_props.modified:
-                metadata["modified"] = core_props.modified.isoformat()
-            if core_props.last_modified_by:
-                metadata["last_modified_by"] = core_props.last_modified_by
-            if core_props.revision:
-                metadata["revision"] = core_props.revision
+            metadata.update({
+                "author": core_props.author or "Not available",
+                "title": core_props.title or "Not available",
+                "created": core_props.created.isoformat() if core_props.created else "Not available",
+                "modified": core_props.modified.isoformat() if core_props.modified else "Not available",
+                "last_modified_by": core_props.last_modified_by or "Not available",
+                "revision": core_props.revision or "Not available"
+            })
         except Exception as e:
             logger.warning(f"Error extracting core properties: {str(e)}")
-        
-        # Add document statistics
-        metadata["paragraphs"] = len(doc.paragraphs)
-        metadata["tables"] = len(doc.tables)
-        
         return metadata
     except Exception as e:
         logger.error(f"Error extracting metadata from DOCX: {str(e)}")
-        return {
-            "filename": os.path.basename(file_path),
-            "filesize": os.path.getsize(file_path)
-        }
+        return {}
 
 def extract_sections_from_docx(file_path: str) -> List[Dict[str, Any]]:
     """Extract structured sections from a DOCX document."""
