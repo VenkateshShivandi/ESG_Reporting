@@ -50,5 +50,12 @@ export interface FileUploadResponse {
   path: string
   url: string
 }
+
+export interface RenameItemResponse {
+  success: boolean
+  oldPath: string
+  newPath: string
+  warning?: string
+}
   
   
