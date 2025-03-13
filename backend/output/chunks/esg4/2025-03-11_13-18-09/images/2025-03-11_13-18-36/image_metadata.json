@@ -1,0 +1,16 @@
+{
+  "source_pdf": "test_files/esg4.pdf",
+  "extraction_date": "2025-03-11T13:18:52.289352",
+  "total_images": 14,
+  "images_by_page": {
+    "0": 1,
+    "1": 1,
+    "2": 1,
+    "3": 1,
+    "4": 2,
+    "5": 2,
+    "6": 2,
+    "7": 2,
+    "8": 2
+  }
+}

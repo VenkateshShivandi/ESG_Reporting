@@ -1,150 +1,121 @@
 "use client"
 
-import * as React from "react"
-import { useState, useEffect } from "react"
-import { BarChart3, FileText, MessageSquare, LogOut, UserIcon, Home, ChevronLeft, ChevronRight, Leaf } from "lucide-react"
+import React, { useState, useEffect } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
+import { useAuth } from "@/hooks/use-auth"
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarFooter,
-  SidebarProvider,
-} from "@/components/ui/sidebar"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+  BarChart3,
+  FileText,
+  MessageSquare,
+  UserIcon,
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  Leaf,
+  Settings,
+  Bell,
+  Search,
+} from "lucide-react"
+
+// UI Components
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+
+// Import page components
 import ChatPage from "@/pages/ChatPage"
 import DocumentsPage from "@/pages/DocumentsPage"
 import AnalyticsPage from "@/pages/AnalyticsPage"
 import ProfilePage from "@/pages/ProfilePage"
-import { useAuth } from '@/hooks/use-auth'
-import { useSearchParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { Button } from '@/components/ui/button'
-import Image from 'next/image'
 
-// Temporary Analytics Page component
-// const AnalyticsPage = () => (
-//   <div className="flex items-center justify-center h-full">
-//     <div className="text-center">
-//       <BarChart3 className="h-10 w-10 text-emerald-500 mx-auto mb-4" />
-//       <h2 className="text-2xl font-semibold mb-2">Analytics Dashboard</h2>
-//       <p className="text-slate-500">Coming soon</p>
-//     </div>
-//   </div>
-// )
+// Define tab interface
+interface DashboardTab {
+  id: string
+  label: string
+  icon: React.ElementType
+  component: React.ReactNode
+  badgeCount?: number
+}
 
-const tabs = [
-  // {
-  //   icon: Home,
-  //   label: "Home",
-  //   id: "home",
-  //   component: <HomePage />,
-  //   color: "text-green-500 hover:text-green-600",
-  //   description: "Dashboard overview",
-  // },
+// Define dashboard tabs
+const dashboardTabs: DashboardTab[] = [
   {
-    icon: BarChart3,
-    label: "Analytics",
     id: "analytics",
+    label: "Analytics",
+    icon: BarChart3,
     component: <AnalyticsPage />,
-    color: "text-emerald-500 hover:text-emerald-600",
-    description: "View ESG metrics",
   },
   {
-    icon: FileText,
-    label: "Documents",
     id: "documents",
+    label: "Documents",
+    icon: FileText,
     component: <DocumentsPage />,
-    color: "text-blue-500 hover:text-blue-600",
-    description: "Manage reports",
+    badgeCount: 3,
   },
   {
-    icon: MessageSquare,
-    label: "Chat",
     id: "chat",
+    label: "Chat",
+    icon: MessageSquare,
     component: <ChatPage />,
-    color: "text-violet-500 hover:text-violet-600",
-    description: "AI assistant",
   },
   {
-    icon: UserIcon,
-    label: "Profile",
     id: "profile",
+    label: "Profile",
+    icon: UserIcon,
     component: <ProfilePage />,
-    color: "text-orange-500 hover:text-orange-600",
-    description: "Account settings",
   },
 ]
 
-// Sidebar tab interface
-interface Tab {
-  id: string;
-  label: string;
-  icon: React.ReactNode;
-  href: string;
-}
-
 export function Container() {
   const searchParams = useSearchParams()
-  const tabParam = searchParams?.get('tab')
+  const tabParam = searchParams?.get("tab")
   const router = useRouter()
   const { signOut, user } = useAuth()
   const [isExpanded, setIsExpanded] = useState(true)
-
+  const [isMobileView, setIsMobileView] = useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  
   // Create a state to directly control which tab is active
   const [activeTabId, setActiveTabId] = useState<string>(() => {
-    return tabParam || 'analytics'
+    return tabParam || "analytics"
   })
 
-  // Derive active tab label from active tab ID
-  const activeTabLabel = React.useMemo(() => {
-    const tab = tabs.find(t => t.id === activeTabId)
-    return tab?.label || tabs[0].label
-  }, [activeTabId])
+  // Check for mobile view on mount and window resize
+  useEffect(() => {
+    const checkMobileView = () => {
+      setIsMobileView(window.innerWidth < 768)
+      if (window.innerWidth < 768) {
+        setIsExpanded(false)
+      }
+    }
+
+    // Initial check
+    checkMobileView()
+
+    // Add event listener
+    window.addEventListener("resize", checkMobileView)
+
+    // Cleanup
+    return () => window.removeEventListener("resize", checkMobileView)
+  }, [])
 
   // Keep state in sync with URL
   useEffect(() => {
     if (tabParam && tabParam !== activeTabId) {
       setActiveTabId(tabParam)
-    } else if (!tabParam && activeTabId !== 'analytics') {
-      setActiveTabId('analytics')
+    } else if (!tabParam && activeTabId !== "analytics") {
+      setActiveTabId("analytics")
     }
   }, [tabParam, activeTabId])
-
-  // Listen for the collapseMainSidebar event from ChatPage
-  useEffect(() => {
-    const handleCollapseMainSidebar = () => {
-      // Only collapse if the sidebar is currently expanded
-      if (isExpanded) {
-        setIsExpanded(false)
-      }
-    }
-
-    window.addEventListener('collapseMainSidebar', handleCollapseMainSidebar)
-
-    return () => {
-      window.removeEventListener('collapseMainSidebar', handleCollapseMainSidebar)
-    }
-  }, [isExpanded])
-
-  // Listen for tab change events from the navigation component
-  useEffect(() => {
-    const handleTabChange = (event: CustomEvent) => {
-      const newTabId = event.detail.tab
-      if (newTabId !== activeTabId) {
-        setActiveTabId(newTabId)
-      }
-    }
-
-    window.addEventListener('tabChange', handleTabChange as EventListener)
-
-    return () => {
-      window.removeEventListener('tabChange', handleTabChange as EventListener)
-    }
-  }, [activeTabId])
 
   // Handle sidebar button clicks
   const handleTabClick = (tabId: string) => {
@@ -153,6 +124,11 @@ export function Container() {
 
     // Then update URL
     router.replace(`/dashboard?tab=${tabId}`, { scroll: false })
+
+    // Close mobile menu if open
+    if (isMobileView && isMobileMenuOpen) {
+      setIsMobileMenuOpen(false)
+    }
   }
 
   // Toggle sidebar expansion
@@ -160,191 +136,247 @@ export function Container() {
     setIsExpanded(!isExpanded)
   }
 
-  // Define sidebar tabs
-  const sidebarTabs: Tab[] = [
-    {
-      id: 'analytics',
-      label: 'Analytics',
-      icon: <BarChart3 className="h-5 w-5" />,
-      href: '/dashboard?tab=analytics',
-    },
-    {
-      id: 'documents',
-      label: 'Documents',
-      icon: <FileText className="h-5 w-5" />,
-      href: '/dashboard?tab=documents',
-    },
-    {
-      id: 'chat',
-      label: 'Chat',
-      icon: <MessageSquare className="h-5 w-5" />,
-      href: '/dashboard?tab=chat',
-    },
-    {
-      id: 'profile',
-      label: 'Profile',
-      icon: <UserIcon className="h-5 w-5" />,
-      href: '/dashboard?tab=profile',
-    },
-  ];
+  // Get active tab component
+  const activeTabComponent = dashboardTabs.find((tab) => tab.id === activeTabId)?.component
 
   return (
-    <div className="flex h-screen bg-white">
-      <SidebarProvider>
-        {/* Sidebar with enhanced styling */}
-        <Sidebar className={`h-full bg-gradient-to-b from-slate-50 to-white transition-all duration-300 flex-shrink-0 border-r ${isExpanded ? 'w-64' : 'w-16'} fixed top-0 left-0 z-10`}>
-          <SidebarHeader className="h-16 border-b flex items-center justify-between">
-            <div className={`flex items-center ${isExpanded ? 'px-4' : 'justify-center w-full'}`}>
-              <div className="flex items-center justify-center h-9 w-9 rounded-md bg-[#E8F5E9] shrink-0">
-                <Leaf className="h-5 w-5 text-[#2E7D32]" />
-              </div>
-              {isExpanded && <span className="ml-3 font-semibold text-[#2E7D32]">ESG REPORTING</span>}
+    <div className="flex h-screen overflow-hidden bg-slate-50">
+      {/* Mobile Header - Only visible on small screens */}
+      <div className="fixed top-0 left-0 right-0 z-30 flex h-16 items-center justify-between border-b bg-white px-4 md:hidden">
+        <div className="flex items-center">
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="mr-3 rounded-md p-2 text-slate-500 hover:bg-slate-100"
+          >
+            {isMobileMenuOpen ? <ChevronLeft className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
+          </button>
+          <div className="flex items-center">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-100 text-emerald-700">
+              <Leaf className="h-5 w-5" />
             </div>
-          </SidebarHeader>
-          
-          {/* Toggle sidebar button - Shows either expand or collapse button in the same position */}
+            <span className="ml-2 font-semibold text-emerald-700">ESG METRICS</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" className="gap-2">
+            <Avatar className="h-8 w-8">
+              <AvatarFallback className="bg-emerald-100 text-emerald-700">
+                {user?.email ? user.email.charAt(0).toUpperCase() : "U"}
+              </AvatarFallback>
+            </Avatar>
+          </Button>
+        </div>
+      </div>
+
+      {/* Mobile Sidebar Overlay */}
+      {isMobileView && isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-20 bg-black/50 md:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div 
+        className={`fixed left-0 top-0 z-20 h-full flex-shrink-0 overflow-hidden border-r bg-white transition-all duration-300 ${
+          isExpanded ? "w-64" : "w-16"
+        } ${
+          isMobileView ? (isMobileMenuOpen ? "translate-x-0" : "-translate-x-full") : "translate-x-0"
+        } md:relative md:translate-x-0`}
+      >
+        {/* Sidebar Header with Logo */}
+        <div className="flex h-16 items-center justify-between border-b px-4">
+          <div className={`flex items-center ${isExpanded ? "" : "justify-center w-full"}`}>
+            <div className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-100 text-emerald-700">
+              <Leaf className="h-5 w-5" />
+            </div>
+            {isExpanded && <span className="ml-3 font-semibold text-emerald-700">ESG METRICS</span>}
+          </div>
+          {isExpanded && !isMobileView && (
+            <button
+              className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              onClick={toggleSidebar}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Expand button when sidebar is collapsed */}
+        {!isExpanded && !isMobileView && (
           <div className="flex justify-center py-2 border-b">
             <button
-              className="p-1.5 rounded-full text-slate-500 hover:bg-slate-100 transition-colors"
+              className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
               onClick={toggleSidebar}
-              aria-label={isExpanded ? "Collapse sidebar" : "Expand sidebar"}
             >
-              {isExpanded ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              <ChevronRight className="h-4 w-4" />
             </button>
           </div>
-          
-          <SidebarContent>
-            <SidebarMenu className={`flex flex-col ${isExpanded ? 'items-start px-3' : 'items-center px-2'} gap-3 pt-6`}>
-              {tabs.map((tab) => (
-                <SidebarMenuItem key={tab.id} className="w-full">
-                  {isExpanded ? (
-                    // Expanded view with labels - with highly visible active state
-                    <SidebarMenuButton
-                      onClick={() => handleTabClick(tab.id)}
-                      isActive={activeTabId === tab.id}
-                      className={`flex w-full items-center rounded-md p-3 transition-all duration-200 ease-in-out relative
-                        ${activeTabId === tab.id
-                          ? "text-[#2E7D32] font-medium border-l-4 border-[#2E7D32]"
-                          : "text-slate-600 hover:bg-slate-100"
-                        }`}
-                      style={activeTabId === tab.id ? { backgroundColor: '#DCFFE4' } : {}}
-                    >
-                      <tab.icon className={`h-5 w-5 ${activeTabId === tab.id ? "text-[#2E7D32]" : "text-slate-500"} ${activeTabId === tab.id ? "ml-[-2px]" : "ml-[2px]"} mr-3`} />
-                      <span>{tab.label}</span>
-                    </SidebarMenuButton>
-                  ) : (
-                    // Collapsed view with tooltips - with highly visible active state
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <SidebarMenuButton
-                            onClick={() => handleTabClick(tab.id)}
-                            isActive={activeTabId === tab.id}
-                            className={`flex w-full justify-center rounded-md p-3 transition-all duration-200 ease-in-out relative
-                              ${activeTabId === tab.id
-                                ? "text-[#2E7D32] border-l-4 border-[#2E7D32]"
-                                : "text-slate-600 hover:bg-slate-100"
-                            }`}
-                            style={activeTabId === tab.id ? { backgroundColor: '#DCFFE4' } : {}}
-                        >
-                          <tab.icon
-                              className={`h-5 w-5 ${activeTabId === tab.id ? "text-[#2E7D32] scale-110 ml-[-2px]" : "text-slate-500 scale-100"} transition-transform`}
-                          />
-                          <span className="sr-only">{tab.label}</span>
-                        </SidebarMenuButton>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="flex flex-col items-start gap-1">
-                        <p className="font-medium">{tab.label}</p>
-                        <p className="text-xs text-muted-foreground">{tab.description}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                  )}
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarContent>
-          <SidebarFooter className="border-t p-2">
-            {/* User Profile Information */}
-            {isExpanded ? (
-              // Expanded view with user details
-              <div className="px-3 py-2 mb-2">
-                <div className="flex items-center">
-                  <div className="h-8 w-8 rounded-full bg-[#E8F5E9] flex items-center justify-center text-[#2E7D32] font-medium mr-3">
-                    {user?.email ? user.email.charAt(0).toUpperCase() : 'U'}
-                  </div>
-                  <div className="overflow-hidden">
-                    <p className="text-sm font-medium text-slate-700 truncate">{user?.email}</p>
-                    <p className="text-xs text-slate-500">
-                      {user?.app_metadata?.provider 
-                        ? `Signed in with ${user.app_metadata.provider}` 
-                        : "Signed in with email"}
-                    </p>
-                  </div>
+        )}
+
+        {/* Main Navigation Menu */}
+        <div className="flex-1 overflow-y-auto">
+          <div className={`py-4 ${isExpanded ? "px-3" : "px-2"}`}>
+            {isExpanded && (
+              <h3 className="mb-2 px-3 text-xs font-medium uppercase text-slate-500">Main Navigation</h3>
+            )}
+            <nav className={`flex flex-col ${isExpanded ? "items-start" : "items-center"} gap-1`}>
+              {dashboardTabs.map((tab) => {
+                const TabIcon = tab.icon
+                const isActive = activeTabId === tab.id
+
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => handleTabClick(tab.id)}
+                    className={`relative flex ${isExpanded ? "w-full items-center justify-between px-3" : "justify-center"} ${
+                      isExpanded ? "py-2.5" : "p-2.5"
+                    } rounded-md transition-all duration-200 ${
+                      isActive 
+                        ? "bg-emerald-50 text-emerald-700 font-medium" 
+                        : "text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      <TabIcon className={`h-5 w-5 ${isExpanded ? "mr-3" : ""} ${isActive ? "text-emerald-600" : "text-slate-500"}`} />
+                      {isExpanded && <span>{tab.label}</span>}
+                    </div>
+                    {isExpanded && tab.badgeCount && (
+                      <Badge
+                        variant="outline"
+                        className={isActive ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-slate-100"}
+                      >
+                        {tab.badgeCount}
+                      </Badge>
+                    )}
+                    {!isExpanded && tab.badgeCount && (
+                      <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+                        {tab.badgeCount}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </nav>
+          </div>
+
+          {/* Settings Section */}
+          {isExpanded && (
+            <div className="mt-4 px-3 py-2">
+              <h3 className="mb-2 px-3 text-xs font-medium uppercase text-slate-500">Settings</h3>
+              <button
+                className="group flex w-full items-center rounded-md px-3 py-2.5 text-slate-600 hover:bg-slate-50"
+              >
+                <Settings className="mr-3 h-5 w-5 text-slate-500 group-hover:text-slate-600" />
+                <span>Preferences</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* User Profile & Logout */}
+        <div className="mt-auto border-t">
+          {isExpanded ? (
+            // Expanded view with user details
+            <div className="p-4">
+              <div className="mb-3 flex items-center">
+                <Avatar className="h-10 w-10 mr-3">
+                  <AvatarFallback className="bg-emerald-100 text-emerald-700">
+                    {user?.email ? user.email.charAt(0).toUpperCase() : "U"}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="overflow-hidden">
+                  <p className="font-medium text-slate-800 truncate">{user?.email || "User"}</p>
+                  <p className="text-xs text-slate-500">
+                    {user?.app_metadata?.provider
+                      ? `Signed in with ${user.app_metadata.provider}`
+                      : "Signed in with email"}
+                  </p>
                 </div>
               </div>
-            ) : (
-              // Collapsed view with just avatar and tooltip
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex justify-center py-2">
-                      <div className="h-8 w-8 rounded-full bg-[#E8F5E9] flex items-center justify-center text-[#2E7D32] font-medium">
-                        {user?.email ? user.email.charAt(0).toUpperCase() : 'U'}
-                      </div>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <div>
-                      <p className="font-medium">{user?.email}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {user?.app_metadata?.provider 
-                          ? `Signed in with ${user.app_metadata.provider}` 
-                          : "Signed in with email"}
-                      </p>
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            
-            {/* Sign Out Button */}
-            {isExpanded ? (
-              // Expanded logout button with text
-              <SidebarMenuButton
+              <Button
+                variant="outline"
+                className="w-full justify-start text-slate-600 hover:bg-red-50 hover:text-red-600 hover:border-red-200"
                 onClick={() => signOut()}
-                className="flex w-full items-center rounded-md p-3 text-slate-600 hover:bg-slate-100 hover:text-red-500 transition-colors"
               >
-                <LogOut className="h-5 w-5 mr-3" />
-                <span>Sign Out</span>
-              </SidebarMenuButton>
-            ) : (
-              // Collapsed logout button with tooltip
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <SidebarMenuButton
-                      onClick={() => signOut()}
-                      className="flex w-full justify-center rounded-md p-3 text-slate-600 hover:bg-slate-100 hover:text-red-500 transition-colors"
-                  >
-                    <LogOut className="h-5 w-5" />
-                    <span className="sr-only">Logout</span>
-                  </SidebarMenuButton>
-                </TooltipTrigger>
-                <TooltipContent side="right" className="font-medium">
-                  <p>Logout</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            )}
-          </SidebarFooter>
-        </Sidebar>
-        
-        {/* Main content area with left margin matching sidebar width */}
-        <div className={`h-full w-full overflow-auto transition-all duration-300 ${isExpanded ? 'ml-56' : 'ml-6'} pt-6 pr-6 pb-6 pl-0`}>
-          {tabs.find((tab) => tab.id === activeTabId)?.component}
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign Out
+              </Button>
+            </div>
+          ) : (
+            // Collapsed view with just avatar and logout
+            <div className="p-2 flex flex-col items-center">
+              <Avatar className="h-10 w-10 mb-2">
+                <AvatarFallback className="bg-emerald-100 text-emerald-700">
+                  {user?.email ? user.email.charAt(0).toUpperCase() : "U"}
+                </AvatarFallback>
+              </Avatar>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-slate-500 hover:bg-red-50 hover:text-red-600"
+                onClick={() => signOut()}
+              >
+                <LogOut className="h-5 w-5" />
+              </Button>
+            </div>
+          )}
         </div>
-      </SidebarProvider>
+      </div>
+
+      {/* Main Content Area */}
+      <div className={`flex-1 overflow-auto transition-all duration-300 ${isMobileView ? "mt-16 w-full" : ""}`}>
+        {/* Page Header */}
+        <div className="hidden h-16 items-center justify-between border-b bg-white px-6 md:flex">
+          <h1 className="text-xl font-semibold text-slate-800">
+            {dashboardTabs.find((tab) => tab.id === activeTabId)?.label || "Dashboard"}
+          </h1>
+
+          <div className="flex items-center gap-4">
+            {/* Search Bar */}
+            <div className="relative hidden lg:block">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Input placeholder="Search..." className="w-64 pl-9 h-9 bg-slate-50 border-slate-200" />
+            </div>
+
+            {/* User Menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-2">
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="bg-emerald-100 text-emerald-700">
+                      {user?.email ? user.email.charAt(0).toUpperCase() : "U"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="font-medium text-slate-700">{user?.email?.split("@")[0] || "User"}</span>
+                  <ChevronRight className="h-4 w-4 text-slate-400" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => handleTabClick("profile")}>
+                  <UserIcon className="mr-2 h-4 w-4" />
+                  <span>Profile</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>Settings</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => signOut()}>
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Sign out</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Page Content */}
+        <div className="p-6">{activeTabComponent}</div>
+      </div>
     </div>
   )
 }

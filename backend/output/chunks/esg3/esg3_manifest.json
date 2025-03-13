@@ -1,0 +1,142 @@
+{
+  "runs": [
+    {
+      "timestamp": "20250311_122922",
+      "readable_timestamp": "2025-03-11_12-29-22",
+      "output_path": "output/chunks\\esg3\\2025-03-11_12-26-42\\esg3_chunks.json",
+      "chunk_count": 405,
+      "extraction_stats": {
+        "page_count": 17,
+        "best_text_extractor": "pymupdf",
+        "table_count": 27,
+        "image_count": 17,
+        "extraction_methods": [
+          "PyMuPDF",
+          "pdfminer",
+          "PyPDF2",
+          "camelot",
+          "pymupdf_images"
+        ],
+        "processing_time": 92.45126628875732
+      },
+      "transformation_stats": {
+        "page_count": 17,
+        "best_text_extractor": "pymupdf",
+        "table_count": 27,
+        "image_count": 17,
+        "extraction_methods": [
+          "PyMuPDF",
+          "pdfminer",
+          "PyPDF2",
+          "camelot",
+          "pymupdf_images"
+        ],
+        "processing_time": 92.45126628875732
+      }
+    },
+    {
+      "timestamp": "20250311_124659",
+      "readable_timestamp": "2025-03-11_12-46-59",
+      "output_path": "output/chunks\\esg3\\2025-03-11_12-44-52\\esg3_chunks.json",
+      "chunk_count": 404,
+      "extraction_stats": {
+        "page_count": 17,
+        "best_text_extractor": "pymupdf",
+        "table_count": 27,
+        "image_count": 17,
+        "extraction_methods": [
+          "PyMuPDF",
+          "pdfminer",
+          "PyPDF2",
+          "camelot",
+          "pymupdf_images"
+        ],
+        "processing_time": 64.14914393424988
+      },
+      "transformation_stats": {
+        "page_count": 17,
+        "best_text_extractor": "pymupdf",
+        "table_count": 27,
+        "image_count": 17,
+        "extraction_methods": [
+          "PyMuPDF",
+          "pdfminer",
+          "PyPDF2",
+          "camelot",
+          "pymupdf_images"
+        ],
+        "processing_time": 64.14914393424988
+      }
+    },
+    {
+      "timestamp": "20250311_130553",
+      "readable_timestamp": "2025-03-11_13-05-53",
+      "output_path": "output/chunks\\esg3\\2025-03-11_13-03-50\\esg3_chunks.json",
+      "chunk_count": 404,
+      "extraction_stats": {
+        "page_count": 17,
+        "best_text_extractor": "pymupdf",
+        "table_count": 27,
+        "image_count": 17,
+        "extraction_methods": [
+          "PyMuPDF",
+          "pdfminer",
+          "PyPDF2",
+          "camelot",
+          "pymupdf_images"
+        ],
+        "processing_time": 66.1590507030487
+      },
+      "transformation_stats": {
+        "page_count": 17,
+        "best_text_extractor": "pymupdf",
+        "table_count": 27,
+        "image_count": 17,
+        "extraction_methods": [
+          "PyMuPDF",
+          "pdfminer",
+          "PyPDF2",
+          "camelot",
+          "pymupdf_images"
+        ],
+        "processing_time": 66.1590507030487
+      }
+    },
+    {
+      "timestamp": "20250311_131334",
+      "readable_timestamp": "2025-03-11_13-13-34",
+      "output_path": "output/chunks\\esg3\\2025-03-11_13-11-34\\esg3_chunks.json",
+      "chunk_count": 404,
+      "extraction_stats": {
+        "page_count": 17,
+        "best_text_extractor": "pymupdf",
+        "table_count": 27,
+        "image_count": 17,
+        "extraction_methods": [
+          "PyMuPDF",
+          "pdfminer",
+          "PyPDF2",
+          "camelot",
+          "pymupdf_images"
+        ],
+        "processing_time": 63.028748512268066
+      },
+      "transformation_stats": {
+        "page_count": 17,
+        "best_text_extractor": "pymupdf",
+        "table_count": 27,
+        "image_count": 17,
+        "extraction_methods": [
+          "PyMuPDF",
+          "pdfminer",
+          "PyPDF2",
+          "camelot",
+          "pymupdf_images"
+        ],
+        "processing_time": 63.028748512268066
+      }
+    }
+  ],
+  "last_updated": "20250311_131334",
+  "document_name": "esg3"
+}
