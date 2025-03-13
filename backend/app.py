@@ -29,7 +29,13 @@ if not SUPABASE_URL or not SUPABASE_ANON_KEY or not SUPABASE_SERVICE_ROLE_KEY:
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+        "methods": ["GET", "POST", "DELETE"],
+        "allow_headers": ["*"]
+    }
+})
 
 # Configure logging
 if not app.debug:
@@ -136,23 +142,44 @@ def get_all_users():
 @app.route('/api/list-tree', methods=['GET'])
 @require_auth
 def list_tree():
-    """List files and folders in a directory."""
     try:
         path = request.args.get('path', '')
-        app.logger.info(f"📞 API Call - list_tree: {path}")
+        app.logger.info(f"📞 API Call - list_tree: Requested path={path}")
         
-        # Get files from Supabase storage for the given path
+        # Get file list from Supabase
         response = supabase.storage.from_('documents').list(path=path)
         
-        # Filter out .emptyFolderPlaceholder files and transform the response
+        # Process the returned data
         files = []
         for item in response:
-            if not item['name'].endswith('.emptyFolderPlaceholder'):
-                metadata = item.get('metadata', {}) or {}  # Handle None metadata
+            # Skip the .folder placeholder files
+            if item['name'] == '.folder':
+                continue
+                
+            if item['id'] is None:
+                # Folder
                 files.append({
-                    'id': item.get('id', ''),
-                    'name': os.path.basename(item['name']),
-                    'type': 'folder' if metadata.get('mimetype') == 'folder' else 'file',
+                    'id': None,
+                    'name': item['name'],
+                    'type': 'folder',
+                    'size': 0,
+                    'modified': item.get('last_accessed_at'),
+                    'path': path.split('/') if path else [],
+                    'metadata': {
+                        'mimetype': 'folder',
+                        'lastModified': None,
+                        'contentLength': 0,
+                    },
+                    'created_at': item.get('created_at'),
+                    'updated_at': item.get('updated_at')
+                })
+            else:
+                # File
+                metadata = item.get('metadata', {}) or {}
+                files.append({
+                    'id': item['id'],
+                    'name': item['name'],
+                    'type': 'file',
                     'size': metadata.get('size', 0),
                     'modified': item.get('last_accessed_at'),
                     'path': path.split('/') if path else [],
@@ -164,8 +191,8 @@ def list_tree():
                     'created_at': item.get('created_at'),
                     'updated_at': item.get('updated_at')
                 })
-        
-        app.logger.info(f"📥 API Response: {files}")
+
+        app.logger.info(f"📤 Returning response: {files}")
         return jsonify(files), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in list_tree: {str(e)}")
@@ -438,7 +465,6 @@ def chat():
         
         # Return the assistant's message
         if assistant_response:
-            print("assistant_response: ", assistant_response)
             return jsonify({
                 'id': str(uuid.uuid4()),
                 'role': 'assistant',
@@ -469,23 +495,40 @@ def delete_item():
             supabase.storage.from_('documents').remove([path])
             app.logger.info(f"🔺 Successfully deleted file: {path}")
         else:
-            # It's a folder
+            # It's a folder - recursive deletion function
             app.logger.info(f"🔺 Attempting to delete folder: {path}")
-            try:
-                contents = supabase.storage.from_('documents').list(path=path)
-                # Delete all contents first
-                for item in contents:
-                    item_path = os.path.join(path, item['name'])
-                    app.logger.info(f"🔺 Deleting folder content: {item_path}")
-                    supabase.storage.from_('documents').remove([item_path])
-                
-                # Delete the folder placeholder
-                folder_placeholder = os.path.join(path, '.folder')
-                app.logger.info(f"🔺 Deleting folder placeholder: {folder_placeholder}")
-                supabase.storage.from_('documents').remove([folder_placeholder])
-            except Exception as folder_error:
-                app.logger.error(f"❌ Failed to delete folder contents: {str(folder_error)}")
-                raise folder_error
+            
+            def delete_folder_recursive(folder_path):
+                """Recursively delete a folder and all its contents"""
+                try:
+                    # List contents of the folder
+                    contents = supabase.storage.from_('documents').list(path=folder_path)
+                    
+                    # First process all subfolders recursively
+                    for item in contents:
+                        item_path = os.path.join(folder_path, item['name'])
+                        if item['id'] is None and item['name'] != '.folder':
+                            # It's a subfolder - delete recursively
+                            app.logger.info(f"🔺 Recursively deleting subfolder: {item_path}")
+                            delete_folder_recursive(item_path)
+                        elif item['id'] is not None:
+                            # It's a file - delete directly
+                            app.logger.info(f"🔺 Deleting file in folder: {item_path}")
+                            supabase.storage.from_('documents').remove([item_path])
+                    
+                    # Finally delete the folder placeholder
+                    folder_placeholder = os.path.join(folder_path, '.folder')
+                    app.logger.info(f"🔺 Deleting folder placeholder: {folder_placeholder}")
+                    supabase.storage.from_('documents').remove([folder_placeholder])
+                    
+                    app.logger.info(f"🔺 Successfully deleted folder: {folder_path}")
+                    return True
+                except Exception as folder_error:
+                    app.logger.error(f"❌ Failed to delete folder or its contents: {str(folder_error)}")
+                    raise folder_error
+            
+            # Start the recursive deletion process
+            delete_folder_recursive(path)
         
         app.logger.info(f"📥 API Response: Successfully deleted {path}")
         return jsonify({
@@ -494,6 +537,278 @@ def delete_item():
         }), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in delete_item: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/rename', methods=['POST'])
+@require_auth
+def rename_item():
+    """Rename a file or folder."""
+    try:
+        data = request.json
+        old_path = data.get('oldPath', '')
+        new_name = data.get('newName', '')
+        
+        app.logger.info(f"📞 API Call - rename_item: {old_path} to {new_name}")
+        
+        if not old_path or not new_name:
+            return jsonify({'error': 'Missing required parameters'}), 400
+            
+        # Get parent directory and old name
+        parent_dir = os.path.dirname(old_path)
+        old_name = os.path.basename(old_path)
+        
+        # Construct new path
+        new_path = os.path.join(parent_dir, new_name) if parent_dir else new_name
+        
+        app.logger.info(f"🔄 Renaming from {old_path} to {new_path}")
+        
+        # Check if it's a file or folder based on file extension
+        is_file = '.' in old_name
+        
+        # First approach: Check if the target exists by trying to list parent directory
+        try:
+            # List the parent directory to see if the target name exists
+            parent_path = parent_dir if parent_dir else ""
+            parent_contents = supabase.storage.from_('documents').list(path=parent_path)
+            
+            # Check if the new name already exists in the parent directory
+            for item in parent_contents:
+                if item['name'] == new_name:
+                    app.logger.error(f"❌ An item named '{new_name}' already exists in the same directory")
+                    if is_file and item['id'] is None:
+                        return jsonify({'error': f"Cannot rename to '{new_name}' because a folder with this name already exists"}), 400
+                    elif not is_file and item['id'] is not None:
+                        return jsonify({'error': f"Cannot rename to '{new_name}' because a file with this name already exists"}), 400
+                    else:
+                        return jsonify({'error': f"Cannot rename to '{new_name}' because an item with this name already exists"}), 400
+        except Exception as check_error:
+            app.logger.warning(f"⚠️ Could not check parent directory: {str(check_error)}")
+            # Fall back to the old method if we can't list the parent directory
+            
+            # For files only: try a different approach to check if the target file exists
+            if is_file:
+                try:
+                    try:
+                        # Try to get file metadata first
+                        supabase.storage.from_('documents').get_public_url(new_path)
+                        app.logger.error(f"❌ File with name '{new_name}' already exists")
+                        return jsonify({'error': f"Cannot rename to '{new_name}' because a file with this name already exists"}), 400
+                    except Exception:
+                        pass
+                        
+                except Exception:
+                    # If all existence checks fail, we assume the file doesn't exist
+                    app.logger.info(f"✅ Target file '{new_name}' does not exist, proceeding with rename")
+                    pass
+        
+        # If we've reached here, the target doesn't exist, so we can proceed with the rename
+        
+        # Check if it's a file or folder
+        if '.' in old_name:  # It's likely a file
+            # Supabase storage doesn't have a rename function, so we need to:
+            # 1. Download the file
+            # 2. Upload it with the new name
+            # 3. Delete the old file
+            try:
+                # Download file data
+                result = supabase.storage.from_('documents').download(old_path)
+                file_data = result
+                
+                # Get content type (best guess based on extension)
+                content_type = "application/octet-stream"
+                ext = os.path.splitext(new_name)[1].lower()
+                if ext == '.pdf':
+                    content_type = "application/pdf"
+                elif ext == '.xlsx':
+                    content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                elif ext == '.csv':
+                    content_type = "text/csv"
+                elif ext == '.docx':
+                    content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                
+                # Upload with new name
+                upload_response = supabase.storage.from_('documents').upload(
+                    new_path,
+                    file_data,
+                    file_options={"contentType": content_type}
+                )
+                
+                # confirm the upload is successful before deleting
+                if upload_response:
+                    # Delete old file
+                    supabase.storage.from_('documents').remove([old_path])
+                    app.logger.info(f"📄 Successfully renamed file from {old_path} to {new_path}")
+                else:
+                    raise Exception("Failed to upload file with new name")
+            except Exception as file_error:
+                app.logger.error(f"❌ Failed to rename file: {str(file_error)}")
+                # try to clean up the possibly created new file
+                try:
+                    supabase.storage.from_('documents').remove([new_path])
+                except:
+                    pass
+                raise file_error
+        else:  # It's a folder
+            # For folders:
+            # 1. List all files in the folder
+            # 2. For each file, download, upload with new path, and delete old
+            # 3. Create new folder placeholder
+            # 4. Delete old folder placeholder
+            
+            # List all files in folder
+            try:
+                # recursive function to handle subfolder contents
+                def process_folder_contents(src_folder, dest_folder, moved_items=None):
+                    if moved_items is None:
+                        moved_items = []
+                    
+                    try:
+                        # get the contents of the source folder
+                        contents = supabase.storage.from_('documents').list(path=src_folder)
+                        
+                        # create the destination folder placeholder
+                        try:
+                            placeholder_path = os.path.join(dest_folder, '.folder')
+                            supabase.storage.from_('documents').upload(
+                                placeholder_path,
+                                'folder'.encode(),
+                                {"contentType": "application/x-directory"}
+                            )
+                        except Exception as ph_error:
+                            if not 'Duplicate' in str(ph_error):  # ignore duplicate file error
+                                raise ph_error
+                        
+                        # handle each file and subfolder
+                        for item in contents:
+                            if item['name'] == '.folder':
+                                continue
+                                
+                            src_item_path = os.path.join(src_folder, item['name'])
+                            dest_item_path = os.path.join(dest_folder, item['name'])
+                            
+                            if item['id'] is None:  # subfolderolder
+                                process_folder_contents(src_item_path, dest_item_path, moved_items)
+                            else:  # file
+                                try:
+                                    # download the file
+                                    item_data = supabase.storage.from_('documents').download(src_item_path)
+                                    
+                                    # upload to the new path
+                                    content_type = item.get('metadata', {}).get('mimetype', 'application/octet-stream')
+                                    supabase.storage.from_('documents').upload(
+                                        dest_item_path,
+                                        item_data,
+                                        file_options={"contentType": content_type}
+                                    )
+                                    
+                                    # record the successfully moved file
+                                    moved_items.append(src_item_path)
+                                except Exception as file_error:
+                                    app.logger.error(f"❌ Failed to move file {src_item_path}: {str(file_error)}")
+                                    # continue to process other files
+                        
+                        # record the folder placeholder
+                        folder_placeholder = os.path.join(src_folder, '.folder')
+                        moved_items.append(folder_placeholder)
+                        
+                        return moved_items
+                    except Exception as inner_error:
+                        app.logger.error(f"❌ Error processing folder {src_folder}: {str(inner_error)}")
+                        raise inner_error
+                
+                # start to process the folder recursively
+                moved_items = process_folder_contents(old_path, new_path)
+                
+                # after successfully copying all items, start to delete the original items
+                if moved_items:
+                    app.logger.info(f"📁 Successfully copied {len(moved_items)} items from {old_path} to {new_path}")
+                    
+                    # start to delete the original items from the deepest level
+                    sorted_items = sorted(moved_items, key=len, reverse=True)
+                    deletion_errors = []
+                    
+                    for item_path in sorted_items:
+                        try:
+                            supabase.storage.from_('documents').remove([item_path])
+                            app.logger.info(f"🗑️ Deleted original item: {item_path}")
+                        except Exception as del_error:
+                            app.logger.error(f"Failed to delete original item {item_path}: {str(del_error)}")
+                            deletion_errors.append(item_path)
+                    
+                    if deletion_errors:
+                        app.logger.warning(f"Some original items could not be deleted: {deletion_errors}")
+                        app.logger.warning("Rename operation partially successful - new folder created but old might remain")
+                    
+                    app.logger.info(f"📁 Successfully renamed folder from {old_path} to {new_path}")
+                else:
+                    app.logger.error(f"❌ No items were copied from {old_path} to {new_path}")
+                    raise Exception(f"Failed to copy any items from {old_path} to {new_path}")
+                
+            except Exception as folder_error:
+                app.logger.error(f"❌ Failed to rename folder: {str(folder_error)}")
+                
+                # try to clean up the newly created files and folders, but do not let cleanup errors prevent the operation from returning
+                try:
+                    # recursive function to delete the newly created files and folders
+                    def clean_folder(folder_path):
+                        try:
+                            contents = supabase.storage.from_('documents').list(path=folder_path)
+                            
+                            # delete all files first
+                            for item in contents:
+                                if item['id'] is not None:  # file
+                                    item_path = os.path.join(folder_path, item['name'])
+                                    try:
+                                        supabase.storage.from_('documents').remove([item_path])
+                                        app.logger.info(f"🗑️ Cleanup: Deleted {item_path}")
+                                    except Exception as del_error:
+                                        app.logger.error(f"Cleanup: Failed to delete {item_path}: {str(del_error)}")
+                                elif item['name'] != '.folder':  # subfolder (not a placeholder)
+                                    child_path = os.path.join(folder_path, item['name'])
+                                    clean_folder(child_path)  # recursive deletion of subfolders
+                            
+                            # then delete the folder placeholder
+                            try:
+                                placeholder = os.path.join(folder_path, '.folder')
+                                supabase.storage.from_('documents').remove([placeholder])
+                                app.logger.info(f"🗑️ Cleanup: Deleted placeholder {placeholder}")
+                            except Exception as ph_error:
+                                app.logger.error(f"Cleanup: Failed to delete placeholder {folder_path}: {str(ph_error)}")
+                                
+                        except Exception as list_error:
+                            app.logger.error(f"Cleanup: Failed to list contents of {folder_path}: {str(list_error)}")
+                    
+                    # start to clean up
+                    clean_folder(new_path)
+                    
+                except Exception as cleanup_error:
+                    app.logger.error(f"❌ Failed to clean up after failed rename: {str(cleanup_error)}")
+                
+                # special handling, if the new folder already exists and is not empty, we consider the operation to be basically successful
+                try:
+                    contents = supabase.storage.from_('documents').list(path=new_path)
+                    if contents and any(item['id'] is not None for item in contents):
+                        app.logger.warning(f"Rename partially successful: Files exist in new location {new_path}")
+                        # return success, but add a warning
+                        return jsonify({
+                            'success': True,
+                            'oldPath': old_path,
+                            'newPath': new_path,
+                            'warning': 'Partial success: Files exist in new location but old folder may still exist'
+                        }), 200
+                except Exception:
+                    pass
+                    
+                # continue to raise the original error
+                raise folder_error
+        
+        return jsonify({
+            'success': True,
+            'oldPath': old_path,
+            'newPath': new_path
+        }), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in rename_item: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 # Analytics API endpoints
