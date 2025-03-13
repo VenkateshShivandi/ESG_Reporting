@@ -39,13 +39,13 @@ if not app.debug:
     # Ensure log directory exists
     os.makedirs('logs', exist_ok=True)
     
-    # Remove existing log file if it exists
+    # Use RotatingFileHandler which handles file rotation automatically
     log_file = 'logs/app.log'
-    if os.path.exists(log_file):
-        os.remove(log_file)
-    
-    # Set up file logging
-    file_handler = logging.FileHandler(log_file)
+    file_handler = RotatingFileHandler(
+        log_file, 
+        maxBytes=10485760,  # 10MB max file size
+        backupCount=3       # Keep 3 backup files
+    )
     file_handler.setFormatter(logging.Formatter(
         '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
     ))
@@ -220,7 +220,7 @@ def process_file():
         app.logger.info("📞 API Call - process_file")
         if 'file' not in request.files:
             return jsonify({'error': 'No file part'}), 400
-            
+        
         file = request.files['file']
         file_type = file.filename.split('.')[-1].lower()
         
@@ -266,11 +266,15 @@ def create_folder():
         
         app.logger.info(f"📞 API Call - create_folder: {name} in {path}")
         
-        # Construct the folder path
-        folder_path = os.path.join(path, name) if path else name
-        # Create a placeholder file path
-        placeholder_path = os.path.join(folder_path, '.folder')
+        # Handle path - use path as-is since frontend sends it with proper separator
+        # Windows uses backslashes, but we need to handle paths consistently with forward slashes
+        folder_path = f"{path}/{name}" if path else name
+        
+        # Create a placeholder file path for the folder marker
+        placeholder_path = f"{folder_path}/.folder"
             
+        app.logger.info(f"Creating folder with path: {folder_path}, placeholder: {placeholder_path}")
+        
         # Create a placeholder file with minimal content
         response = supabase.storage.from_('documents').upload(
             placeholder_path,
@@ -353,6 +357,7 @@ def initialize_assistant():
     try:
         # Initialize the assistant
         if(OPENAI_ASSISTANT_ID):
+            print("OPENAI_ASSISTANT_ID: ", OPENAI_ASSISTANT_ID)
             return OPENAI_ASSISTANT_ID
         else:
             response = client.beta.assistants.create(
@@ -370,6 +375,7 @@ def chat():
     try:
         if(OPENAI_ASSISTANT_ID):
             assistant_id = OPENAI_ASSISTANT_ID
+            print("OPENAI_ASSISTANT_ID: ", assistant_id)
         else:
             assistant_id = initialize_assistant()
             if not assistant_id:

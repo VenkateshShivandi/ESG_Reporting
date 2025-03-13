@@ -1,0 +1,418 @@
+[
+  {
+    "id": "91247d10",
+    "text": "Contexto Social: la localidad se encuentra aproximadamente a 5 kilómetros del Proyecto. La localidad recibe inversión social por parte de la empresa Driscoll, se pudo identificar que han realizado obras de mejora en parques y plazas públicas. Es una de las colonias de San Andrés Payuca.",
+    "sentences": 3,
+    "span": [
+      1,
+      3
+    ],
+    "word_count": 46,
+    "char_count": 287,
+    "token_estimate": 56,
+    "esg_relevance": 0.3092689384280041,
+    "contains_ocr": false,
+    "section": "Ficha de hallazgos de localidad",
+    "section_level": 1
+  },
+  {
+    "id": "0237d292",
+    "text": "Se comentó que algunas personas pelearon tierras (no se especificó la temporalidad), y algunas personas de la localidad aún son ejidatarios. DESCRIPCIÓN GENERAL Población** Población .",
+    "sentences": 2,
+    "span": [
+      4,
+      5
+    ],
+    "word_count": 26,
+    "char_count": 184,
+    "token_estimate": 36,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "f650d795",
+    "text": "La población en la comunidad se dedica a diferentes actividades principalmente comercio y actividades agrícolas. DDHH .",
+    "sentences": 2,
+    "span": [
+      6,
+      7
+    ],
+    "word_count": 17,
+    "char_count": 119,
+    "token_estimate": 27,
+    "esg_relevance": 0.07711345307581453,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "cd88957e",
+    "text": "No se identificó alguna organización protectora de Derechos Humanos en la localidad, sin embargo, se pudo verificar que la comunidad asiste al municipio de Cuyoaco cuando sucede algún problema legal. Pobreza .",
+    "sentences": 2,
+    "span": [
+      8,
+      9
+    ],
+    "word_count": 32,
+    "char_count": 209,
+    "token_estimate": 42,
+    "esg_relevance": 0.13343689336626346,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "d5390653",
+    "text": "En la localidad las casas están construidas de materiales firmes, y se observa que la calle principal está pavimentada. Grupos vulnerables .",
+    "sentences": 2,
+    "span": [
+      10,
+      11
+    ],
+    "word_count": 22,
+    "char_count": 140,
+    "token_estimate": 32,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "2e9e5a61",
+    "text": "Se identificó una fuerte presencia de adultos mayores, mujeres y niños. No se identificó población indígena.",
+    "sentences": 2,
+    "span": [
+      12,
+      13
+    ],
+    "word_count": 16,
+    "char_count": 108,
+    "token_estimate": 26,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "9db48276",
+    "text": "Educación . Existen niveles educativos de preescolar a secundaria, aunque varios entrevistados señalaron que, la población en su mayoría cuenta con educación media superior, es posible que acudan a libres o San Andrés Payuca para acceder a más niveles educativos.",
+    "sentences": 2,
+    "span": [
+      14,
+      15
+    ],
+    "word_count": 40,
+    "char_count": 263,
+    "token_estimate": 50,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "8ba89fd3",
+    "text": "Salud. No se comentó que exista alguna enfermedad relacionada con algún problema ambiental u otros factores externos.",
+    "sentences": 2,
+    "span": [
+      16,
+      17
+    ],
+    "word_count": 17,
+    "char_count": 117,
+    "token_estimate": 27,
+    "esg_relevance": 0.07711345307581453,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "6b46af4f",
+    "text": "Comunidad* Gobierno . Señalaron que la adjuntía municipal mantiene buena relación con el ayuntamiento de Cuyoaco.",
+    "sentences": 2,
+    "span": [
+      18,
+      19
+    ],
+    "word_count": 16,
+    "char_count": 113,
+    "token_estimate": 26,
+    "esg_relevance": 0.07826331932846374,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "e9a779dd",
+    "text": "Cohesión social . se muestra una población cohesionada mediante eventos y celebraciones, para resolver conflictos entre vecinos se dirigen con el Juez de paz.",
+    "sentences": 2,
+    "span": [
+      20,
+      21
+    ],
+    "word_count": 24,
+    "char_count": 158,
+    "token_estimate": 34,
+    "esg_relevance": 0.21332697082358812,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "8f141b8c",
+    "text": "Seguridad . Se identificó que es una localidad con temas de seguridad menores ligados a robos sobre la carretera. Se señaló que sí hay rondines de la policía municipal, aunque no se señaló la frecuencia.",
+    "sentences": 3,
+    "span": [
+      22,
+      24
+    ],
+    "word_count": 35,
+    "char_count": 203,
+    "token_estimate": 45,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "8d58f027",
+    "text": "Migración . Comentaron que es común que las personas salgan a localidades como Libres o Cuyoaco en búsqueda de oportunidades laborales.",
+    "sentences": 2,
+    "span": [
+      25,
+      26
+    ],
+    "word_count": 21,
+    "char_count": 135,
+    "token_estimate": 31,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "2c8b4d0c",
+    "text": "* Cultura* Religión . Comentan que hay personas de todas las religiones, sin embargo, es visible que la población es mayormente católica.",
+    "sentences": 2,
+    "span": [
+      27,
+      28
+    ],
+    "word_count": 22,
+    "char_count": 137,
+    "token_estimate": 32,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "008ea9cf",
+    "text": "* Fiestas y celebraciones . Celebran el 15 de agosto a la Virgen de Asunción, y el 8 de diciembre a la purísima trinidad.",
+    "sentences": 2,
+    "span": [
+      29,
+      30
+    ],
+    "word_count": 24,
+    "char_count": 121,
+    "token_estimate": 34,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "8d23a3ce",
+    "text": "La comunidad realiza una cooperación y se organiza un comité vecinal de mano de la iglesia del pueblo. Se celebra con una feria y música.",
+    "sentences": 2,
+    "span": [
+      31,
+      32
+    ],
+    "word_count": 25,
+    "char_count": 137,
+    "token_estimate": 35,
+    "esg_relevance": 0.07045401561971035,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "7a88c722",
+    "text": "* Sitios culturales . No se identificaron.",
+    "sentences": 2,
+    "span": [
+      33,
+      34
+    ],
+    "word_count": 7,
+    "char_count": 42,
+    "token_estimate": 17,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "46e32ae2",
+    "text": "* Necesidades*básicas* Actividades económicas . En esta localidad hay comercios, y se encuentra una planta de recolección de grano de la empresa Heineken, así como trabajos de agricultura y cría de cerdos para venta.",
+    "sentences": 2,
+    "span": [
+      35,
+      36
+    ],
+    "word_count": 34,
+    "char_count": 216,
+    "token_estimate": 44,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "88a3cdde",
+    "text": "Empleo . Se manifestó que en su mayoría las personas trabajan en ranchos privados y varias personas de la localidad trabajan en Driscoll, aunque no se mencionó las condiciones de trabajo, destacó que está compañía ha bancarizado a sus trabajadores.",
+    "sentences": 2,
+    "span": [
+      37,
+      38
+    ],
+    "word_count": 40,
+    "char_count": 248,
+    "token_estimate": 50,
+    "esg_relevance": 0.06364599835422853,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "3ea03148",
+    "text": "Infraestructura* * Agua , Los habitantes perciben un servicio de agua en condiciones regulares debido a que en ocasiones falla la presión y/o el abasto de agua. * Drenaje , Se identificó que no todas las casas cuentan con drenaje, aunque la mayoría ya está conectada, algunas tienen fosas sépticas.",
+    "sentences": 2,
+    "span": [
+      39,
+      40
+    ],
+    "word_count": 50,
+    "char_count": 298,
+    "token_estimate": 60,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "a0fd65e3",
+    "text": "* Vialidades , el acceso a la localidad es por medio de un camino pavimentado y tienen acceso a la carretera a Libres, los caminos dentro de la localidad varían desde en buen estado hasta terracería en estado regular, calles de pavimento en regulares condiciones. Se han pavimentado en los últimos años.",
+    "sentences": 2,
+    "span": [
+      41,
+      42
+    ],
+    "word_count": 52,
+    "char_count": 303,
+    "token_estimate": 62,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "f1018a73",
+    "text": "* Transporte . Solo cuentan con transporte directo a la Ciudad de Libres, mediante unas vagonetas que cobran 15 pesos. Se pudo identificar que el transporte es en su mayoría vagonetas o camionetas de pasajeros, en estado regular, aunque es un núcleo semiurbano, no es constante el paso del transporte.",
+    "sentences": 3,
+    "span": [
+      43,
+      45
+    ],
+    "word_count": 50,
+    "char_count": 301,
+    "token_estimate": 60,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "71f19159",
+    "text": "* Infraestructura educativa , infraestructura aceptable, con paredes pintadas, bardas en buenas condiciones, de nivel preescolar, primaria y secundaria. Para estudiar otros niveles hay que acudir a San Andrés o a Libres Infraestructura de salud , Se identificó que cuentan con una casa de salud que se menciona es insuficiente, hay escasez de insumos médicos. Se comentó que la comunidad se queja de que la casa de salud no abre ni atiende las necesidades del pueblo.",
+    "sentences": 3,
+    "span": [
+      46,
+      48
+    ],
+    "word_count": 76,
+    "char_count": 467,
+    "token_estimate": 86,
+    "esg_relevance": 0.056139768632506575,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "bed1244d",
+    "text": "Medio*ambiente* Áreas naturales protegidas , no cuentan con áreas naturales protegidas. Cambio de paisaje .",
+    "sentences": 2,
+    "span": [
+      49,
+      50
+    ],
+    "word_count": 15,
+    "char_count": 107,
+    "token_estimate": 25,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "66f019fc",
+    "text": "Mencionan que ha sido lento y se ha derivado de arreglos en las calles principales y otras mejoras en espacios públicos Tierra*y*recursos*naturales* Núcleos agrarios , la localidad forma parte del ejido de San Andrés Payuca. En los alrededores se puede observar que se trabaja la agricultura, principalmente la siembra de maíz, aunque es común que los pobladores trabajen en ranchos privados.",
+    "sentences": 2,
+    "span": [
+      51,
+      52
+    ],
+    "word_count": 61,
+    "char_count": 392,
+    "token_estimate": 71,
+    "esg_relevance": 0.0,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "ba2390cc",
+    "text": "* Percepción*sobre*el*proyecto* La población encuestada manifestó tener conocimiento sobre la operación de parques solares. No señalaron tener conocimiento de un nuevo parque o instalación próxima, sin embargo, señalaron que los ejidatarios comentan que con la instalación de estos parques no llueve y no se puede trabajar la tierra. Posibles impactos percibidos: - Es posible que exista una percepción negativa del proyecto derivado de creencias sobre que los parques solares ahuyenta la lluvia. Hallazgos de riesgos: - Muestran desinformación acerca de los impactos ambientales que la actividad de un parque solar pueda tener.",
+    "sentences": 4,
+    "span": [
+      53,
+      56
+    ],
+    "word_count": 92,
+    "char_count": 628,
+    "token_estimate": 102,
+    "esg_relevance": 0.16267217627333674,
+    "contains_ocr": false,
+    "section": "Puebla",
+    "section_level": 1
+  },
+  {
+    "id": "ab5092f8-0252-436b-a620-8a65daf01ed4",
+    "type": "ocr",
+    "text": "AOSeCNUMA sostenibilidad estratégica ; | i \"\\Al )) (Vv [~ De 'N, -J / [ 4 w",
+    "page": 4,
+    "sentences": 1,
+    "word_count": 17,
+    "char_count": 75,
+    "token_estimate": 27,
+    "esg_relevance": 0.0,
+    "contains_ocr": true,
+    "source_images": [
+      "p5_img1",
+      "p5_img2"
+    ]
+  }
+]

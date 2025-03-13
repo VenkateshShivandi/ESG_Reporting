@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import type { NextPage } from "next"
 import { 
   Upload, 
@@ -19,7 +19,12 @@ import {
   Info, 
   TableProperties, 
   GitGraph, 
-  X 
+  X,
+  Edit,
+  MoreVertical,
+  FileImage,
+  Eye,
+  Calendar
 } from "lucide-react"
 import { documentsApi } from "@/lib/api/documents"
 import { Button } from "@/components/ui/button"
@@ -42,14 +47,22 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { toast } from "sonner"
-import type { FileItem, UploadProgress, ProcessedFileResult } from "@/lib/types/documents"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import type { FileItem, UploadProgress } from "@/lib/types/documents"
+import supabase from "@/lib/supabase/client"
+import type { ProcessedFileResult } from "@/lib/types/documents"
 
 type Props = {}
 
 const ALLOWED_FILE_TYPES = ".xlsx,.csv,.docx,.xml,.pdf"
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+
+// Function to format file size
+const formatFileSize = (bytes?: number) => {
+  if (!bytes) return "-";
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`;
+};
 
 // Function to get the appropriate icon based on file extension
 const getFileIcon = (filename: string, type: string) => {
@@ -86,10 +99,23 @@ const DocumentsPage: NextPage<Props> = () => {
   const [processingError, setProcessingError] = useState<string | null>(null)
   const [fileDetails, setFileDetails] = useState<ProcessedFileResult | null>(null)
   const [showFileDetails, setShowFileDetails] = useState(false)
+  
+  // New state variables for context menu and rename functionality
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileItem | null }>({ x: 0, y: 0, item: null })
+  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false)
+  const [itemToRename, setItemToRename] = useState<FileItem | null>(null)
+  const [newFileName, setNewFileName] = useState("")
+  const renameInputRef = useRef<HTMLInputElement>(null)
 
   const getCurrentFolderItems = useCallback(() => {
     return files.filter((item) => JSON.stringify(item.path) === JSON.stringify(currentPath))
   }, [files, currentPath])
+
+  // Close the context menu
+  const closeContextMenu = useCallback(() => {
+    setContextMenu({ x: 0, y: 0, item: null })
+    document.removeEventListener('click', closeContextMenu)
+  }, [])
 
   const loadFiles = useCallback(async () => {
     try {
@@ -107,6 +133,13 @@ const DocumentsPage: NextPage<Props> = () => {
   useEffect(() => {
     loadFiles()
   }, [loadFiles])
+
+  // Clean up event listeners when component unmounts
+  useEffect(() => {
+    return () => {
+      document.removeEventListener('click', closeContextMenu)
+    }
+  }, [closeContextMenu])
 
   const handleSelectItem = (itemName: string) => {
     const itemPath = [...currentPath, itemName].join('/')
@@ -193,29 +226,43 @@ const DocumentsPage: NextPage<Props> = () => {
   }
 
   const handleCreateFolder = async (name: string) => {
-    if (!name.trim()) {
-      toast.error("Please enter a folder name")
-      return
+    // Validate folder name
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      toast.error("Please enter a folder name");
+      return;
+    }
+    
+    // Check for invalid characters in folder name
+    // Disallow characters that could cause issues in paths: \/,:*?"<>|
+    const invalidChars = /[\\/:*?"<>|]/;
+    if (invalidChars.test(trimmedName)) {
+      toast.error("Folder name contains invalid characters. Avoid: \\ / : * ? \" < > |");
+      return;
     }
 
     // Check if folder already exists in current path
     if (files.some(item => 
       item.type === "folder" && 
-      item.name === name && 
+      item.name.toLowerCase() === trimmedName.toLowerCase() && 
       JSON.stringify(item.path) === JSON.stringify(currentPath)
     )) {
-      toast.error("A folder with this name already exists")
-      return
+      toast.error("A folder with this name already exists");
+      return;
     }
 
     try {
-      await documentsApi.createFolder(name, currentPath)
+      toast.loading("Creating folder...");
+      await documentsApi.createFolder(trimmedName, currentPath);
+      
       // Refresh the file list
-      loadFiles()
-      toast.success(`Folder ${name} created successfully`)
+      await loadFiles();
+      toast.dismiss();
+      toast.success(`Folder "${trimmedName}" created successfully`);
     } catch (error) {
-      console.error("Error creating folder:", error)
-      toast.error("Failed to create folder")
+      toast.dismiss();
+      console.error("Error creating folder:", error);
+      toast.error("Failed to create folder. Please try again.");
     }
   }
 
@@ -276,28 +323,530 @@ const DocumentsPage: NextPage<Props> = () => {
     }
   }
 
-  const formatFileSize = (bytes?: number) => {
-    if (!bytes) return "-"
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(1024))
-    return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`
-  }
-
-  const viewFileDetails = (file: FileItem) => {
-    if (file.processingResult) {
-      const fileResult: ProcessedFileResult = {
-        type: file.type,
-        filename: file.name,
-        size: file.size || 0,
-        processed_at: file.modified.toLocaleString(),
+  const handleViewFileDetails = async (item: FileItem) => {
+    try {
+      // Show different loading toast based on item type
+      toast.loading(item.type === "folder" ? "Loading folder details..." : "Loading file details...");
+      
+      let itemResult: ProcessedFileResult = {
+        type: item.type,
+        filename: item.name,
+        size: item.type === "file" ? (item.size || 0) : undefined, // Only set size for files
+        processed_at: new Date().toISOString()
+      };
+      
+      // Create a metadata object to store additional information
+      let itemMetadata: {
+        title?: string,
+        author?: string,
+        creation_date?: string,
+        mimetype?: string,
+        item_count?: number // For folders - count of contained items
+      } = {};
+      
+      // Set creation date from the item's modified date
+      if (item.modified instanceof Date) {
+        itemMetadata.creation_date = item.modified.toISOString();
+      } else {
+        // If it's already a string or other format, convert it to a Date first
+        try {
+          const modifiedDate = new Date(item.modified);
+          itemMetadata.creation_date = modifiedDate.toISOString();
+        } catch (error) {
+          console.error("Error converting modified date:", error);
+          itemMetadata.creation_date = new Date().toISOString(); // Fallback to current date
+        }
       }
-      setFileDetails(fileResult)
-      setShowFileDetails(true)
+      
+      // Try to get the current user as the author if not already set
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        itemMetadata.author = user?.email || user?.user_metadata?.name || "ESG Reporting System";
+      } catch (error) {
+        console.error("Error getting user:", error);
+        itemMetadata.author = "ESG Reporting System";
+      }
+      
+      // Only set mimetype for files, not folders
+      if (item.type === "file") {
+        const extension = item.name.split('.').pop()?.toLowerCase();
+        if (extension) {
+          switch(extension) {
+            case 'pdf':
+              itemMetadata.mimetype = 'application/pdf';
+              break;
+            case 'png':
+            case 'jpg':
+            case 'jpeg':
+            case 'gif':
+              itemMetadata.mimetype = `image/${extension}`;
+              break;
+            case 'txt':
+              itemMetadata.mimetype = 'text/plain';
+              break;
+            case 'csv':
+              itemMetadata.mimetype = 'text/csv';
+              break;
+            case 'docx':
+              itemMetadata.mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+              break;
+            case 'xlsx':
+              itemMetadata.mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+              break;
+            default:
+              itemMetadata.mimetype = 'application/octet-stream';
+          }
+        }
+      } else if (item.type === "folder") {
+        // For folders, get the count of items inside if possible
+        // But don't make a Supabase API call to avoid potential errors
+        itemMetadata.item_count = 0; // Default value
+      }
+      
+      // If there's existing processing result data, merge it with our new data
+      if (item.processingResult) {
+        itemResult = {
+          ...item.processingResult,
+          ...itemResult,
+          metadata: {
+            ...item.processingResult.metadata,
+            ...itemMetadata
+          }
+        };
+      } else {
+        itemResult.metadata = itemMetadata;
+      }
+      
+      // Dismiss the loading toast
+      toast.dismiss();
+      
+      // Set the file details and show the dialog
+      setFileDetails(itemResult);
+      setShowFileDetails(true);
+    } catch (error) {
+      console.error("Error viewing details:", error);
+      toast.dismiss();
+      toast.error(item.type === "folder" ? "Failed to load folder details" : "Failed to load file details");
     }
-  }
+  };
+  
+  // Helper function to get a signed URL for file viewing
+  const getFileSignedUrl = async (file: FileItem): Promise<string | null> => {
+    try {
+      // Construct the path to the file
+      const filePath = currentPath.length > 0 
+        ? `${currentPath.join('/')}/${file.name}`
+        : file.name;
+      
+      // Create a signed URL with 10-minute expiration
+      const { data, error } = await supabase.storage
+        .from('documents')
+        .createSignedUrl(filePath, 600);
+      
+      if (error) {
+        console.error('Error creating signed URL:', error);
+        return null;
+      }
+      
+      return data?.signedUrl || null;
+    } catch (error) {
+      console.error('Error getting signed URL:', error);
+      return null;
+    }
+  };
 
+  // Handler for showing the context menu
+  const handleContextMenu = (e: React.MouseEvent, item: FileItem) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    // Position the context menu near the clicked element
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      item: item
+    })
+    
+    // Add a global click listener to close the menu when clicking elsewhere
+    document.addEventListener('click', closeContextMenu)
+  }
+  
+  // Open rename dialog from context menu
+  const handleOpenRenameDialog = (item: FileItem) => {
+    closeContextMenu();
+    setItemToRename(item);
+    setIsRenameDialogOpen(true);
+  };
+  
+  // Modify the RenameDialog component to fix the empty name error on first click
+  const RenameDialog = () => {
+    // Create a local state for the input value to prevent glitching
+    const [localNameValue, setLocalNameValue] = useState("");
+    
+    // Initialize the local state when the dialog opens
+    useEffect(() => {
+      if (isRenameDialogOpen && itemToRename) {
+        if (itemToRename.type === "file") {
+          const nameParts = itemToRename.name.split('.');
+          if (nameParts.length > 1) {
+            // Remove the extension for editing
+            setLocalNameValue(nameParts.slice(0, -1).join('.'));
+          } else {
+            setLocalNameValue(itemToRename.name);
+          }
+        } else {
+          // For folders, use the full name
+          setLocalNameValue(itemToRename.name);
+        }
+        
+        // Focus the input after the dialog opens and state is set
+        setTimeout(() => {
+          if (renameInputRef.current) {
+            renameInputRef.current.focus();
+            renameInputRef.current.select();
+          }
+        }, 50);
+      }
+    }, [isRenameDialogOpen, itemToRename]);
+
+    // Only render the dialog when it's open and we have an item to rename
+    if (!isRenameDialogOpen || !itemToRename) return null;
+    
+    // Check if it's a file with an extension
+    const isFile = itemToRename.type === "file";
+    let extension = "";
+    
+    if (isFile) {
+      const parts = itemToRename.name.split('.');
+      if (parts.length > 1) {
+        extension = `.${parts[parts.length - 1]}`;
+      }
+    }
+    
+    // Check for validation issues
+    const trimmedName = localNameValue.trim();
+    const isEmpty = trimmedName === "";
+    const hasInvalidChars = /[\\/:*?"<>|]/.test(trimmedName);
+    
+    // Check for duplicate name
+    let isDuplicate = false;
+    if (trimmedName) {
+      const fullNewName = isFile && extension 
+        ? `${trimmedName}${extension}` 
+        : trimmedName;
+        
+      isDuplicate = fullNewName !== itemToRename.name && 
+        getCurrentFolderItems().some(item => 
+          item.name.toLowerCase() === fullNewName.toLowerCase()
+        );
+    }
+    
+    // Check for same name
+    let isSameName = false;
+    if (trimmedName) {
+      const fullNewName = isFile && extension 
+        ? `${trimmedName}${extension}` 
+        : trimmedName;
+        
+      isSameName = fullNewName === itemToRename.name;
+    }
+    
+    // Disable submit button if there are validation issues
+    const isDisabled = isEmpty || hasInvalidChars || isDuplicate || isSameName;
+    
+    // Handle input changes without triggering state changes in parent
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      setLocalNameValue(e.target.value);
+    };
+    
+    // Handle key down for submit
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Enter" && !isDisabled) {
+        e.preventDefault();
+        handleSubmit();
+      }
+    };
+    
+    // Modified handleSubmit to directly perform the rename with local state
+    const handleSubmit = () => {
+      if (isDisabled) return;
+      
+      // Extract the necessary values from local state
+      const item = itemToRename;
+      const newName = trimmedName;
+      
+      // Immediate validation
+      if (!newName) {
+        toast.error("Name cannot be empty");
+        return;
+      }
+      
+      if (hasInvalidChars) {
+        toast.error("Name contains invalid characters. Avoid: \\ / : * ? \" < > |");
+        return;
+      }
+      
+      // Reconstruct the full filename with extension for files
+      let fullNewName = newName;
+      if (item.type === "file") {
+        const oldNameParts = item.name.split('.');
+        if (oldNameParts.length > 1) {
+          const extension = oldNameParts[oldNameParts.length - 1];
+          fullNewName = `${newName}.${extension}`;
+        }
+      }
+
+      // Check if the new name is the same as the old name
+      if (fullNewName === item.name) {
+        toast.error("You must enter a different name");
+        return;
+      }
+      
+      // Check if the new name already exists in the current directory
+      const existingItem = getCurrentFolderItems().find(i => 
+        i.name.toLowerCase() === fullNewName.toLowerCase()
+      );
+      
+      if (existingItem) {
+        toast.error(`A ${item.type} with the name "${fullNewName}" already exists`);
+        return;
+      }
+      
+      // Make a new function to handle errors and provide a retry option
+      const handleRenameError = (error: any) => {
+        console.error('Rename error:', error);
+        
+        // Dismiss any existing toasts first
+        toast.dismiss();
+        
+        // Display error with a retry button
+        if (error.message) {
+          toast.error(error.message, {
+            duration: 5000,
+            action: {
+              label: "Retry",
+              onClick: () => {
+                toast.dismiss();
+                // Wait a bit then try again
+                setTimeout(handleSubmit, 500);
+              }
+            }
+          });
+        } else {
+          toast.error(`Failed to rename ${item.type}. Please try again.`, {
+            duration: 5000,
+            action: {
+              label: "Retry",
+              onClick: () => {
+                toast.dismiss();
+                setTimeout(handleSubmit, 500);
+              }
+            }
+          });
+        }
+      };
+      
+      // Show loading toast with unique ID for better tracking
+      const toastId = `rename-${Date.now()}`;
+      toast.loading(`Preparing to rename ${item.type}...`, { id: toastId });
+      
+      // Common post-success actions
+      const handleRenameSuccess = () => {
+        toast.dismiss(toastId);
+        toast.success(`${item.type === 'folder' ? 'Folder' : 'File'} renamed successfully to "${fullNewName}"`, {
+          duration: 3000
+        });
+        
+        // Close dialog and reset state
+        setIsRenameDialogOpen(false);
+        setItemToRename(null);
+        setNewFileName("");
+        setLocalNameValue("");
+      };
+      
+      // Handle folder rename
+      if (item.type === "folder") {
+        // Update toast for folders - they might take longer
+        setTimeout(() => {
+          toast.dismiss(toastId);
+          toast.loading(
+            "Renaming folder... This may take longer if it contains many files.",
+            { id: toastId, duration: 60000 }
+          );
+        }, 1000);
+        
+        // Call the folder-specific rename method
+        documentsApi.renameFolder(currentPath.join('/'), item.name, fullNewName)
+          .then(() => loadFiles())
+          .then(handleRenameSuccess)
+          .catch(handleRenameError);
+      } 
+      // Handle file rename
+      else {
+        // Update toast for files
+        setTimeout(() => {
+          toast.dismiss(toastId);
+          toast.loading("Renaming file...", { id: toastId, duration: 30000 });
+        }, 1000);
+        
+        // Get the exact path string
+        const pathString = currentPath.join('/');
+        console.log(`📄 Starting file rename operation:`, {
+          directory: pathString,
+          oldName: item.name,
+          newName: fullNewName
+        });
+        
+        // Call the file-specific rename method with proper error handling
+        documentsApi.renameFileItem(pathString, item.name, fullNewName)
+          .then(() => {
+            console.log('📄 File rename API call succeeded, refreshing files...');
+            return loadFiles();
+          })
+          .then(handleRenameSuccess)
+          .catch((error) => {
+            // If we get an error about the file not being found
+            if (error?.message?.includes('not found') || error?.message?.includes('does not exist')) {
+              console.log('⚠️ File not found during rename, trying to refresh file list first...');
+              
+              // Try refreshing the file list first, then retry
+              loadFiles()
+                .then(() => {
+                  // Check if the file still exists after refresh
+                  const fileStillExists = getCurrentFolderItems().some(f => f.name === item.name);
+                  
+                  if (fileStillExists) {
+                    console.log('✅ File found after refresh, retrying rename...');
+                    // Wait a short delay then retry with the refreshed state
+                    setTimeout(() => {
+                      documentsApi.renameFileItem(pathString, item.name, fullNewName)
+                        .then(() => loadFiles())
+                        .then(handleRenameSuccess)
+                        .catch(handleRenameError);
+                    }, 1000);
+                  } else {
+                    // File doesn't exist anymore
+                    console.error('❌ File not found even after refresh');
+                    toast.dismiss(toastId);
+                    toast.error(`The file "${item.name}" could not be found. It may have been deleted or moved.`);
+                  }
+                })
+                .catch(() => {
+                  // If refresh fails, just show the original error
+                  handleRenameError(error);
+                });
+            } else {
+              // For other types of errors
+              handleRenameError(error);
+            }
+          });
+      }
+    };
+    
+    // Handle cancel
+    const handleCancel = () => {
+      setIsRenameDialogOpen(false);
+      setItemToRename(null);
+      setNewFileName("");
+      setLocalNameValue("");
+    };
+    
+    // Handle dialog close
+    const handleOpenChange = (open: boolean) => {
+      if (!open) {
+        handleCancel();
+      }
+    };
+
+    return (
+      <Dialog 
+        open={isRenameDialogOpen} 
+        onOpenChange={handleOpenChange}
+      >
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center">
+              {isFile ? getFileIcon(itemToRename.name, "file") : <FolderClosed className="h-5 w-5 text-yellow-600" />}
+              <span className="ml-2">Rename {isFile ? "File" : "Folder"}</span>
+            </DialogTitle>
+            <DialogDescription>
+              Enter a new name for this {itemToRename.type}.
+              {extension && (
+                <span className="text-muted-foreground"> The extension {extension} will be preserved.</span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <div className="flex items-center gap-2">
+              <Input
+                id="rename-input"
+                ref={renameInputRef}
+                value={localNameValue}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder="Enter new name"
+                className={`flex-1 ${hasInvalidChars ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                autoComplete="off"
+                spellCheck="false"
+              />
+              {extension && (
+                <span className="text-sm text-gray-500 whitespace-nowrap">{extension}</span>
+              )}
+            </div>
+            
+            {/* Validation messages */}
+            <div className="text-sm space-y-1">
+              {isEmpty && (
+                <p className="text-red-500">Name cannot be empty</p>
+              )}
+              
+              {hasInvalidChars && (
+                <p className="text-red-500">
+                  Invalid characters detected. Please avoid: \ / : * ? " &lt; &gt; |
+                </p>
+              )}
+              
+              {isDuplicate && (
+                <p className="text-red-500">
+                  A {itemToRename.type} with this name already exists
+                </p>
+              )}
+              
+              {isSameName && (
+                <p className="text-red-500">
+                  You must enter a different name
+                </p>
+              )}
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={handleCancel}
+              type="button"
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleSubmit}
+              disabled={isDisabled}
+              type="submit"
+            >
+              Rename
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  };
+
+  // Add back the FileDetailsDialog component that was accidentally removed
   const FileDetailsDialog = () => {
     if (!fileDetails || !showFileDetails) return null;
+    
+    const isFolder = fileDetails.type === "folder";
 
     return (
       <div className="fixed inset-0 z-[9999] overflow-y-auto">
@@ -305,8 +854,15 @@ const DocumentsPage: NextPage<Props> = () => {
           <div className="fixed inset-0 bg-black bg-opacity-30"
             onClick={() => setShowFileDetails(false)}></div>
           <div className="relative bg-white rounded-lg shadow-xl max-w-3xl max-h-[90vh] overflow-hidden w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">{fileDetails.filename} Details</h2>
+            {/* Header with icon and title */}
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold flex items-center">
+                {isFolder ? 
+                  <FolderClosed className="w-6 h-6 text-yellow-600 mr-2" /> : 
+                  getFileIcon(fileDetails.filename, "file")
+                }
+                <span className="ml-2">{fileDetails.filename} Details</span>
+              </h2>
               <button
                 onClick={() => setShowFileDetails(false)}
                 className="rounded-full p-1 hover:bg-gray-100">
@@ -314,209 +870,134 @@ const DocumentsPage: NextPage<Props> = () => {
               </button>
             </div>
 
-            <Tabs defaultValue="summary" className="flex-1 overflow-hidden">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="summary">
-                  <Info className="w-4 h-4 mr-2" /> Summary
-                </TabsTrigger>
-                <TabsTrigger value="content">
-                  <FileText className="w-4 h-4 mr-2" /> Content
-                </TabsTrigger>
-                <TabsTrigger value="data" disabled={!fileDetails.sample_data}>
-                  <TableProperties className="w-4 h-4 mr-2" /> Data
-                </TabsTrigger>
-                <TabsTrigger value="structure" disabled={!fileDetails.root}>
-                  <GitGraph className="w-4 h-4 mr-2" /> Structure
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="summary" className="overflow-auto">
-                <div className="space-y-4">
+            {/* Two-column layout */}
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-muted rounded-lg p-4">
+              {/* Left column - File Information */}
+              <div>
                       <h3 className="font-medium mb-2">File Information</h3>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Type:</span>
-                          <span className="font-medium">{fileDetails.type.toUpperCase()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Size:</span>
-                          <span className="font-medium">{formatFileSize(fileDetails.size)}</span>
-                        </div>
-                        {fileDetails.pages && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Pages:</span>
-                            <span className="font-medium">{fileDetails.pages}</span>
-                          </div>
-                        )}
-                        {fileDetails.rows && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Rows:</span>
-                            <span className="font-medium">{fileDetails.rows}</span>
-                          </div>
-                        )}
-                        {fileDetails.columns && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Columns:</span>
-                            <span className="font-medium">{fileDetails.columns}</span>
-                          </div>
-                        )}
-                        {fileDetails.paragraph_count && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Paragraphs:</span>
-                            <span className="font-medium">{fileDetails.paragraph_count}</span>
-                          </div>
-                        )}
-                        {fileDetails.table_count && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Tables:</span>
-                            <span className="font-medium">{fileDetails.table_count}</span>
-                          </div>
-                        )}
-                        {fileDetails.element_count && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">XML Elements:</span>
-                            <span className="font-medium">{fileDetails.element_count}</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {fileDetails.metadata && (
-                      <div className="bg-muted rounded-lg p-4">
-                        <h3 className="font-medium mb-2">Metadata</h3>
-                        <div className="space-y-2 text-sm">
-                          {fileDetails.metadata.title && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Title:</span>
-                              <span className="font-medium">{fileDetails.metadata.title}</span>
-                            </div>
-                          )}
-                          {fileDetails.metadata.author && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Author:</span>
-                              <span className="font-medium">{fileDetails.metadata.author}</span>
-                            </div>
-                          )}
-                          {fileDetails.metadata.creation_date && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Created:</span>
-                              <span className="font-medium">{fileDetails.metadata.creation_date}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                <table className="w-full">
+                  <tbody>
+                    <tr>
+                      <td className="py-2">Type:</td>
+                      <td className="text-right font-medium">{isFolder ? "FOLDER" : "FILE"}</td>
+                    </tr>
+                    
+                    {!isFolder && (
+                      <>
+                        <tr>
+                          <td className="py-2">Size:</td>
+                          <td className="text-right font-medium">
+                            {formatFileSize(fileDetails.size)}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="py-2">Format:</td>
+                          <td className="text-right font-medium">
+                            {fileDetails.filename.split('.').pop()?.toUpperCase() || '-'}
+                          </td>
+                        </tr>
+                      </>
                     )}
+                  </tbody>
+                </table>
+                            </div>
+              
+              {/* Right column - Metadata */}
+              <div>
+                <h3 className="font-medium mb-2">Metadata</h3>
+                <table className="w-full">
+                  <tbody>
+                    <tr>
+                      <td className="py-2">Created by:</td>
+                      <td className="text-right font-medium">
+                        {fileDetails.metadata?.author || '-'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2">Date Added:</td>
+                      <td className="text-right font-medium">
+                        {fileDetails.metadata?.creation_date 
+                          ? new Date(fileDetails.metadata.creation_date).toLocaleString()
+                          : '-'
+                        }
+                      </td>
+                    </tr>
+                    {isFolder && fileDetails.metadata?.item_count !== undefined ? (
+                      <tr>
+                        <td className="py-2">Contains:</td>
+                        <td className="text-right font-medium">
+                          {fileDetails.metadata.item_count} {fileDetails.metadata.item_count === 1 ? 'item' : 'items'}
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr>
+                        <td className="py-2">Location:</td>
+                        <td className="text-right font-medium">
+                          {currentPath.length > 0 ? '/' + currentPath.join('/') : '/'}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
                   </div>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="content" className="h-full overflow-hidden">
-                <ScrollArea className="h-[400px] rounded-md border p-4">
-                  {fileDetails.preview ? (
-                    <div className="whitespace-pre-wrap font-mono text-sm">
-                      {fileDetails.preview}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No preview available for this file type
-                    </div>
-                  )}
-                </ScrollArea>
-              </TabsContent>
-
-              <TabsContent value="data" className="h-full overflow-hidden">
-                {fileDetails.sample_data && fileDetails.column_names ? (
-                  <ScrollArea className="h-[400px] rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          {fileDetails.column_names.map((column, index) => (
-                            <TableHead key={index}>{column}</TableHead>
-                          ))}
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {fileDetails.sample_data.map((row, rowIndex) => (
-                          <TableRow key={rowIndex}>
-                            {fileDetails.column_names!.map((column, colIndex) => (
-                              <TableCell key={colIndex}>{row[column]}</TableCell>
-                            ))}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </ScrollArea>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No tabular data available for this file type
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="structure" className="h-full overflow-hidden">
-                {fileDetails.root ? (
-                  <ScrollArea className="h-[400px] rounded-md border p-4">
-                    <div className="space-y-4">
-                      <div className="bg-muted p-3 rounded-md">
-                        <h3 className="font-medium">Root Element: {fileDetails.root.name}</h3>
-                        {Object.keys(fileDetails.root.attributes).length > 0 && (
-                          <div className="mt-2">
-                            <h4 className="text-sm font-medium">Attributes:</h4>
-                            <pre className="bg-background p-2 rounded text-xs mt-1">
-                              {JSON.stringify(fileDetails.root.attributes, null, 2)}
-                            </pre>
-                          </div>
-                        )}
                       </div>
 
-                      {fileDetails.children_preview && fileDetails.children_preview.length > 0 && (
-                        <div>
-                          <h3 className="font-medium mb-2">Child Elements:</h3>
-                          <div className="space-y-2">
-                            {fileDetails.children_preview.map((child, index) => (
-                              <div key={index} className="border rounded-md p-3">
-                                <h4 className="font-medium text-sm">{child.tag}</h4>
-                                {Object.keys(child.attributes).length > 0 && (
-                                  <div className="mt-1">
-                                    <h5 className="text-xs font-medium">Attributes:</h5>
-                                    <pre className="bg-muted p-2 rounded text-xs mt-1">
-                                      {JSON.stringify(child.attributes, null, 2)}
-                                    </pre>
-                                  </div>
-                                )}
-                                {child.text && (
-                                  <div className="mt-1">
-                                    <h5 className="text-xs font-medium">Text:</h5>
-                                    <div className="bg-muted p-2 rounded text-xs mt-1 break-words">
-                                      {child.text}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </ScrollArea>
-                ) : (
-                  <div className="text-center py-8 text-muted-foreground">
-                    No structure information available for this file type
-                  </div>
-                )}
-              </TabsContent>
-            </Tabs>
-
+            {/* Footer with close button */}
             <div className="mt-6 flex justify-end">
               <Button onClick={() => setShowFileDetails(false)}>Close</Button>
             </div>
           </div>
         </div>
       </div>
-    )
-  }
+    );
+  };
+
+  // Add back the ContextMenu component that was accidentally removed
+  const ContextMenu = () => {
+    if (!contextMenu.item) return null;
+    
+    return (
+      <div 
+        className="absolute z-50 bg-white rounded-md shadow-lg border border-gray-200 py-1 w-40"
+        style={{
+          left: `${contextMenu.x}px`,
+          top: `${contextMenu.y}px`,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button 
+          className="flex w-full items-center px-3 py-2 text-sm hover:bg-gray-100"
+          onClick={() => handleOpenRenameDialog(contextMenu.item!)}
+        >
+          <Edit className="w-4 h-4 mr-2" />
+          Rename
+        </button>
+        <button 
+          className="flex w-full items-center px-3 py-2 text-sm hover:bg-gray-100"
+          onClick={() => {
+            closeContextMenu();
+            handleViewFileDetails(contextMenu.item!);
+          }}
+        >
+          <Info className="w-4 h-4 mr-2" />
+          View Details
+        </button>
+        <button 
+          className="flex w-full items-center px-3 py-2 text-sm hover:bg-gray-100 text-red-600"
+          onClick={() => {
+            closeContextMenu();
+            const fullPath = currentPath.length > 0 
+              ? `${currentPath.join('/')}/${contextMenu.item!.name}`
+              : contextMenu.item!.name;
+            handleDelete(fullPath);
+          }}
+        >
+          <Trash2 className="w-4 h-4 mr-2" />
+          Delete
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full bg-background rounded-lg border shadow-sm">
@@ -650,6 +1131,7 @@ const DocumentsPage: NextPage<Props> = () => {
                     handleSelectItem(item.name)
                   }
                 }}
+                onContextMenu={(e) => handleContextMenu(e, item)}
               >
                 <TableCell className="w-[30px]" onClick={(e) => e.stopPropagation()}>
                   <input
@@ -681,16 +1163,14 @@ const DocumentsPage: NextPage<Props> = () => {
                 </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center space-x-2">
-                    {item.type === "file" && item.processed && (
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => viewFileDetails(item)}
+                      onClick={() => handleViewFileDetails(item)}
                         title="View Details"
                       >
                         <Info className="w-4 h-4" />
                       </Button>
-                    )}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -706,6 +1186,14 @@ const DocumentsPage: NextPage<Props> = () => {
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => handleContextMenu(e, item)}
+                      title="More Options"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
                   </div>
                 </TableCell>
               </TableRow>
@@ -714,6 +1202,8 @@ const DocumentsPage: NextPage<Props> = () => {
         </Table>
       </div>
       {fileDetails && <FileDetailsDialog />}
+      {contextMenu.item && <ContextMenu />}
+      <RenameDialog />
     </div>
   )
 }

@@ -19,7 +19,7 @@ export type UploadProgress = {
 export type ProcessedFileResult = {
   type: string
   filename: string
-  size: number
+  size?: number
   processed_at: string
   pages?: number
   rows?: number
@@ -30,8 +30,11 @@ export type ProcessedFileResult = {
     title?: string
     author?: string
     creation_date?: string
+    mimetype?: string
+    item_count?: number
   }
   preview?: string
+  fileUrl?: string
   paragraph_count?: number
   table_count?: number
   element_count?: number
