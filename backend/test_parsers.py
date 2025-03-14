@@ -80,7 +80,7 @@ def save_result_to_file(result, output_path):
         output_path (str): Path to save the result to
     """
     try:
-        # If pandas is available, use it to ensure all objects are serializable
+        # Replace deprecated pandas.io.json.dumps with standard json.dumps
         try:
             import pandas as pd
             # Updated to use pandas.json.dumps instead of pd.io.json.dumps (API change in newer pandas)
@@ -97,14 +97,15 @@ def save_result_to_file(result, output_path):
                             return str(obj)
                     result = json.loads(json.dumps(result, cls=CustomEncoder))
         except ImportError:
-            # Handle numpy arrays or other non-standard types as strings
-            class CustomEncoder(json.JSONEncoder):
-                def default(self, obj):
-                    return str(obj)
-            result = json.loads(json.dumps(result, cls=CustomEncoder))
+            pass
             
+        # Use standard JSON serialization with custom encoder
+        class CustomEncoder(json.JSONEncoder):
+            def default(self, obj):
+                return str(obj)
+                
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=2, ensure_ascii=False)
+            json.dump(result, f, cls=CustomEncoder, indent=2, ensure_ascii=False)
             
         logger.info(f"Result saved to {output_path}")
     except Exception as e:
