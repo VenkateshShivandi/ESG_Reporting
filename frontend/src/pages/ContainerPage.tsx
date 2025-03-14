@@ -59,7 +59,6 @@ const dashboardTabs: DashboardTab[] = [
     label: "Documents",
     icon: FileText,
     component: <DocumentsPage />,
-    badgeCount: 3,
   },
   {
     id: "chat",
@@ -83,7 +82,9 @@ export function Container() {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isMobileView, setIsMobileView] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  
+  // State to track document count
+  const [documentCount, setDocumentCount] = useState(0)
+
   // Create a state to directly control which tab is active
   const [activeTabId, setActiveTabId] = useState<string>(() => {
     return tabParam || "analytics"
@@ -116,6 +117,22 @@ export function Container() {
       setActiveTabId("analytics")
     }
   }, [tabParam, activeTabId])
+
+  // Add an event listener for document count updates
+  useEffect(() => {
+    // Listen for document count updates from DocumentsPage
+    const handleDocumentCountUpdate = (event: CustomEvent) => {
+      if (event.detail && typeof event.detail.count === 'number') {
+        setDocumentCount(event.detail.count);
+      }
+    };
+
+    window.addEventListener('documentCountUpdate', handleDocumentCountUpdate as EventListener);
+
+    return () => {
+      window.removeEventListener('documentCountUpdate', handleDocumentCountUpdate as EventListener);
+    };
+  }, []);
 
   // Handle sidebar button clicks
   const handleTabClick = (tabId: string) => {
@@ -178,12 +195,10 @@ export function Container() {
       )}
 
       {/* Sidebar */}
-      <div 
-        className={`fixed left-0 top-0 z-20 h-full flex-shrink-0 overflow-hidden border-r bg-white transition-all duration-300 ${
-          isExpanded ? "w-64" : "w-16"
-        } ${
-          isMobileView ? (isMobileMenuOpen ? "translate-x-0" : "-translate-x-full") : "translate-x-0"
-        } md:relative md:translate-x-0`}
+      <div
+        className={`fixed left-0 top-0 z-20 h-full flex-shrink-0 overflow-hidden border-r bg-white transition-all duration-300 ${isExpanded ? "w-64" : "w-16"
+          } ${isMobileView ? (isMobileMenuOpen ? "translate-x-0" : "-translate-x-full") : "translate-x-0"
+          } md:relative md:translate-x-0`}
       >
         {/* Sidebar Header with Logo */}
         <div className="flex h-16 items-center justify-between border-b px-4">
@@ -230,29 +245,27 @@ export function Container() {
                   <button
                     key={tab.id}
                     onClick={() => handleTabClick(tab.id)}
-                    className={`relative flex ${isExpanded ? "w-full items-center justify-between px-3" : "justify-center"} ${
-                      isExpanded ? "py-2.5" : "p-2.5"
-                    } rounded-md transition-all duration-200 ${
-                      isActive 
-                        ? "bg-emerald-50 text-emerald-700 font-medium" 
+                    className={`relative flex ${isExpanded ? "w-full items-center justify-between px-3" : "justify-center"} ${isExpanded ? "py-2.5" : "p-2.5"
+                      } rounded-md transition-all duration-200 ${isActive
+                        ? "bg-emerald-50 text-emerald-700 font-medium"
                         : "text-slate-600 hover:bg-slate-50"
-                    }`}
+                      }`}
                   >
                     <div className="flex items-center">
                       <TabIcon className={`h-5 w-5 ${isExpanded ? "mr-3" : ""} ${isActive ? "text-emerald-600" : "text-slate-500"}`} />
                       {isExpanded && <span>{tab.label}</span>}
                     </div>
-                    {isExpanded && tab.badgeCount && (
+                    {isExpanded && tab.id === 'documents' && documentCount > 0 && (
                       <Badge
                         variant="outline"
                         className={isActive ? "bg-emerald-100 text-emerald-700 border-emerald-200" : "bg-slate-100"}
                       >
-                        {tab.badgeCount}
+                        {documentCount}
                       </Badge>
                     )}
-                    {!isExpanded && tab.badgeCount && (
+                    {!isExpanded && tab.id === 'documents' && documentCount > 0 && (
                       <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
-                        {tab.badgeCount}
+                        {documentCount}
                       </span>
                     )}
                   </button>

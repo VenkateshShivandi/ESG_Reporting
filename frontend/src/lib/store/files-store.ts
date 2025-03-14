@@ -9,6 +9,7 @@ interface FilesState {
   removeFile: (fileId: string) => void
   removeFiles: (fileIds: string[]) => void
   updateFile: (id: string, updatedFile: FileItem) => void
+  fetchFiles: (accessToken: string) => Promise<void>
 }
 
 // Create a store with persistence
@@ -35,6 +36,31 @@ export const useFilesStore = create<FilesState>()(
             file.id === id ? updatedFile : file
           )
         })),
+      fetchFiles: async (accessToken: string) => {
+        try {
+          console.log("Fetching files from backend...");
+          const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/list-tree`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (!response.ok) {
+            throw new Error('Failed to fetch files');
+          }
+          
+          const filesData = await response.json();
+          console.log("Files fetched:", filesData);
+          
+          set({ files: filesData });
+          return filesData;
+        } catch (error) {
+          console.error("Error fetching files:", error);
+          throw error;
+        }
+      }
     }),
     {
       name: "files-storage", // unique name for localStorage key
