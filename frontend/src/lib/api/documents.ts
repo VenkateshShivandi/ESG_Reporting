@@ -1,4 +1,4 @@
-import { FileItem, ProcessedFileResult } from '@/lib/types/documents'
+import { FileItem, ProcessedFileResult, RenameItemResponse } from '@/lib/types/documents'
 import axios from 'axios'
 import supabase from '@/lib/supabase/client'
 
@@ -506,6 +506,22 @@ export const documentsApi = {
       return response.data
     } catch (error) {
       console.error('❌ API Error in updateFileMetadata:', error)
+      throw error
+    }
+  },
+
+  // Rename file or folder
+  renameItem: async (oldPath: string, newName: string): Promise<RenameItemResponse> => {
+    try {
+      console.log('📞 API Call - renameItem:', { oldPath, newName })
+      const response = await api.post('/api/rename', {
+        oldPath,
+        newName
+      })
+      console.log('📥 API Response:', response.data)
+      return response.data
+    } catch (error) {
+      console.error('❌ API Error in renameItem:', error)
       throw error
     }
   },

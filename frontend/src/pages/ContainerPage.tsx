@@ -369,6 +369,7 @@ export function Container() {
                         className="bg-green-100 hover:bg-green-200 text-green-700 border-0 ml-2 rounded-full px-2 py-0.5 text-xs font-medium"
                       >
                         {documentCount}
+                        {documentCount}
                       </Badge>
                     )}
                     {!isExpanded && showBadge && (
