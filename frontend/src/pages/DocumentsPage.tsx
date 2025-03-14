@@ -115,6 +115,23 @@ const DocumentsPage: NextPage<Props> = () => {
       .filter((item) => item.name !== '.folder'); // Hide the .folder placeholder files
   }, [files, currentPath])
 
+  // Update document count when files change
+  useEffect(() => {
+    // Count only real document files (not folders or placeholder files)
+    const documentCount = files.filter(item =>
+      item.type === "file" &&
+      item.name !== '.folder' &&
+      !item.name.startsWith('.')
+    ).length;
+
+    // Dispatch an event with the document count
+    const event = new CustomEvent('documentCountUpdate', {
+      detail: { count: documentCount }
+    });
+
+    window.dispatchEvent(event);
+  }, [files]);
+
   const loadFiles = useCallback(async () => {
     try {
       setIsLoading(true)

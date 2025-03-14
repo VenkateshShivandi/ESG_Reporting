@@ -5,7 +5,7 @@ from security import require_auth, require_role
 from flask_cors import CORS, cross_origin
 import uuid
 from werkzeug.utils import secure_filename
-from datetime import datetime
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 from openai import OpenAI
 import time
@@ -345,15 +345,117 @@ def search_files():
         file_type = request.args.get('type')
         path = request.args.get('path', '')
         
-        app.logger.info(f"📞 API Call - search_files: {query}")
+        app.logger.info(f"📞 API Call - search_files: query='{query}', type='{file_type}', path='{path}'")
         
-        # Implement search logic here using Supabase
-        # This is a placeholder implementation
+        if not query:
+            return jsonify([]), 200
+        
+        # Fetch all files first (we'll filter them based on the search query)
         response = supabase.storage.from_('documents').list(path=path)
-        files = [file for file in response if query.lower() in file.name.lower()]
         
-        app.logger.info(f"📥 API Response: {files}")
-        return jsonify(files)
+        # Prepare results
+        results = []
+        matched_files = []
+        
+        # First, filter files by name (case-insensitive)
+        for item in response:
+            if item['name'] == '.folder':
+                continue
+                
+            # Skip folders if a file type is specified
+            if file_type and item['id'] is None:
+                continue
+                
+            # Only include files that match the query
+            if query.lower() in item['name'].lower():
+                if item['id'] is None:
+                    # Folder
+                    results.append({
+                        'id': f"folder_{path}_{item['name']}",  # Generate a pseudo-ID for folders
+                        'name': item['name'],
+                        'type': 'folder',
+                        'size': 0,
+                        'modified': item.get('last_accessed_at'),
+                        'path': path.split('/') if path else [],
+                        'metadata': {
+                            'mimetype': 'folder',
+                            'lastModified': None,
+                            'contentLength': 0,
+                        },
+                        'created_at': item.get('created_at'),
+                        'updated_at': item.get('updated_at')
+                    })
+                else:
+                    # File
+                    metadata = item.get('metadata', {}) or {}
+                    results.append({
+                        'id': item['id'],
+                        'name': item['name'],
+                        'type': 'file',
+                        'size': metadata.get('size', 0),
+                        'modified': item.get('last_accessed_at'),
+                        'path': path.split('/') if path else [],
+                        'metadata': {
+                            'mimetype': metadata.get('mimetype', 'application/octet-stream'),
+                            'lastModified': metadata.get('lastModified'),
+                            'contentLength': metadata.get('contentLength'),
+                        },
+                        'created_at': item.get('created_at'),
+                        'updated_at': item.get('updated_at')
+                    })
+                matched_files.append(item['name'])
+        
+        # Now search in subfolders if needed (but only if we have fewer than 5 matches so far)
+        if len(results) < 5 and not file_type:
+            folders = [item for item in response if item['id'] is None and item['name'] != '.folder']
+            
+            for folder in folders:
+                if len(results) >= 10:  # Limit total results to avoid too much recursion
+                    break
+                    
+                folder_path = f"{path}/{folder['name']}" if path else folder['name']
+                
+                try:
+                    # Recursively search in subfolders
+                    with app.app_context():
+                        # Simulate a request to our own endpoint
+                        with app.test_request_context(
+                            f"/api/search-files?query={query}&path={folder_path}",
+                            headers={"Authorization": request.headers.get("Authorization")}
+                        ):
+                            # Get the response from our own function
+                            sub_response = search_files()
+                            # Extract the JSON data
+                            sub_data = sub_response[0].json
+                            
+                            # Add each result from subfolder
+                            for item in sub_data:
+                                # Avoid duplicates
+                                if item['name'] not in matched_files:
+                                    # Update path to include the subfolder
+                                    if path:
+                                        item['path'] = path.split('/') + [folder['name']] + item['path'][len(path.split('/')):] 
+                                    else:
+                                        item['path'] = [folder['name']] + item['path']
+                                    results.append(item)
+                                    matched_files.append(item['name'])
+                                    
+                                    # Limit results
+                                    if len(results) >= 10:
+                                        break
+                except Exception as subfolder_error:
+                    app.logger.error(f"Error searching in subfolder {folder_path}: {str(subfolder_error)}")
+        
+        # Sort results by relevance (exact matches first, then by name)
+        results.sort(key=lambda x: (0 if x['name'].lower() == query.lower() else 
+                                  (1 if x['name'].lower().startswith(query.lower()) else 2),
+                                  x['name']))
+                                  
+        # Limit to maximum 10 results
+        results = results[:10]
+        
+        app.logger.info(f"📥 API Response: Found {len(results)} matches for query '{query}'")
+        return jsonify(results), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in search_files: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -848,36 +950,103 @@ def get_reports():
     """Get generated ESG reports."""
     try:
         app.logger.info("📊 API Call - get_reports")
-        # Mock response
+        
+        # Get user ID from the authenticated request
+        user_id = request.user['id']
+        
+        # In a real implementation, we would query the database for reports
+        # associated with this user's organization.
+        # For now, return a more detailed mock response
+        
+        current_date = datetime.now()
+        
+        # Create mock report data
+        recent_reports = [
+            {
+                "id": "rep_001",
+                "name": "Q4 2023 ESG Report",
+                "type": "GRI",
+                "generated_at": (current_date - timedelta(days=30)).isoformat(),
+                "status": "completed", 
+                "files": ["file1", "file2", "file3"],
+                "metrics": {
+                    "environmental_score": 82,
+                    "social_score": 78,
+                    "governance_score": 91
+                }
+            },
+            {
+                "id": "rep_002",
+                "name": "Annual Sustainability Report 2023",
+                "type": "SASB",
+                "generated_at": (current_date - timedelta(days=60)).isoformat(),
+                "status": "completed",
+                "files": ["file1", "file4"],
+                "metrics": {
+                    "environmental_score": 79,
+                    "social_score": 85,
+                    "governance_score": 88
+                }
+            },
+            {
+                "id": "rep_003", 
+                "name": "Q1 2024 ESG Report",
+                "type": "GRI",
+                "generated_at": (current_date - timedelta(days=15)).isoformat(),
+                "status": "pending_review",
+                "files": ["file3", "file5"],
+                "metrics": {
+                    "environmental_score": 84,
+                    "social_score": 79,
+                    "governance_score": 90
+                }
+            }
+        ]
+        
+        scheduled_reports = [
+            {
+                "id": "rep_004",
+                "name": "Q2 2024 ESG Report",
+                "type": "GRI",
+                "scheduled_for": (current_date + timedelta(days=15)).isoformat(),
+                "status": "scheduled",
+                "template": "quarterly_report_template",
+                "files": []
+            },
+            {
+                "id": "rep_005",
+                "name": "Climate Risk Assessment",
+                "type": "TCFD",
+                "scheduled_for": (current_date + timedelta(days=30)).isoformat(),
+                "status": "scheduled",
+                "template": "climate_risk_template",
+                "files": []
+            }
+        ]
+        
+        # Try to get the storage file list to associate real files with reports
+        try:
+            storage_files = supabase.storage.from_('documents').list()
+            file_ids = [file['id'] for file in storage_files if file['id'] is not None]
+            
+            # Assign real file IDs to reports if available
+            for report in recent_reports:
+                if file_ids:
+                    # Assign up to 3 random files to each report
+                    num_files = min(3, len(file_ids))
+                    report["files"] = [file_ids[i] for i in range(num_files)]
+                    
+        except Exception as file_error:
+            app.logger.warning(f"Could not retrieve file list for reports: {str(file_error)}")
+        
         reports = {
-            "recent_reports": [
-                {
-                    "id": "rep_001",
-                    "name": "Q4 2024 ESG Report",
-                    "type": "quarterly",
-                    "generated_at": "2024-12-31T23:59:59Z",
-                    "status": "completed"
-                },
-                {
-                    "id": "rep_002",
-                    "name": "Annual ESG Report 2024",
-                    "type": "annual",
-                    "generated_at": "2024-12-31T23:59:59Z",
-                    "status": "pending_review"
-                }
-            ],
-            "scheduled_reports": [
-                {
-                    "id": "rep_003",
-                    "name": "Q1 2025 ESG Report",
-                    "type": "quarterly",
-                    "scheduled_for": "2025-03-31T23:59:59Z",
-                    "status": "scheduled"
-                }
-            ]
+            "recent_reports": recent_reports,
+            "scheduled_reports": scheduled_reports
         }
-        app.logger.info("📥 API Response: Reports data sent")
+        
+        app.logger.info(f"📥 API Response: Sent {len(recent_reports)} recent reports and {len(scheduled_reports)} scheduled reports")
         return jsonify(reports), 200
+        
     except Exception as e:
         app.logger.error(f"❌ API Error in get_reports: {str(e)}")
         return jsonify({'error': str(e)}), 500
