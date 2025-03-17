@@ -83,7 +83,19 @@ def save_result_to_file(result, output_path):
         # If pandas is available, use it to ensure all objects are serializable
         try:
             import pandas as pd
-            result = json.loads(pd.io.json.dumps(result))
+            # Updated to use pandas.json.dumps instead of pd.io.json.dumps (API change in newer pandas)
+            try:
+                result = json.loads(pd.json.dumps(result))
+            except AttributeError:
+                # Fallback for older pandas versions
+                try:
+                    result = json.loads(pd.io.json.dumps(result))
+                except AttributeError:
+                    # Handle numpy arrays or other non-standard types as strings
+                    class CustomEncoder(json.JSONEncoder):
+                        def default(self, obj):
+                            return str(obj)
+                    result = json.loads(json.dumps(result, cls=CustomEncoder))
         except ImportError:
             # Handle numpy arrays or other non-standard types as strings
             class CustomEncoder(json.JSONEncoder):
