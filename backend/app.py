@@ -1,0 +1,1176 @@
+from flask import Flask, render_template, request, jsonify, send_from_directory, send_file
+import os
+from dotenv import load_dotenv
+from security import require_auth, require_role
+from flask_cors import CORS, cross_origin
+import uuid
+from werkzeug.utils import secure_filename
+from datetime import datetime, timedelta
+from supabase import create_client, Client
+from openai import OpenAI
+import time
+import redis
+# Load environment variables
+load_dotenv('.env.local')
+
+
+# Get Supabase credentials
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_ANON_KEY = os.getenv('SUPABASE_ANON_KEY')
+SUPABASE_SERVICE_ROLE_KEY = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+OPENAI_ASSISTANT_ID = os.getenv('OPENAI_ASSISTANT_ID')
+REDIS_URL = os.getenv('REDIS_URL')
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+
+# Verify they exist
+if not SUPABASE_URL or not SUPABASE_ANON_KEY or not SUPABASE_SERVICE_ROLE_KEY:
+    raise ValueError("Missing Supabase credentials. Please check your .env file.")
+
+# Initialize Flask app
+app = Flask(__name__)
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+        "methods": ["GET", "POST", "DELETE"],
+        "allow_headers": ["*"]
+    }
+})
+
+# Configure logging
+if not app.debug:
+    import logging
+    from logging.handlers import RotatingFileHandler
+    
+    # Ensure log directory exists
+    os.makedirs('logs', exist_ok=True)
+    
+    # Use RotatingFileHandler which handles file rotation automatically
+    log_file = 'logs/app.log'
+    file_handler = RotatingFileHandler(
+        log_file, 
+        maxBytes=10485760,  # 10MB max file size
+        backupCount=3       # Keep 3 backup files
+    )
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+    ))
+    file_handler.setLevel(logging.INFO)
+    app.logger.addHandler(file_handler)
+    app.logger.setLevel(logging.INFO)
+    app.logger.info('ESG Reporting API startup')
+
+# Configure upload folder
+UPLOAD_FOLDER = 'uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+    app.logger.info(f"Upload folder: {UPLOAD_FOLDER}")
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Initialize Supabase client
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+@app.route('/')
+def home():
+    """Render the home page."""
+    return render_template('index.html')
+
+@app.route('/api/status')
+def status():
+    """Public endpoint to check API status."""
+    return jsonify({
+        "status": "operational",
+        "api_version": "1.0.0"
+    })
+
+@app.route('/api/profile')
+@require_auth
+def user_profile():
+    """Get the authenticated user's profile information."""
+    # User data is added to request by the require_auth decorator
+    
+    return jsonify({
+        "id": request.user['id'],
+        "email": request.user['email'],
+        "role": request.user['role'],
+        "provider": request.user.get('app_metadata', {}).get('provider', 'email')
+    })
+
+@app.route('/api/esg-data')
+@require_auth
+def get_esg_data():
+    """Get ESG data for the authenticated user's organization."""
+    # In a real implementation, you would query your Supabase database here
+    # Supabase RLS will automatically filter data based on the user's permissions
+    
+    # Mocked response for demonstration
+    return jsonify({
+        "esg_metrics": [
+            {
+                "id": "1",
+                "category": "Environment",
+                "name": "Carbon Emissions",
+                "value": 25.4,
+                "unit": "tons",
+                "year": 2023,
+                "quarter": "Q1"
+            },
+            {
+                "id": "2",
+                "category": "Social",
+                "name": "Employee Diversity",
+                "value": 78.3,
+                "unit": "percent",
+                "year": 2023,
+                "quarter": "Q1"
+            }
+        ]
+    })
+
+@app.route('/api/admin/users')
+@require_auth
+@require_role(['admin'])
+def get_all_users():
+    """Admin endpoint to get all users (requires admin role)."""
+    # In a real implementation, you would query your Supabase database
+    # This is protected by the require_role decorator to ensure only admins can access
+    
+    return jsonify({
+        "message": "This endpoint is protected and only accessible to admins"
+    })
+
+@app.route('/api/list-tree', methods=['GET'])
+@require_auth
+def list_tree():
+    try:
+        path = request.args.get('path', '')
+        app.logger.info(f"📞 API Call - list_tree: Requested path={path}")
+        
+        # Get file list from Supabase
+        response = supabase.storage.from_('documents').list(path=path)
+        
+        # Process the returned data
+        files = []
+        for item in response:
+            # Skip the .folder placeholder files
+            if item['name'] == '.folder':
+                continue
+                
+            if item['id'] is None:
+                # Folder
+                files.append({
+                    'id': None,
+                    'name': item['name'],
+                    'type': 'folder',
+                    'size': 0,
+                    'modified': item.get('last_accessed_at'),
+                    'path': path.split('/') if path else [],
+                    'metadata': {
+                        'mimetype': 'folder',
+                        'lastModified': None,
+                        'contentLength': 0,
+                    },
+                    'created_at': item.get('created_at'),
+                    'updated_at': item.get('updated_at')
+                })
+            else:
+                # File
+                metadata = item.get('metadata', {}) or {}
+                files.append({
+                    'id': item['id'],
+                    'name': item['name'],
+                    'type': 'file',
+                    'size': metadata.get('size', 0),
+                    'modified': item.get('last_accessed_at'),
+                    'path': path.split('/') if path else [],
+                    'metadata': {
+                        'mimetype': metadata.get('mimetype', 'application/octet-stream'),
+                        'lastModified': metadata.get('lastModified'),
+                        'contentLength': metadata.get('contentLength'),
+                    },
+                    'created_at': item.get('created_at'),
+                    'updated_at': item.get('updated_at')
+                })
+
+        app.logger.info(f"📤 Returning response: {files}")
+        return jsonify(files), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in list_tree: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/upload-file', methods=['POST'])
+@require_auth
+def upload_file():
+    """Upload a file to a specific path."""
+    try:
+        app.logger.info("📞 API Call - upload_file")
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+            
+        file = request.files['file']
+        path = request.form.get('path', '')
+        
+        if file.filename == '':
+            return jsonify({'error': 'No selected file'}), 400
+            
+        # Use the original filename, just make it secure
+        filename = secure_filename(file.filename)
+        
+        # Read the file data
+        file_data = file.read()
+        
+        # Upload to Supabase with original filename
+        file_path = os.path.join(path, filename) if path else filename
+        response = supabase.storage.from_('documents').upload(
+            file_path,
+            file_data,
+            file_options={"contentType": file.content_type}
+        )
+        
+        app.logger.info(f"📥 API Response: {response}")
+        
+        # Return the file path as the ID since Supabase storage doesn't return an ID
+        return jsonify({
+            'fileId': file_path,
+            'name': filename,
+            'path': path.split('/') if path else []
+        }), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in upload_file: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/process-file', methods=['POST'])
+@require_auth
+def process_file():
+    """Process a file and extract metadata."""
+    try:
+        app.logger.info("📞 API Call - process_file")
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+        
+        file = request.files['file']
+        file_type = file.filename.split('.')[-1].lower()
+        
+        # Mock processing result based on file type
+        result = {
+            'type': file_type,
+            'filename': file.filename,
+            'size': file.content_length,
+            'processed_at': datetime.now().isoformat()
+        }
+        
+        # Add type-specific metadata
+        if file_type == 'pdf':
+            result.update({
+                'pages': 10,  # You would actually count pages
+                'metadata': {
+                    'title': 'Sample PDF',
+                    'author': 'ESG Reporter',
+                    'creation_date': datetime.now().isoformat()
+                }
+            })
+        elif file_type in ['xlsx', 'csv']:
+            result.update({
+                'rows': 100,  # You would actually count rows
+                'columns': 5,  # You would actually count columns
+                'column_names': ['Date', 'Metric', 'Value', 'Unit']
+            })
+            
+        app.logger.info(f"📥 API Response: {result}")
+        return jsonify(result)
+    except Exception as e:
+        app.logger.error(f"❌ API Error in process_file: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/create-folder', methods=['POST'])
+@require_auth
+def create_folder():
+    """Create a new folder."""
+    try:
+        data = request.json
+        name = data.get('name')
+        path = data.get('path', '')
+        
+        app.logger.info(f"📞 API Call - create_folder: {name} in {path}")
+        
+        # Handle path - use path as-is since frontend sends it with proper separator
+        # Windows uses backslashes, but we need to handle paths consistently with forward slashes
+        folder_path = f"{path}/{name}" if path else name
+        
+        # Create a placeholder file path for the folder marker
+        placeholder_path = f"{folder_path}/.folder"
+            
+        app.logger.info(f"Creating folder with path: {folder_path}, placeholder: {placeholder_path}")
+        
+        # Create a placeholder file with minimal content
+        response = supabase.storage.from_('documents').upload(
+            placeholder_path,
+            'folder'.encode(),  # Convert string to bytes
+            {"contentType": "application/x-directory"}
+        )
+        
+        app.logger.info(f"📥 API Response: {response}")
+        return jsonify({
+            'folderId': folder_path,
+            'name': name,
+            'path': path.split('/') if path else [],
+            'type': 'folder'
+        }), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in create_folder: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/files/<file_id>/download', methods=['GET'])
+@require_auth
+def get_download_url(file_id):
+    """Get a download URL for a file."""
+    try:
+        app.logger.info(f"📞 API Call - get_download_url: {file_id}")
+        
+        # Generate signed URL from Supabase
+        response = supabase.storage.from_('documents').create_signed_url(file_id, 3600)
+        
+        app.logger.info(f"📥 API Response: {response}")
+        return jsonify({'url': response['signedURL']})
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_download_url: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/search-files', methods=['GET'])
+@require_auth
+def search_files():
+    """Search for files."""
+    try:
+        query = request.args.get('query', '')
+        file_type = request.args.get('type')
+        path = request.args.get('path', '')
+        
+        app.logger.info(f"📞 API Call - search_files: query='{query}', type='{file_type}', path='{path}'")
+        
+        if not query:
+            return jsonify([]), 200
+        
+        # Fetch all files first (we'll filter them based on the search query)
+        response = supabase.storage.from_('documents').list(path=path)
+        
+        # Prepare results
+        results = []
+        matched_files = []
+        
+        # First, filter files by name (case-insensitive)
+        for item in response:
+            if item['name'] == '.folder':
+                continue
+                
+            # Skip folders if a file type is specified
+            if file_type and item['id'] is None:
+                continue
+                
+            # Only include files that match the query
+            if query.lower() in item['name'].lower():
+                if item['id'] is None:
+                    # Folder
+                    results.append({
+                        'id': f"folder_{path}_{item['name']}",  # Generate a pseudo-ID for folders
+                        'name': item['name'],
+                        'type': 'folder',
+                        'size': 0,
+                        'modified': item.get('last_accessed_at'),
+                        'path': path.split('/') if path else [],
+                        'metadata': {
+                            'mimetype': 'folder',
+                            'lastModified': None,
+                            'contentLength': 0,
+                        },
+                        'created_at': item.get('created_at'),
+                        'updated_at': item.get('updated_at')
+                    })
+                else:
+                    # File
+                    metadata = item.get('metadata', {}) or {}
+                    results.append({
+                        'id': item['id'],
+                        'name': item['name'],
+                        'type': 'file',
+                        'size': metadata.get('size', 0),
+                        'modified': item.get('last_accessed_at'),
+                        'path': path.split('/') if path else [],
+                        'metadata': {
+                            'mimetype': metadata.get('mimetype', 'application/octet-stream'),
+                            'lastModified': metadata.get('lastModified'),
+                            'contentLength': metadata.get('contentLength'),
+                        },
+                        'created_at': item.get('created_at'),
+                        'updated_at': item.get('updated_at')
+                    })
+                matched_files.append(item['name'])
+        
+        # Now search in subfolders if needed (but only if we have fewer than 5 matches so far)
+        if len(results) < 5 and not file_type:
+            folders = [item for item in response if item['id'] is None and item['name'] != '.folder']
+            
+            for folder in folders:
+                if len(results) >= 10:  # Limit total results to avoid too much recursion
+                    break
+                    
+                folder_path = f"{path}/{folder['name']}" if path else folder['name']
+                
+                try:
+                    # Recursively search in subfolders
+                    with app.app_context():
+                        # Simulate a request to our own endpoint
+                        with app.test_request_context(
+                            f"/api/search-files?query={query}&path={folder_path}",
+                            headers={"Authorization": request.headers.get("Authorization")}
+                        ):
+                            # Get the response from our own function
+                            sub_response = search_files()
+                            # Extract the JSON data
+                            sub_data = sub_response[0].json
+                            
+                            # Add each result from subfolder
+                            for item in sub_data:
+                                # Avoid duplicates
+                                if item['name'] not in matched_files:
+                                    # Update path to include the subfolder
+                                    if path:
+                                        item['path'] = path.split('/') + [folder['name']] + item['path'][len(path.split('/')):] 
+                                    else:
+                                        item['path'] = [folder['name']] + item['path']
+                                    results.append(item)
+                                    matched_files.append(item['name'])
+                                    
+                                    # Limit results
+                                    if len(results) >= 10:
+                                        break
+                except Exception as subfolder_error:
+                    app.logger.error(f"Error searching in subfolder {folder_path}: {str(subfolder_error)}")
+        
+        # Sort results by relevance (exact matches first, then by name)
+        results.sort(key=lambda x: (0 if x['name'].lower() == query.lower() else 
+                                  (1 if x['name'].lower().startswith(query.lower()) else 2),
+                                  x['name']))
+                                  
+        # Limit to maximum 10 results
+        results = results[:10]
+        
+        app.logger.info(f"📥 API Response: Found {len(results)} matches for query '{query}'")
+        return jsonify(results), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in search_files: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/storage-quota', methods=['GET'])
+@require_auth
+def get_storage_quota():
+    """Get storage quota information."""
+    try:
+        app.logger.info("📞 API Call - get_storage_quota")
+        
+        # Implement actual storage calculation here
+        # This is a placeholder implementation
+        quota = {
+            'used': 1024 * 1024 * 500,  # 500MB
+            'total': 1024 * 1024 * 1000,  # 1GB
+            'percentage': 50
+        }
+        
+        app.logger.info(f"📥 API Response: {quota}")
+        return jsonify(quota)
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_storage_quota: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+def initialize_assistant():
+    """Initialize the assistant."""
+    try:
+        # Initialize the assistant
+        if(OPENAI_ASSISTANT_ID):
+            print("OPENAI_ASSISTANT_ID: ", OPENAI_ASSISTANT_ID)
+            return OPENAI_ASSISTANT_ID
+        else:
+            response = client.beta.assistants.create(
+                name="ESG Reporting Assistant",
+                instructions="You are a helpful assistant that can answer questions about the ESG data.",
+            )
+            return response.id
+    except Exception as e:
+        app.logger.error(f"Error initializing assistant: {str(e)}")
+        return None
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """Chat with the AI."""
+    try:
+        if(OPENAI_ASSISTANT_ID):
+            assistant_id = OPENAI_ASSISTANT_ID
+            print("OPENAI_ASSISTANT_ID: ", assistant_id)
+        else:
+            assistant_id = initialize_assistant()
+            if not assistant_id:
+                return jsonify({'error': 'Failed to initialize assistant'}), 500
+                
+        # Get the user's message
+        message = request.json.get('data', {}).get('content','')
+        # Create or retrieve thread
+        if(REDIS_URL):
+            redis_client = redis.from_url(REDIS_URL)
+            thread_id = redis_client.get('thread_id')
+            if not thread_id:
+                thread = client.beta.threads.create()
+                thread_id = thread.id
+                redis_client.set('thread_id', thread_id)
+            else:
+                # Convert bytes to string if needed
+                thread_id = thread_id.decode('utf-8') if isinstance(thread_id, bytes) else thread_id
+        else:
+            thread = client.beta.threads.create()
+            thread_id = thread.id
+            
+        # Add the user's message to the thread
+        client.beta.threads.messages.create(
+            thread_id=thread_id,  # Use thread_id instead of thread.id
+            role="user", 
+            content=message
+        )
+        
+        # Run the assistant
+        run = client.beta.threads.runs.create(
+            thread_id=thread_id,  # Use thread_id instead of thread.id
+            assistant_id=assistant_id
+        )
+        
+        # Wait for the run to complete
+        while run.status not in ["completed", "failed"]:
+            time.sleep(0.5)
+            run = client.beta.threads.runs.retrieve(
+                thread_id=thread_id,  # Use thread_id instead of thread.id
+                run_id=run.id
+            )
+            
+        if run.status == "failed":
+            return jsonify({'error': 'Assistant run failed'}), 500
+            
+        # Get the assistant's response
+        messages = client.beta.threads.messages.list(thread_id=thread_id)
+        
+        # Get the latest assistant message (messages are returned in reverse chronological order)
+        assistant_response = None
+        for msg in messages.data:
+            if msg.role == "assistant":
+                for content_part in msg.content:
+                    if content_part.type == 'text':
+                        assistant_response = content_part.text.value
+                        break
+                if assistant_response:
+                    break
+        
+        # Return the assistant's message
+        if assistant_response:
+            return jsonify({
+                'id': str(uuid.uuid4()),
+                'role': 'assistant',
+                'content': assistant_response
+            }), 200
+        else:
+            return jsonify({'error': 'No response from assistant'}), 500
+            
+    except Exception as e:
+        app.logger.error(f"Error in chat endpoint: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/delete', methods=['DELETE'])
+@require_auth
+def delete_item():
+    """Delete a file or folder."""
+    try:
+        path = request.args.get('path', '')
+        app.logger.info(f"📞 API Call - delete_item: {path}")
+        
+        if not path:
+            return jsonify({'error': 'No path provided'}), 400
+            
+        # Check if path ends with a file extension to determine if it's a file
+        if '.' in os.path.basename(path):
+            # It's a file
+            app.logger.info(f"🔺 Attempting to delete file: {path}")
+            supabase.storage.from_('documents').remove([path])
+            app.logger.info(f"🔺 Successfully deleted file: {path}")
+        else:
+            # It's a folder - recursive deletion function
+            app.logger.info(f"🔺 Attempting to delete folder: {path}")
+            
+            def delete_folder_recursive(folder_path):
+                """Recursively delete a folder and all its contents"""
+                try:
+                    # List contents of the folder
+                    contents = supabase.storage.from_('documents').list(path=folder_path)
+                    
+                    # First process all subfolders recursively
+                    for item in contents:
+                        item_path = os.path.join(folder_path, item['name'])
+                        if item['id'] is None and item['name'] != '.folder':
+                            # It's a subfolder - delete recursively
+                            app.logger.info(f"🔺 Recursively deleting subfolder: {item_path}")
+                            delete_folder_recursive(item_path)
+                        elif item['id'] is not None:
+                            # It's a file - delete directly
+                            app.logger.info(f"🔺 Deleting file in folder: {item_path}")
+                            supabase.storage.from_('documents').remove([item_path])
+                    
+                    # Finally delete the folder placeholder
+                    folder_placeholder = os.path.join(folder_path, '.folder')
+                    app.logger.info(f"🔺 Deleting folder placeholder: {folder_placeholder}")
+                    supabase.storage.from_('documents').remove([folder_placeholder])
+                    
+                    app.logger.info(f"🔺 Successfully deleted folder: {folder_path}")
+                    return True
+                except Exception as folder_error:
+                    app.logger.error(f"❌ Failed to delete folder or its contents: {str(folder_error)}")
+                    raise folder_error
+            
+            # Start the recursive deletion process
+            delete_folder_recursive(path)
+        
+        app.logger.info(f"📥 API Response: Successfully deleted {path}")
+        return jsonify({
+            'success': True,
+            'path': path
+        }), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in delete_item: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/rename', methods=['POST'])
+@require_auth
+def rename_item():
+    """Rename a file or folder."""
+    try:
+        data = request.json
+        old_path = data.get('oldPath', '')
+        new_name = data.get('newName', '')
+        
+        app.logger.info(f"📞 API Call - rename_item: {old_path} to {new_name}")
+        
+        if not old_path or not new_name:
+            return jsonify({'error': 'Missing required parameters'}), 400
+            
+        # Get parent directory and old name
+        parent_dir = os.path.dirname(old_path)
+        old_name = os.path.basename(old_path)
+        
+        # Construct new path
+        new_path = os.path.join(parent_dir, new_name) if parent_dir else new_name
+        
+        app.logger.info(f"🔄 Renaming from {old_path} to {new_path}")
+        
+        # Check if it's a file or folder based on file extension
+        is_file = '.' in old_name
+        
+        # First approach: Check if the target exists by trying to list parent directory
+        try:
+            # List the parent directory to see if the target name exists
+            parent_path = parent_dir if parent_dir else ""
+            parent_contents = supabase.storage.from_('documents').list(path=parent_path)
+            
+            # Check if the new name already exists in the parent directory
+            for item in parent_contents:
+                if item['name'] == new_name:
+                    app.logger.error(f"❌ An item named '{new_name}' already exists in the same directory")
+                    if is_file and item['id'] is None:
+                        return jsonify({'error': f"Cannot rename to '{new_name}' because a folder with this name already exists"}), 400
+                    elif not is_file and item['id'] is not None:
+                        return jsonify({'error': f"Cannot rename to '{new_name}' because a file with this name already exists"}), 400
+                    else:
+                        return jsonify({'error': f"Cannot rename to '{new_name}' because an item with this name already exists"}), 400
+        except Exception as check_error:
+            app.logger.warning(f"⚠️ Could not check parent directory: {str(check_error)}")
+            # Fall back to the old method if we can't list the parent directory
+            
+            # For files only: try a different approach to check if the target file exists
+            if is_file:
+                try:
+                    try:
+                        # Try to get file metadata first
+                        supabase.storage.from_('documents').get_public_url(new_path)
+                        app.logger.error(f"❌ File with name '{new_name}' already exists")
+                        return jsonify({'error': f"Cannot rename to '{new_name}' because a file with this name already exists"}), 400
+                    except Exception:
+                        pass
+                        
+                except Exception:
+                    # If all existence checks fail, we assume the file doesn't exist
+                    app.logger.info(f"✅ Target file '{new_name}' does not exist, proceeding with rename")
+                    pass
+        
+        # If we've reached here, the target doesn't exist, so we can proceed with the rename
+        
+        # Check if it's a file or folder
+        if '.' in old_name:  # It's likely a file
+            # Supabase storage doesn't have a rename function, so we need to:
+            # 1. Download the file
+            # 2. Upload it with the new name
+            # 3. Delete the old file
+            try:
+                # Download file data
+                result = supabase.storage.from_('documents').download(old_path)
+                file_data = result
+                
+                # Get content type (best guess based on extension)
+                content_type = "application/octet-stream"
+                ext = os.path.splitext(new_name)[1].lower()
+                if ext == '.pdf':
+                    content_type = "application/pdf"
+                elif ext == '.xlsx':
+                    content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                elif ext == '.csv':
+                    content_type = "text/csv"
+                elif ext == '.docx':
+                    content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                
+                # Upload with new name
+                upload_response = supabase.storage.from_('documents').upload(
+                    new_path,
+                    file_data,
+                    file_options={"contentType": content_type}
+                )
+                
+                # confirm the upload is successful before deleting
+                if upload_response:
+                    # Delete old file
+                    supabase.storage.from_('documents').remove([old_path])
+                    app.logger.info(f"📄 Successfully renamed file from {old_path} to {new_path}")
+                else:
+                    raise Exception("Failed to upload file with new name")
+            except Exception as file_error:
+                app.logger.error(f"❌ Failed to rename file: {str(file_error)}")
+                # try to clean up the possibly created new file
+                try:
+                    supabase.storage.from_('documents').remove([new_path])
+                except:
+                    pass
+                raise file_error
+        else:  # It's a folder
+            # For folders:
+            # 1. List all files in the folder
+            # 2. For each file, download, upload with new path, and delete old
+            # 3. Create new folder placeholder
+            # 4. Delete old folder placeholder
+            
+            # List all files in folder
+            try:
+                # recursive function to handle subfolder contents
+                def process_folder_contents(src_folder, dest_folder, moved_items=None):
+                    if moved_items is None:
+                        moved_items = []
+                    
+                    try:
+                        # get the contents of the source folder
+                        contents = supabase.storage.from_('documents').list(path=src_folder)
+                        
+                        # create the destination folder placeholder
+                        try:
+                            placeholder_path = os.path.join(dest_folder, '.folder')
+                            supabase.storage.from_('documents').upload(
+                                placeholder_path,
+                                'folder'.encode(),
+                                {"contentType": "application/x-directory"}
+                            )
+                        except Exception as ph_error:
+                            if not 'Duplicate' in str(ph_error):  # ignore duplicate file error
+                                raise ph_error
+                        
+                        # handle each file and subfolder
+                        for item in contents:
+                            if item['name'] == '.folder':
+                                continue
+                                
+                            src_item_path = os.path.join(src_folder, item['name'])
+                            dest_item_path = os.path.join(dest_folder, item['name'])
+                            
+                            if item['id'] is None:  # subfolderolder
+                                process_folder_contents(src_item_path, dest_item_path, moved_items)
+                            else:  # file
+                                try:
+                                    # download the file
+                                    item_data = supabase.storage.from_('documents').download(src_item_path)
+                                    
+                                    # upload to the new path
+                                    content_type = item.get('metadata', {}).get('mimetype', 'application/octet-stream')
+                                    supabase.storage.from_('documents').upload(
+                                        dest_item_path,
+                                        item_data,
+                                        file_options={"contentType": content_type}
+                                    )
+                                    
+                                    # record the successfully moved file
+                                    moved_items.append(src_item_path)
+                                except Exception as file_error:
+                                    app.logger.error(f"❌ Failed to move file {src_item_path}: {str(file_error)}")
+                                    # continue to process other files
+                        
+                        # record the folder placeholder
+                        folder_placeholder = os.path.join(src_folder, '.folder')
+                        moved_items.append(folder_placeholder)
+                        
+                        return moved_items
+                    except Exception as inner_error:
+                        app.logger.error(f"❌ Error processing folder {src_folder}: {str(inner_error)}")
+                        raise inner_error
+                
+                # start to process the folder recursively
+                moved_items = process_folder_contents(old_path, new_path)
+                
+                # after successfully copying all items, start to delete the original items
+                if moved_items:
+                    app.logger.info(f"📁 Successfully copied {len(moved_items)} items from {old_path} to {new_path}")
+                    
+                    # start to delete the original items from the deepest level
+                    sorted_items = sorted(moved_items, key=len, reverse=True)
+                    deletion_errors = []
+                    
+                    for item_path in sorted_items:
+                        try:
+                            supabase.storage.from_('documents').remove([item_path])
+                            app.logger.info(f"🗑️ Deleted original item: {item_path}")
+                        except Exception as del_error:
+                            app.logger.error(f"Failed to delete original item {item_path}: {str(del_error)}")
+                            deletion_errors.append(item_path)
+                    
+                    if deletion_errors:
+                        app.logger.warning(f"Some original items could not be deleted: {deletion_errors}")
+                        app.logger.warning("Rename operation partially successful - new folder created but old might remain")
+                    
+                    app.logger.info(f"📁 Successfully renamed folder from {old_path} to {new_path}")
+                else:
+                    app.logger.error(f"❌ No items were copied from {old_path} to {new_path}")
+                    raise Exception(f"Failed to copy any items from {old_path} to {new_path}")
+                
+            except Exception as folder_error:
+                app.logger.error(f"❌ Failed to rename folder: {str(folder_error)}")
+                
+                # try to clean up the newly created files and folders, but do not let cleanup errors prevent the operation from returning
+                try:
+                    # recursive function to delete the newly created files and folders
+                    def clean_folder(folder_path):
+                        try:
+                            contents = supabase.storage.from_('documents').list(path=folder_path)
+                            
+                            # delete all files first
+                            for item in contents:
+                                if item['id'] is not None:  # file
+                                    item_path = os.path.join(folder_path, item['name'])
+                                    try:
+                                        supabase.storage.from_('documents').remove([item_path])
+                                        app.logger.info(f"🗑️ Cleanup: Deleted {item_path}")
+                                    except Exception as del_error:
+                                        app.logger.error(f"Cleanup: Failed to delete {item_path}: {str(del_error)}")
+                                elif item['name'] != '.folder':  # subfolder (not a placeholder)
+                                    child_path = os.path.join(folder_path, item['name'])
+                                    clean_folder(child_path)  # recursive deletion of subfolders
+                            
+                            # then delete the folder placeholder
+                            try:
+                                placeholder = os.path.join(folder_path, '.folder')
+                                supabase.storage.from_('documents').remove([placeholder])
+                                app.logger.info(f"🗑️ Cleanup: Deleted placeholder {placeholder}")
+                            except Exception as ph_error:
+                                app.logger.error(f"Cleanup: Failed to delete placeholder {folder_path}: {str(ph_error)}")
+                                
+                        except Exception as list_error:
+                            app.logger.error(f"Cleanup: Failed to list contents of {folder_path}: {str(list_error)}")
+                    
+                    # start to clean up
+                    clean_folder(new_path)
+                    
+                except Exception as cleanup_error:
+                    app.logger.error(f"❌ Failed to clean up after failed rename: {str(cleanup_error)}")
+                
+                # special handling, if the new folder already exists and is not empty, we consider the operation to be basically successful
+                try:
+                    contents = supabase.storage.from_('documents').list(path=new_path)
+                    if contents and any(item['id'] is not None for item in contents):
+                        app.logger.warning(f"Rename partially successful: Files exist in new location {new_path}")
+                        # return success, but add a warning
+                        return jsonify({
+                            'success': True,
+                            'oldPath': old_path,
+                            'newPath': new_path,
+                            'warning': 'Partial success: Files exist in new location but old folder may still exist'
+                        }), 200
+                except Exception:
+                    pass
+                    
+                # continue to raise the original error
+                raise folder_error
+        
+        return jsonify({
+            'success': True,
+            'oldPath': old_path,
+            'newPath': new_path
+        }), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in rename_item: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+# Analytics API endpoints
+@app.route('/api/analytics/metrics', methods=['GET'])
+@require_auth
+def get_metrics():
+    """Get ESG metrics and KPIs."""
+    try:
+        app.logger.info("📊 API Call - get_metrics")
+        # Mock response
+        metrics = {
+            "environmental": {
+                "carbon_emissions": {"value": 1250.5, "unit": "tons", "trend": -5.2},
+                "energy_consumption": {"value": 45000, "unit": "kWh", "trend": -2.1},
+                "waste_management": {"value": 85.5, "unit": "tons", "trend": -10.0}
+            },
+            "social": {
+                "employee_satisfaction": {"value": 4.2, "unit": "score", "trend": 0.3},
+                "diversity_ratio": {"value": 42, "unit": "percent", "trend": 5.0},
+                "training_hours": {"value": 1200, "unit": "hours", "trend": 15.0}
+            },
+            "governance": {
+                "board_diversity": {"value": 38, "unit": "percent", "trend": 8.0},
+                "compliance_rate": {"value": 98.5, "unit": "percent", "trend": 1.5},
+                "risk_assessment": {"value": 4.5, "unit": "score", "trend": 0.2}
+            }
+        }
+        app.logger.info("📥 API Response: Metrics data sent")
+        return jsonify(metrics), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_metrics: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/reports', methods=['GET'])
+@require_auth
+def get_reports():
+    """Get generated ESG reports."""
+    try:
+        app.logger.info("📊 API Call - get_reports")
+        
+        # Get user ID from the authenticated request
+        user_id = request.user['id']
+        
+        # In a real implementation, we would query the database for reports
+        # associated with this user's organization.
+        # For now, return a more detailed mock response
+        
+        current_date = datetime.now()
+        
+        # Create mock report data
+        recent_reports = [
+            {
+                "id": "rep_001",
+                "name": "Q4 2023 ESG Report",
+                "type": "GRI",
+                "generated_at": (current_date - timedelta(days=30)).isoformat(),
+                "status": "completed", 
+                "files": ["file1", "file2", "file3"],
+                "metrics": {
+                    "environmental_score": 82,
+                    "social_score": 78,
+                    "governance_score": 91
+                }
+            },
+            {
+                "id": "rep_002",
+                "name": "Annual Sustainability Report 2023",
+                "type": "SASB",
+                "generated_at": (current_date - timedelta(days=60)).isoformat(),
+                "status": "completed",
+                "files": ["file1", "file4"],
+                "metrics": {
+                    "environmental_score": 79,
+                    "social_score": 85,
+                    "governance_score": 88
+                }
+            },
+            {
+                "id": "rep_003", 
+                "name": "Q1 2024 ESG Report",
+                "type": "GRI",
+                "generated_at": (current_date - timedelta(days=15)).isoformat(),
+                "status": "pending_review",
+                "files": ["file3", "file5"],
+                "metrics": {
+                    "environmental_score": 84,
+                    "social_score": 79,
+                    "governance_score": 90
+                }
+            }
+        ]
+        
+        scheduled_reports = [
+            {
+                "id": "rep_004",
+                "name": "Q2 2024 ESG Report",
+                "type": "GRI",
+                "scheduled_for": (current_date + timedelta(days=15)).isoformat(),
+                "status": "scheduled",
+                "template": "quarterly_report_template",
+                "files": []
+            },
+            {
+                "id": "rep_005",
+                "name": "Climate Risk Assessment",
+                "type": "TCFD",
+                "scheduled_for": (current_date + timedelta(days=30)).isoformat(),
+                "status": "scheduled",
+                "template": "climate_risk_template",
+                "files": []
+            }
+        ]
+        
+        # Try to get the storage file list to associate real files with reports
+        try:
+            storage_files = supabase.storage.from_('documents').list()
+            file_ids = [file['id'] for file in storage_files if file['id'] is not None]
+            
+            # Assign real file IDs to reports if available
+            for report in recent_reports:
+                if file_ids:
+                    # Assign up to 3 random files to each report
+                    num_files = min(3, len(file_ids))
+                    report["files"] = [file_ids[i] for i in range(num_files)]
+                    
+        except Exception as file_error:
+            app.logger.warning(f"Could not retrieve file list for reports: {str(file_error)}")
+        
+        reports = {
+            "recent_reports": recent_reports,
+            "scheduled_reports": scheduled_reports
+        }
+        
+        app.logger.info(f"📥 API Response: Sent {len(recent_reports)} recent reports and {len(scheduled_reports)} scheduled reports")
+        return jsonify(reports), 200
+        
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_reports: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/trends', methods=['GET'])
+@require_auth
+def get_trends():
+    """Get ESG metric trends over time."""
+    try:
+        app.logger.info("📊 API Call - get_trends")
+        period = request.args.get('period', 'yearly')  # yearly, quarterly, monthly
+        metric = request.args.get('metric', 'all')
+        
+        # Mock response
+        trends = {
+            "timeline": ["2023-Q1", "2023-Q2", "2023-Q3", "2023-Q4"],
+            "metrics": {
+                "carbon_emissions": [1300, 1280, 1265, 1250.5],
+                "energy_consumption": [48000, 47000, 46000, 45000],
+                "waste_management": [95, 92, 88, 85.5]
+            },
+            "benchmarks": {
+                "industry_average": {
+                    "carbon_emissions": 1400,
+                    "energy_consumption": 50000,
+                    "waste_management": 100
+                }
+            }
+        }
+        app.logger.info("📥 API Response: Trends data sent")
+        return jsonify(trends), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_trends: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/benchmarks', methods=['GET'])
+@require_auth
+def get_benchmarks():
+    """Get industry benchmarks and comparisons."""
+    try:
+        app.logger.info("📊 API Call - get_benchmarks")
+        industry = request.args.get('industry', 'technology')
+        
+        # Mock response
+        benchmarks = {
+            "industry_averages": {
+                "environmental": {
+                    "carbon_emissions": 1400,
+                    "energy_consumption": 50000,
+                    "waste_management": 100
+                },
+                "social": {
+                    "employee_satisfaction": 3.8,
+                    "diversity_ratio": 35,
+                    "training_hours": 800
+                },
+                "governance": {
+                    "board_diversity": 30,
+                    "compliance_rate": 95,
+                    "risk_assessment": 4.0
+                }
+            },
+            "rankings": {
+                "overall": 12,
+                "total_companies": 100,
+                "percentile": 88
+            },
+            "peer_comparison": {
+                "better_than": 75,
+                "areas_of_improvement": ["waste_management", "training_hours"],
+                "leading_in": ["carbon_emissions", "board_diversity"]
+            }
+        }
+        app.logger.info("📥 API Response: Benchmarks data sent")
+        return jsonify(benchmarks), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_benchmarks: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/generate-report', methods=['POST'])
+@require_auth
+def generate_report():
+    """Generate a new ESG report."""
+    try:
+        app.logger.info("📊 API Call - generate_report")
+        data = request.json
+        report_type = data.get('type', 'quarterly')
+        
+        # Mock response
+        response = {
+            "report_id": str(uuid.uuid4()),
+            "status": "processing",
+            "estimated_completion": "2024-03-08T15:00:00Z",
+            "type": report_type,
+            "notification": "You will be notified when the report is ready."
+        }
+        app.logger.info("📥 API Response: Report generation initiated")
+        return jsonify(response), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in generate_report: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/report-status/<report_id>', methods=['GET'])
+@require_auth
+def get_report_status(report_id):
+    """Get the status of a report generation process."""
+    try:
+        app.logger.info(f"📊 API Call - get_report_status: {report_id}")
+        
+        # Mock response
+        status = {
+            "report_id": report_id,
+            "status": "processing",
+            "progress": 65,
+            "current_step": "Analyzing environmental metrics",
+            "steps_completed": ["Data collection", "Validation", "Initial analysis"],
+            "steps_remaining": ["Final review", "PDF generation"],
+            "estimated_completion": "2024-03-08T15:00:00Z"
+        }
+        app.logger.info("📥 API Response: Report status sent")
+        return jsonify(status), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_report_status: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5050)

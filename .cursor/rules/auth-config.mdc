@@ -1,0 +1,32 @@
+---
+description: 
+globs: 
+---
+# Authentication Rules
+
+## Supabase Configuration
+- Google OAuth Only: Disable email/password auth
+- RLS Policies:
+  ```sql
+  CREATE POLICY "ESG Data Access" ON esg_metrics
+  USING (organization_id = auth.uid()::text);
+
+## Frontend Integration
+
+- Auth Provider: Use `@supabase/auth-ui-react`
+- Protected Routes:
+    
+    ```tsx
+    const { user } = useUser();
+    if (!user) redirect('/auth');
+    
+    ```
+    
+
+## Session Management
+
+- JWT Refresh: Every 55 minutes
+- Audit Logging: Record all logins in `audit_logs`
+- Error Handling:
+    - Handle OAuth errors with dedicated /auth/error page
+    - Monitor failed attempts via Sentr

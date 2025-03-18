@@ -1,11 +1,35 @@
 # Ignore folders and environment variables
 node_modules
+package-lock.json
 setup
 
+# vscode files to ignore
 .vscode
-env
+
+# macos files to ignore
 .DS_Store
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+
+# environment variables
+.env*
+
+# python cache
+__pycache__
+# virtual environment
+venv
+
+# rag/experiments
+rag/experiments/*
+
+
+# frontend/node_modules
+frontend/node_modules/*
+
+# frontend/package-lock.json
+frontend/package-lock.json
+
+# frontend/.next
+frontend/.next/*
+
+.coverage
+
+.pytest_cache

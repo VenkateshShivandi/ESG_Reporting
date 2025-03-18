@@ -1,0 +1,33 @@
+---
+description: 
+globs: 
+---
+# Deployment Changes
+
+## Environment Variables
+NEXT_PUBLIC_SUPABASE_URL=env://SUPABASE_URL
+OPENAI_API_KEY=env://OPENAI_KEY@vault
+
+## Infrastructure
+- Primary: Vercel (Next.js)
+- Secondary: AWS ECS fallback
+- Monitoring: Datadog RUM + Supabase logs
+
+## CI/CD
+- Tests Required:
+  - ESLint/TypeScript
+  - RAG smoke test
+  - Auth flow test
+- Release Tags: `vX.Y.Z-esg`
+
+## Enhancements
+- Integrate Secure File Ingestion System with multiple file types (PDF, XLSX, CSV, DOCX) for ESG data processing.
+- Implement Enhanced Document Processing with SaaS Factory components (OCR, table parsing).
+- Enable seamless reporting with improved UI and export capabilities (Excel/PDF).
+- Enhanced security via Google OAuth login/signup and row-level access control for sensitive ESG data.
+- Build Custom Audit Trail for tracking uploads, edits, and downloads.
+- Ensure the architecture supports ESG tagging, metadata handling, and RAG chatbot features.
+
+## New Features
+- Integrated chatbot interface for dynamic query generation and report modification.
+- Visual Analytics dashboard with enhanced ESG metrics and reporting features.
