@@ -5,7 +5,7 @@ import { useAssistant } from '@ai-sdk/react'
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Search, FileText, File, Folder, Send, Bot, Eye, X, Calendar, GripVertical, Maximize2, Minimize2, ChevronsUp, ChevronsDown, Loader2, CheckCircle, User, ChevronLeft } from "lucide-react"
+import { Search, FileText, File, Folder, Send, Bot, Eye, X, Calendar, GripVertical, Maximize2, Minimize2, ChevronsUp, ChevronsDown, Loader2, CheckCircle, User, ChevronLeft, FileBarChart, Leaf, LineChart } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -30,6 +30,11 @@ interface Report {
   status?: string;
   generated_at?: string;
   scheduled_for?: string;
+  metrics?: {
+    environmental_score: number;
+    social_score: number;
+    governance_score: number;
+  };
 }
 
 function ChatPage() {
@@ -345,11 +350,38 @@ function ChatPage() {
           name: `${selectedType} Report - ${new Date().toLocaleDateString()}`,
           type: reportData.type,
           timestamp: new Date(),
-          files: reportData.files
+          files: reportData.files,
+          // Add sample metrics for demonstration
+          metrics: {
+            environmental_score: Math.floor(Math.random() * 30) + 70, // Random score between 70-100
+            social_score: Math.floor(Math.random() * 30) + 70,
+            governance_score: Math.floor(Math.random() * 30) + 70
+          }
         };
 
         // Add to reports list - add new report at the beginning of the array
         setReports(prev => [newReport, ...prev]);
+        
+        // Save to localStorage for persistence
+        try {
+          // Get existing reports from localStorage
+          const savedReportsJson = localStorage.getItem('generatedReports');
+          let savedReports = savedReportsJson ? JSON.parse(savedReportsJson) : [];
+          
+          // Add new report at the beginning
+          savedReports = [newReport, ...savedReports];
+          
+          // Save back to localStorage
+          localStorage.setItem('generatedReports', JSON.stringify(savedReports));
+          
+          // Dispatch event for ReportsPage to listen to
+          const newReportEvent = new CustomEvent('newReportGenerated', {
+            detail: { report: newReport }
+          });
+          window.dispatchEvent(newReportEvent);
+        } catch (error) {
+          console.error('Error saving report to localStorage:', error);
+        }
 
         // Set generating state to false
         setIsGeneratingReport(false);
@@ -773,7 +805,7 @@ function ChatPage() {
   }, [session, fetchFiles, files.length])
 
   return (
-    <div className="flex h-screen bg-white overflow-hidden">
+    <div className="flex h-screen bg-slate-50 overflow-hidden">
       <div
         ref={containerRef}
         className="flex-1 flex relative"
@@ -787,24 +819,26 @@ function ChatPage() {
           <Button
             variant="outline"
             size="icon"
-            className="h-8 w-8 bg-white"
+            className="h-8 w-8 bg-white shadow-sm hover:bg-slate-50 border-slate-200"
             onClick={() => setShowSizeControls(!showSizeControls)}
           >
-            {showSizeControls ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            {showSizeControls ? <Minimize2 className="h-4 w-4 text-slate-600" /> : <Maximize2 className="h-4 w-4 text-slate-600" />}
           </Button>
 
           {showSizeControls && (
-            <div className="bg-white p-3 rounded-lg shadow-md border space-y-4">
+            <div className="bg-white p-4 rounded-lg shadow-md border border-slate-200 space-y-5 w-36">
               <div className="space-y-2">
-                <p className="text-xs font-medium text-slate-500">Width</p>
+                <p className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                  <Maximize2 className="h-3 w-3" /> Width
+                </p>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="icon"
-                    className="h-6 w-6"
+                    className="h-6 w-6 border-slate-200"
                     onClick={() => setUiSize(Math.max(50, uiSize - 5))}
                   >
-                    <ChevronsDown className="h-3 w-3" />
+                    <ChevronsDown className="h-3 w-3 text-slate-500" />
                   </Button>
                   <Slider
                     min={50}
@@ -812,29 +846,31 @@ function ChatPage() {
                     step={5}
                     value={[uiSize]}
                     onValueChange={(value: number[]) => setUiSize(value[0])}
-                    className="w-20"
+                    className="w-full"
                   />
                   <Button
                     variant="outline"
                     size="icon"
-                    className="h-6 w-6"
+                    className="h-6 w-6 border-slate-200"
                     onClick={() => setUiSize(Math.min(100, uiSize + 5))}
                   >
-                    <ChevronsUp className="h-3 w-3" />
+                    <ChevronsUp className="h-3 w-3 text-slate-500" />
                   </Button>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <p className="text-xs font-medium text-slate-500">Height</p>
+                <p className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                  <Maximize2 className="h-3 w-3 rotate-90" /> Height
+                </p>
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="icon"
-                    className="h-6 w-6"
+                    className="h-6 w-6 border-slate-200"
                     onClick={() => setUiHeight(Math.max(50, uiHeight - 5))}
                   >
-                    <ChevronsDown className="h-3 w-3" />
+                    <ChevronsDown className="h-3 w-3 text-slate-500" />
                   </Button>
                   <Slider
                     min={50}
@@ -842,15 +878,15 @@ function ChatPage() {
                     step={5}
                     value={[uiHeight]}
                     onValueChange={(value: number[]) => setUiHeight(value[0])}
-                    className="w-20"
+                    className="w-full"
                   />
                   <Button
                     variant="outline"
                     size="icon"
-                    className="h-6 w-6"
+                    className="h-6 w-6 border-slate-200"
                     onClick={() => setUiHeight(Math.min(100, uiHeight + 5))}
                   >
-                    <ChevronsUp className="h-3 w-3" />
+                    <ChevronsUp className="h-3 w-3 text-slate-500" />
                   </Button>
                 </div>
               </div>
@@ -858,7 +894,7 @@ function ChatPage() {
               <Button
                 variant="default"
                 size="sm"
-                className="w-full text-xs h-7"
+                className="w-full text-xs h-7 bg-slate-800 hover:bg-slate-900"
                 onClick={() => {
                   setUiSize(100);
                   setUiHeight(100);
@@ -874,21 +910,24 @@ function ChatPage() {
         <div className="flex flex-1 h-full">
           {/* Search Files Sidebar - with transition */}
           <div
-            className={`h-full border-r bg-white transition-all duration-300 ease-in-out overflow-hidden ${isSidebarOpen ? "w-64 opacity-100" : "w-0 opacity-0"
+            className={`h-full border-r border-slate-200 bg-white transition-all duration-300 ease-in-out overflow-hidden ${isSidebarOpen ? "w-72 opacity-100" : "w-0 opacity-0"
               }`}
           >
-            <div className="p-4 w-64">
+            <div className="p-4 w-72">
               <div className="flex flex-col gap-4">
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-slate-900">Search Files</h2>
-                    <Button variant="ghost" size="icon" onClick={toggleSidebar}>
-                      <X className="h-4 w-4" />
+                    <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                      <Search className="h-4 w-4 text-emerald-500" />
+                      Document Browser
+                    </h2>
+                    <Button variant="ghost" size="icon" onClick={toggleSidebar} className="hover:bg-slate-100 h-7 w-7">
+                      <X className="h-4 w-4 text-slate-500" />
                     </Button>
                   </div>
                   <p className="text-sm text-slate-500">
                     {files.length > 0
-                      ? "Search and select files to analyze"
+                      ? "Browse or search your uploaded documents"
                       : "Upload files in Documents to get started"}
                   </p>
                 </div>
@@ -902,17 +941,18 @@ function ChatPage() {
                         setSearchResults([]) // Clear results when query is empty
                       }
                     }}
-                    className="pl-9"
+                    className="pl-9 pr-3 py-2 border-slate-200 rounded-lg focus:border-emerald-300 focus-visible:ring-1 focus-visible:ring-emerald-300 focus-visible:ring-offset-0 shadow-sm"
                   />
                   <Search
-                    className={`absolute left-2.5 top-2.5 h-4 w-4 ${isSearching ? 'animate-pulse text-emerald-500' : 'text-slate-500'}`}
+                    className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${isSearching ? 'animate-pulse text-emerald-500' : 'text-slate-400'}`}
                   />
                 </div>
               </div>
 
               {selectedFiles.size > 0 && (
-                <div className="mt-4 px-2">
-                  <p className="text-sm text-slate-600">
+                <div className="mt-4 px-2 py-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                  <p className="text-sm text-emerald-700 font-medium flex items-center gap-1.5">
+                    <CheckCircle className="h-3.5 w-3.5 text-emerald-500" />
                     {selectedFiles.size} file{selectedFiles.size !== 1 ? "s" : ""} selected
                   </p>
                 </div>
@@ -920,88 +960,92 @@ function ChatPage() {
 
               {/* Add folder navigation */}
               {currentFolderPath && (
-                <div className="mt-4 px-2">
+                <div className="mt-4 bg-slate-50 rounded-lg p-2">
                   <div className="flex items-center gap-2">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 px-2"
+                      className="h-7 px-2 text-slate-700 hover:bg-slate-200 hover:text-slate-900"
                       onClick={handleGoBack}
                     >
                       <ChevronLeft className="h-4 w-4 mr-1" />
                       Back
                     </Button>
-                    <span className="text-sm text-slate-500 truncate">
+                    <span className="text-sm text-slate-600 truncate font-medium flex items-center gap-1.5">
+                      <Folder className="h-3.5 w-3.5 text-yellow-500" />
                       {currentFolderPath}
                     </span>
                   </div>
                 </div>
               )}
 
-              <ScrollArea className="h-[calc(100vh-10rem)] pr-4 mt-4">
+              <ScrollArea className="h-[calc(100vh-12rem)] mt-4">
                 {files.length > 0 ? (
-                  <div className="space-y-1">
+                  <div className="space-y-1 pr-4">
                     {isSearching ? (
-                      <div className="text-center py-4">
-                        <Loader2 className="h-6 w-6 text-emerald-500 animate-spin mx-auto" />
-                        <p className="text-sm text-slate-500 mt-2">Searching files...</p>
+                      <div className="text-center py-8 my-4">
+                        <Loader2 className="h-8 w-8 text-emerald-500 animate-spin mx-auto" />
+                        <p className="text-sm text-slate-500 mt-3">Searching files...</p>
                       </div>
                     ) : (
                       <>
-                        {/* Add debugging information */}
-                        <div className="px-2 py-1 bg-slate-50 mb-2 rounded text-xs">
-                          <p>Search results: {searchResults.length}</p>
-                          <p>Files in current view: {currentFolderFileCount}</p>
-                          {currentFolderPath && (
-                            <p>Current folder: {currentFolderPath}</p>
-                          )}
-                        </div>
                         {filteredFiles.map((file) => (
                           <div
                             key={file.id}
-                            className={`flex items-center space-x-2 p-2 rounded-lg transition-colors
-                              ${selectedFiles.has(file.id) ? "bg-slate-100" : "hover:bg-slate-50"}
+                            className={`flex items-center gap-3 p-2.5 rounded-lg transition-all
+                              ${selectedFiles.has(file.id) 
+                                ? "bg-emerald-50 border border-emerald-100 shadow-sm" 
+                                : "hover:bg-slate-50 border border-transparent"
+                              }
                               ${file.type === "folder" ? "cursor-pointer" : ""}`}
                             onClick={file.type === "folder" ? () => handleFolderClick(file.name) : undefined}
                           >
-                            {file.type === "file" && (
-                              <Checkbox
-                                checked={selectedFiles.has(file.id)}
-                                onCheckedChange={() => handleFileSelect(file.id)}
-                              />
-                            )}
                             {file.type === "file" ? (
-                              <File className="h-4 w-4 text-blue-500" />
+                              <div className="flex items-center gap-3 flex-1">
+                                <Checkbox
+                                  checked={selectedFiles.has(file.id)}
+                                  onCheckedChange={() => handleFileSelect(file.id)}
+                                  className={selectedFiles.has(file.id) ? "border-emerald-500 bg-emerald-500 text-white" : ""}
+                                />
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <FileText className="h-4 w-4 flex-shrink-0 text-blue-500" />
+                                  <span className="text-sm text-slate-700 truncate">{file.name}</span>
+                                </div>
+                              </div>
                             ) : (
-                              <Folder className="h-4 w-4 text-yellow-500" />
+                              <div className="flex items-center gap-2 flex-1">
+                                <Folder className="h-4 w-4 flex-shrink-0 text-yellow-500" />
+                                <span className="text-sm font-medium text-slate-700 truncate">{file.name}</span>
+                              </div>
                             )}
-                            <span className="text-sm text-slate-700 truncate">{file.name}</span>
                           </div>
                         ))}
                         {filteredFiles.length === 0 && searchQuery && (
-                          <div className="text-center py-8">
-                            <p className="text-sm text-slate-500">No matching files found</p>
+                          <div className="text-center py-8 my-6 bg-slate-50 rounded-xl border border-slate-100">
+                            <Search className="h-8 w-8 text-slate-300 mx-auto" />
+                            <p className="text-sm font-medium text-slate-700 mt-2">No matching files found</p>
+                            <p className="text-xs text-slate-500 mt-1 px-4">Try a different search term or browse the folders</p>
                           </div>
                         )}
                       </>
                     )}
                   </div>
                 ) : (
-                  <div className="text-center py-8">
-                    <File className="h-8 w-8 text-slate-400 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-slate-900">No files available for analysis</p>
-                    <p className="text-sm text-slate-500 mt-1">
-                      Upload files in the Documents section to analyze them here
+                  <div className="text-center py-12 my-8 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <File className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-slate-800">No files available for analysis</p>
+                    <p className="text-sm text-slate-500 mt-1 mx-4">
+                      Upload files in the Documents section first
                     </p>
                     {/* Add refresh button */}
                     <Button
                       variant="outline"
                       size="sm"
-                      className="mt-4"
+                      className="mt-4 border-slate-200 text-slate-700"
                       onClick={() => session?.access_token && fetchFiles(session.access_token)}
                     >
                       <Loader2 className="h-3 w-3 mr-2" />
-                      Refresh file list
+                      Refresh Files
                     </Button>
                   </div>
                 )}
@@ -1016,31 +1060,30 @@ function ChatPage() {
           >
             {/* Main Chat Interface */}
             <div className="flex-1 flex flex-col h-full">
-              <div className="flex flex-col h-full mx-2 my-6 border-0 rounded-lg overflow-hidden shadow-sm">
+              <div className="flex flex-col h-full mx-3 my-4 rounded-xl overflow-hidden shadow-md border border-slate-200 bg-white">
                 {/* Header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
+                <div className="flex items-center justify-between px-6 py-3 border-b bg-white">
                   <div className="flex items-center gap-4">
                     <Button
                       variant="ghost"
                       onClick={handleSearchFilesClick}
-                      className={`flex items-center gap-2 ${files.length > 0 ? "text-[#2E7D32] hover:text-[#1B5E20]" : "text-slate-600"
-                        }`}
+                      className={`flex items-center gap-2 py-1.5 px-3 rounded-full hover:bg-emerald-50 ${files.length > 0 ? "text-emerald-600" : "text-slate-600"} transition-all`}
                     >
-                      <Search className="h-5 w-5" />
-                      <span className="text-sm font-medium">Search Files</span>
+                      <Search className="h-4 w-4" />
+                      <span className="text-sm font-medium">Browse Files</span>
                       {files.length > 0 && (
-                        <span className="flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 px-1 text-xs font-medium text-emerald-700">
+                        <span className="flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 px-1.5 text-xs font-medium text-emerald-700">
                           {selectedFiles.size > 0 ? `${selectedFiles.size}/${fileCount}` : fileCount}
                         </span>
                       )}
                     </Button>
                     <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
-                        <Bot className="h-6 w-6 text-emerald-600" />
+                      <div className="h-9 w-9 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center shadow-sm">
+                        <Bot className="h-5 w-5 text-white" />
                       </div>
                       <div>
-                        <h2 className="text-lg font-semibold">ESG Analytics Assistant</h2>
-                        <p className="text-sm text-slate-500">Powered by AI</p>
+                        <h2 className="text-sm font-semibold text-slate-900">ESG Analytics Assistant</h2>
+                        <p className="text-xs text-slate-500">AI-powered insights</p>
                       </div>
                     </div>
                   </div>
@@ -1051,60 +1094,74 @@ function ChatPage() {
                         toggleReportList();
                         closeSidebarIfOpen();
                       }}
-                      className="gap-2 relative"
+                      className={`gap-2 relative rounded-full px-4 ${isReportListOpen ? "bg-emerald-600 hover:bg-emerald-700 text-white" : "border-slate-200 hover:bg-slate-50 text-slate-700"}`}
+                      size="sm"
                     >
-                      <Eye className="h-4 w-4" />
+                      <Eye className="h-3.5 w-3.5" />
                       <span>View Reports</span>
                       {reports.length > 0 && (
-                        <span className="absolute -top-2 -right-2 flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 px-1 text-xs font-medium text-emerald-700">
+                        <span className="absolute -top-2 -right-2 flex items-center justify-center h-5 min-w-[20px] rounded-full bg-emerald-100 border border-white px-1 text-xs font-medium text-emerald-700">
                           {reports.length}
                         </span>
                       )}
                     </Button>
                     <Button
-                      variant="outline"
+                      variant="default"
                       onClick={() => {
                         setIsModalOpen(true);
                         closeSidebarIfOpen();
                       }}
                       disabled={files.length === 0}
-                      className="gap-2"
+                      className="gap-2 rounded-full px-4 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
+                      size="sm"
                     >
-                      <FileText className="h-4 w-4" />
+                      <FileText className="h-3.5 w-3.5" />
                       Generate Report
                     </Button>
                   </div>
                 </div>
 
                 {/* Messages */}
-                <ScrollArea className="flex-1 p-6 bg-slate-50">
-                  <div className="space-y-4 min-h-[200px]">
-                    {messages.map((message) => (
+                <ScrollArea className="flex-1 px-6 py-4 bg-gradient-to-b from-slate-50 to-white">
+                  <div className="space-y-6 min-h-[200px] pb-4 max-w-[800px] mx-auto">
+                    {messages.map((message, index) => (
                       <div
                         key={message.id}
                         className={`flex ${message.role === "assistant" ? "justify-start" : "justify-end"}`}
                       >
                         <div
-                          className={`flex items-start gap-3 max-w-[80%] ${message.role === "assistant" ? "flex-row" : "flex-row-reverse"}`}
+                          className={`flex items-start gap-3 max-w-[85%] ${message.role === "assistant" ? "flex-row" : "flex-row-reverse"}`}
                         >
-                          <Avatar className="h-8 w-8 mt-0.5">
+                          <Avatar className={`${message.role === "assistant" ? "h-8 w-8" : "h-7 w-7"} mt-1 rounded-full ${message.role === "assistant" ? "border-2 border-emerald-100" : ""}`}>
                             <AvatarImage
                               src={message.role === "assistant" ? "/bot-avatar.png" : "/user-avatar.png"}
                               className="object-cover"
                             />
-                            <AvatarFallback>
-                              {message.role === "assistant" ? <Bot className="h-5 w-5 text-emerald-600" /> : <User className="h-5 w-5 text-emerald-600" />}
+                            <AvatarFallback className={message.role === "assistant" ? "bg-gradient-to-br from-emerald-400 to-emerald-600" : "bg-blue-600"}>
+                              {message.role === "assistant" ? <Bot className="h-4 w-4 text-white" /> : <User className="h-4 w-4 text-white" />}
                             </AvatarFallback>
                           </Avatar>
                           <div
-                            className={`rounded-2xl px-4 py-2.5 text-sm prose prose-sm max-w-none
+                            className={`rounded-2xl px-5 py-3 text-sm prose prose-sm max-w-none
                               ${message.role === "assistant"
-                                ? "bg-white shadow-sm text-slate-700"
-                                : "bg-emerald-600 text-white prose-invert"
-                              }`}
+                                ? "bg-white shadow-sm text-slate-700 border border-slate-100"
+                                : "bg-gradient-to-r from-emerald-600 to-emerald-500 text-white prose-invert shadow-sm"
+                              } ${index === messages.length - 1 && message.role === "assistant" && message.id === 'loading' ? "animate-pulse" : ""}`}
                           >
                             {message.role === "assistant" ? (
-                              <ReactMarkdown>{message.content}</ReactMarkdown>
+                              <ReactMarkdown
+                                components={{
+                                  a: ({node, ...props}) => <a className="text-emerald-600" {...props} />,
+                                  h1: ({node, ...props}) => <h1 className="text-slate-800 font-bold text-2xl mt-6 mb-4" {...props} />,
+                                  h2: ({node, ...props}) => <h2 className="text-slate-800 font-bold text-xl mt-5 mb-3" {...props} />,
+                                  h3: ({node, ...props}) => <h3 className="text-slate-800 font-bold text-lg mt-4 mb-2" {...props} />,
+                                  h4: ({node, ...props}) => <h4 className="text-slate-800 font-semibold mt-4 mb-2" {...props} />,
+                                  h5: ({node, ...props}) => <h5 className="text-slate-800 font-semibold mt-3 mb-1" {...props} />,
+                                  h6: ({node, ...props}) => <h6 className="text-slate-800 font-semibold mt-3 mb-1" {...props} />
+                                }}
+                              >
+                                {message.content}
+                              </ReactMarkdown>
                             ) : (
                               message.content
                             )}
@@ -1116,26 +1173,28 @@ function ChatPage() {
                 </ScrollArea>
 
                 {/* Input */}
-                <div className="p-4 bg-white border-t">
-                  <form onSubmit={handleFormSubmit} className="max-w-[1000px] mx-auto">
+                <div className="p-3 bg-white border-t border-slate-100">
+                  <form onSubmit={handleFormSubmit} className="max-w-[800px] mx-auto">
                     <div className="relative">
                       <Input
-                        placeholder={isGeneratingResponse ? "Please wait for response..." : "Type your message..."}
+                        placeholder={isGeneratingResponse ? "Waiting for response..." : "Ask a question or request analysis..."}
                         value={input}
                         onChange={handleInputChange}
-                        className="w-full pr-12 py-6 text-base border-slate-200 shadow-sm focus-visible:ring-0 focus-visible:ring-offset-0 rounded-xl"
+                        className="w-full pr-12 py-6 text-base border-slate-200 bg-white shadow-sm focus-visible:ring-1 focus-visible:ring-emerald-500 focus-visible:ring-offset-0 rounded-full"
                         disabled={isGeneratingResponse}
                       />
                       <Button
                         type="submit"
                         size="icon"
-                        className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 bg-emerald-100 hover:bg-emerald-200 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        className={`absolute right-1.5 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full 
+                          ${input.trim() ? "bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-sm" : "bg-slate-100 text-slate-400"} 
+                          disabled:opacity-50 disabled:cursor-not-allowed`}
                         disabled={isGeneratingResponse || !input.trim()}
                       >
                         {isGeneratingResponse ? (
-                          <Loader2 className="h-5 w-5 text-emerald-600 animate-spin" />
+                          <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
-                          <Send className="h-5 w-5 text-emerald-600" />
+                          <Send className="h-4 w-4" />
                         )}
                         <span className="sr-only">
                           {isGeneratingResponse ? "Generating response..." : "Send message"}
@@ -1152,7 +1211,7 @@ function ChatPage() {
           {showReportView && (
             <div
               ref={dividerRef}
-              className="w-1 bg-gray-200 hover:bg-emerald-300 cursor-col-resize flex items-center justify-center active:bg-emerald-400 transition-colors"
+              className="w-1 hover:w-2 bg-slate-200 hover:bg-emerald-300 cursor-col-resize flex items-center justify-center active:bg-emerald-400 transition-all"
               onMouseDown={handleDividerMouseDown}
             >
               <div className="py-3 flex items-center justify-center">
@@ -1165,100 +1224,119 @@ function ChatPage() {
           {showReportView && (
             <div className="flex-1 h-full">
               {isGeneratingReport ? (
-                <div className="flex-1 h-full bg-slate-50" />
+                <div className="flex-1 h-full flex items-center justify-center bg-white">
+                  <div className="text-center p-8">
+                    <div className="w-16 h-16 mx-auto relative">
+                      <Loader2 className="h-16 w-16 text-emerald-500 animate-spin" />
+                      <FileText className="h-6 w-6 text-emerald-600 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                    </div>
+                    <h3 className="text-lg font-medium text-slate-900 mt-4">Generating Report</h3>
+                    <p className="text-sm text-slate-500 mt-2">Please wait while we create your ESG report...</p>
+                  </div>
+                </div>
               ) : selectedReport ? (
                 <InteractiveWorkspace
                   report={selectedReport}
                   onClose={closeReportView}
                 />
               ) : (
-                <div className="flex-1 h-full bg-slate-50" />
+                <div className="flex-1 h-full bg-white flex items-center justify-center">
+                  <div className="text-center max-w-md p-8">
+                    <div className="mx-auto w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center">
+                      <FileText className="h-8 w-8 text-slate-400" />
+                    </div>
+                    <h3 className="text-lg font-medium text-slate-900 mt-4">No Report Selected</h3>
+                    <p className="text-sm text-slate-500 mt-2">
+                      Select a report from the report list or generate a new report to view it here.
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
           )}
 
           {/* Reports List Sidebar - with transition */}
           <div
-            className={`h-full border-l bg-white transition-all duration-300 ease-in-out overflow-hidden ${isReportListOpen ? "w-64 opacity-100" : "w-0 opacity-0"
+            className={`h-full border-l border-slate-200 bg-white transition-all duration-300 ease-in-out overflow-hidden ${isReportListOpen ? "w-72 opacity-100" : "w-0 opacity-0"
               }`}
           >
-            <div className="p-4 w-64">
+            <div className="p-4 w-72">
               <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-slate-900">Available Reports</h2>
-                  <Button variant="ghost" size="icon" onClick={toggleReportList}>
-                    <X className="h-4 w-4" />
+                  <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                    <FileBarChart className="h-4 w-4 text-emerald-500" />
+                    Available Reports
+                  </h2>
+                  <Button variant="ghost" size="icon" onClick={toggleReportList} className="hover:bg-slate-100 h-7 w-7">
+                    <X className="h-4 w-4 text-slate-500" />
                   </Button>
                 </div>
                 {isLoadingReports ? (
-                  <div className="text-center py-8">
-                    <Loader2 className="h-8 w-8 text-emerald-500 animate-spin mx-auto mb-3" />
-                    <p className="text-sm text-slate-500">Loading reports...</p>
+                  <div className="text-center py-12 my-6">
+                    <Loader2 className="h-8 w-8 text-emerald-500 animate-spin mx-auto" />
+                    <p className="text-sm text-slate-500 mt-3">Loading your reports...</p>
                   </div>
                 ) : reports.length === 0 ? (
-                  <div className="text-center py-8">
-                    <FileText className="h-8 w-8 text-slate-400 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-slate-900">No reports generated</p>
-                    <p className="text-sm text-slate-500 mt-1">
-                      Generate a report to view it here
+                  <div className="text-center py-12 my-6 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                    <FileText className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-slate-800">No reports generated</p>
+                    <p className="text-sm text-slate-500 mt-1 mx-4">
+                      Create your first ESG report
                     </p>
                     <Button
                       variant="outline"
                       size="sm"
-                      className="mt-4"
+                      className="mt-4 border-slate-200 text-slate-700"
                       onClick={fetchReports}
                       disabled={isLoadingReports}
                     >
                       <Loader2 className="h-3 w-3 mr-2" />
-                      Refresh reports list
+                      Refresh Reports
                     </Button>
                   </div>
                 ) : (
                   <>
-                    <div className="flex justify-between">
-                      <p className="text-sm text-slate-500">{reports.length} reports available</p>
+                    <div className="flex justify-between items-center bg-slate-50 rounded-lg p-2.5">
+                      <p className="text-sm text-slate-700 font-medium">{reports.length} reports available</p>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-2 text-xs"
+                        className="h-7 px-2 text-xs text-slate-600 hover:bg-slate-200"
                         onClick={fetchReports}
                         disabled={isLoadingReports}
                       >
+                        <Loader2 className={`h-3 w-3 mr-1.5 ${isLoadingReports ? 'animate-spin' : ''}`} />
                         Refresh
                       </Button>
                     </div>
 
-                    {/* Reports list debug info */}
-                    <div className="px-2 py-1 bg-slate-50 rounded text-xs">
-                      <p>Total reports: {reports.length}</p>
-                      <p>Recent reports: {reports.filter(r => r.generated_at).length}</p>
-                      <p>Scheduled reports: {reports.filter(r => r.scheduled_for).length}</p>
-                    </div>
-
-                    <ScrollArea className="h-[calc(100vh-10rem)] pr-4 mt-4">
-                      <div className="space-y-2">
+                    <ScrollArea className="h-[calc(100vh-10rem)] pr-4 mt-2">
+                      <div className="space-y-2.5">
                         {reports.map((report) => (
                           <div
                             key={report.id}
-                            className="p-3 rounded-md border hover:bg-slate-50 cursor-pointer"
+                            className="p-3 rounded-lg border border-slate-200 hover:border-emerald-200 hover:shadow-sm hover:bg-emerald-50/30 cursor-pointer transition-all"
                             onClick={() => handleSelectReport(report)}
                           >
-                            <div className="flex items-center gap-3">
-                              <FileText className="h-5 w-5 text-emerald-600" />
+                            <div className="flex items-start gap-3">
+                              <div className={`p-1.5 rounded-md ${report.type === 'GRI' ? 'bg-emerald-100' : 'bg-blue-100'} flex-shrink-0`}>
+                                <FileText className={`h-4 w-4 ${report.type === 'GRI' ? 'text-emerald-600' : 'text-blue-600'}`} />
+                              </div>
                               <div className="flex-1 min-w-0">
-                                <p className="font-medium text-sm truncate">{report.name}</p>
-                                <div className="flex items-center gap-1 text-xs text-slate-500">
+                                <p className="font-medium text-sm text-slate-900 truncate">{report.name}</p>
+                                <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
                                   <Calendar className="h-3 w-3" />
                                   <span className="truncate">
                                     {report.timestamp.toLocaleDateString()} {report.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                   </span>
                                 </div>
                                 {report.status && (
-                                  <div className={`mt-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs ${report.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                    report.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
-                                      report.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                                        'bg-slate-100 text-slate-800'
-                                    }`}>
+                                  <div className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs 
+                                    ${report.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                      report.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
+                                        report.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                                          'bg-slate-100 text-slate-800'
+                                      }`}>
                                     {report.status === 'completed' ? 'Completed' :
                                       report.status === 'pending_review' ? 'Pending Review' :
                                         report.status === 'scheduled' ? 'Scheduled' :
@@ -1284,70 +1362,117 @@ function ChatPage() {
         open={isModalOpen}
         onOpenChange={(open: boolean) => setIsModalOpen(open)}
       >
-        <DialogContent className="sm:max-w-[425px] p-6 z-50 bg-white shadow-lg border">
-          <DialogHeader className="space-y-3 p-0">
-            <DialogTitle className="text-xl font-semibold text-slate-900">Generate ESG Report</DialogTitle>
-            <DialogDescription className="text-base text-slate-700">
-              Select report type and review selected files
+        <DialogContent className="sm:max-w-[500px] p-0 z-50 bg-white shadow-lg border overflow-hidden rounded-xl">
+          <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 py-4 px-6">
+            <DialogTitle className="text-xl font-semibold text-white">Generate ESG Report</DialogTitle>
+            <DialogDescription className="text-emerald-50 mt-1">
+              Create a comprehensive ESG report from your documents
             </DialogDescription>
-          </DialogHeader>
+          </div>
 
-          <div className="space-y-6 py-4">
-            <Select value={selectedType} onValueChange={setSelectedType}>
-              <SelectTrigger className="w-full h-11 px-3 text-base">
-                <SelectValue placeholder="Select report type" />
-              </SelectTrigger>
-              <SelectContent position="popper" className="z-50 w-full text-slate-900 bg-white border">
-                <SelectItem value="GRI" className="text-base">
-                  GRI
-                </SelectItem>
-                <SelectItem value="SASB" className="text-base">
-                  SASB
-                </SelectItem>
-              </SelectContent>
-            </Select>
-
-            <div className="space-y-3">
-              <h4 className="text-base font-medium text-slate-900">Report Prompt:</h4>
-              <Textarea
-                value={reportPrompt}
-                onChange={(e) => setReportPrompt(e.target.value)}
-                className="min-h-[100px] text-base"
-                placeholder="Enter instructions for the AI to generate your report"
-              />
+          <div className="space-y-6 py-6 px-6">
+            <div className="space-y-2">
+              <label htmlFor="report-type" className="text-sm font-medium text-slate-700 block">
+                Report Type <span className="text-red-500">*</span>
+              </label>
+              <Select value={selectedType} onValueChange={setSelectedType}>
+                <SelectTrigger id="report-type" className="w-full h-11 px-3 text-base border-slate-200 focus:ring-emerald-500 focus:border-emerald-500">
+                  <SelectValue placeholder="Select a report format" />
+                </SelectTrigger>
+                <SelectContent position="popper" className="z-50 w-full text-slate-900 bg-white border">
+                  <SelectItem value="GRI" className="text-base flex items-center gap-2">
+                    <Leaf className="h-4 w-4 text-emerald-500" />
+                    GRI (Global Reporting Initiative)
+                  </SelectItem>
+                  <SelectItem value="SASB" className="text-base flex items-center gap-2">
+                    <LineChart className="h-4 w-4 text-blue-500" />
+                    SASB (Sustainability Accounting Standards Board)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {!selectedType && (
+                <p className="text-xs text-slate-500 mt-1">Please select a standard reporting format</p>
+              )}
             </div>
 
-            <div className="space-y-3">
-              <h4 className="text-base font-medium text-slate-900">Selected Files:</h4>
-              <div className="rounded-lg border bg-white p-4">
+            <div className="space-y-2">
+              <label htmlFor="report-prompt" className="text-sm font-medium text-slate-700 block">
+                Report Instructions
+              </label>
+              <Textarea
+                id="report-prompt"
+                value={reportPrompt}
+                onChange={(e) => setReportPrompt(e.target.value)}
+                className="min-h-[100px] text-base border-slate-200 rounded-lg resize-none focus:ring-emerald-500 focus:border-emerald-500"
+                placeholder="Enter specific instructions for the AI to follow when generating your report..."
+              />
+              <p className="text-xs text-slate-500">Guide the AI with specific aspects you want to highlight in the report</p>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                <File className="h-4 w-4 text-emerald-500" />
+                Selected Documents <span className="text-red-500">*</span>
+              </h4>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 max-h-[200px] overflow-auto">
                 {files.filter((file) => selectedFiles.has(file.id)).length > 0 ? (
                   <ul className="space-y-2">
                     {files
                       .filter((file) => selectedFiles.has(file.id))
                       .map((file) => (
-                        <li key={file.id} className="flex items-center gap-2 text-sm text-slate-700">
-                          <File className="h-4 w-4 text-blue-500" />
-                          {file.name}
+                        <li key={file.id} className="flex items-center gap-2 text-sm text-slate-700 bg-white p-2 rounded-md border border-slate-100">
+                          <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                          <span className="truncate">{file.name}</span>
+                          <Button
+                            type="button"
+                            variant="ghost" 
+                            size="icon"
+                            className="h-5 w-5 ml-auto text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full"
+                            onClick={() => handleFileSelect(file.id)}
+                          >
+                            <X className="h-3 w-3" />
+                            <span className="sr-only">Remove</span>
+                          </Button>
                         </li>
                       ))}
                   </ul>
                 ) : (
-                  <p className="text-base text-slate-700">No files selected</p>
+                  <div className="text-center py-8">
+                    <p className="text-sm text-slate-500">No documents selected</p>
+                    <p className="text-xs text-slate-400 mt-1">Browse and select files to include in your report</p>
+                  </div>
                 )}
               </div>
+              {selectedFiles.size === 0 && (
+                <p className="text-xs text-slate-500">You must select at least one document to generate a report</p>
+              )}
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 mt-6">
-            <Button variant="outline" onClick={() => setIsModalOpen(false)} className="h-10 px-4">
+          <div className="flex items-center justify-end gap-3 p-6 border-t bg-slate-50">
+            <Button 
+              variant="outline" 
+              onClick={() => setIsModalOpen(false)} 
+              className="h-10 px-4 border-slate-200 text-slate-700"
+            >
               Cancel
             </Button>
             <Button
               onClick={handleGenerateReport}
               disabled={!selectedType || selectedFiles.size === 0}
-              className="h-10 px-4 bg-emerald-600 hover:bg-emerald-700"
+              className="h-10 px-6 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
             >
-              Generate Report
+              {isGeneratingReport ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Generate Report
+                </>
+              )}
             </Button>
           </div>
         </DialogContent>
