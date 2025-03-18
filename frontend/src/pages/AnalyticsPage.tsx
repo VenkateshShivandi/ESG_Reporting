@@ -25,33 +25,41 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { 
-  ArrowDown, 
-  ArrowRight, 
-  ArrowUp, 
-  BarChart3, 
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  BarChart3,
   Calendar,
   ChartBar,
   ChartPie,
-  ClipboardIcon, 
-  Cloud, 
+  ClipboardIcon,
+  Cloud,
   Download,
   Droplet,
-  ExternalLink, 
-  FileText, 
-  Filter, 
-  Leaf, 
+  ExternalLink,
+  FileText,
+  Filter,
+  Leaf,
   Lightbulb,
-  Printer, 
-  RefreshCw, 
-  Share2, 
-  Trash2, 
+  Maximize,
+  Minimize,
+  Info,
+  PlusCircle,
+  Printer,
+  RefreshCw,
+  Share2,
+  Trash2,
   TrendingUp,
   TrendingDown,
-  User, 
+  User,
   TreeDeciduous,
   Recycle,
   XCircle,
+  Wand2,
+  EyeOff,
+  Sliders,
+  Check
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -87,6 +95,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from "@/components/ui/dialog";
 import { useDashboardStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -109,6 +124,28 @@ export interface CategoryData {
 export interface MonthlyTrend {
   month: string;
   value: number;
+}
+
+interface ChartData {
+  name: string;
+  value1: number;
+  value2: number;
+  value3: number;
+  [key: string]: any;
+}
+
+interface DonutChartData {
+  name: string;
+  value: number;
+}
+
+interface ChartConfig {
+  title: string;
+  dataKeys: string[];
+  dataLabels: string[];
+  colors: string[];
+  showLegend: boolean;
+  [key: string]: any;
 }
 
 // Default values for the analytics dashboard
@@ -143,46 +180,721 @@ const defaultData = {
     { name: 'Materials Usage', value: 5 },
   ] as CategoryData[],
   keyMetrics: [
-    { 
-      metric: 'Carbon Footprint', 
-      current: '12.5 tons', 
-      previous: '13.8 tons', 
+    {
+      metric: 'Carbon Footprint',
+      current: '12.5 tons',
+      previous: '13.8 tons',
       change: -9.4,
       target: '10.0 tons'
     },
-    { 
-      metric: 'Renewable Energy', 
-      current: '42%', 
-      previous: '38%', 
+    {
+      metric: 'Renewable Energy',
+      current: '42%',
+      previous: '38%',
       change: 10.5,
       target: '50%'
     },
-    { 
-      metric: 'Waste Recycling', 
-      current: '78%', 
-      previous: '72%', 
+    {
+      metric: 'Waste Recycling',
+      current: '78%',
+      previous: '72%',
       change: 8.3,
       target: '85%'
     },
-    { 
-      metric: 'Water Consumption', 
-      current: '4,250 gal', 
-      previous: '4,520 gal', 
+    {
+      metric: 'Water Consumption',
+      current: '4,250 gal',
+      previous: '4,520 gal',
       change: -6.0,
       target: '4,000 gal'
     },
-    { 
-      metric: 'Energy Usage', 
-      current: '145 kWh', 
-      previous: '152 kWh', 
+    {
+      metric: 'Energy Usage',
+      current: '145 kWh',
+      previous: '152 kWh',
       change: -4.6,
       target: '140 kWh'
     }
   ] as KeyMetric[]
 };
 
+// Interactive Chart Wrapper Component
+function InteractiveChartWrapper({
+  title,
+  onRefresh,
+  className,
+  children
+}: {
+  title: string;
+  onRefresh?: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [visible, setVisible] = useState(true)
+
+  if (!visible) return null
+
+  return (
+    <div className={`rounded-lg bg-white p-6 shadow-md hover:shadow-lg transition-all duration-300 ${className}`}>
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-semibold">{title}</h3>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="cursor-help">
+                  <Info className="h-4 w-4 text-slate-400" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-sm">Chart showing {title} data</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        <div className="flex items-center gap-1">
+          {onRefresh && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onRefresh}
+              className="h-8 w-8 p-0"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          )}
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                {expanded ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[800px] md:max-w-[900px] lg:max-w-[1000px]">
+              <DialogHeader>
+                <DialogTitle>{title}</DialogTitle>
+              </DialogHeader>
+              <div className="min-h-[500px] py-4">{children}</div>
+            </DialogContent>
+          </Dialog>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setVisible(false)}
+            className="h-8 w-8 p-0"
+          >
+            <EyeOff className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="chart-container min-h-[240px]">{children}</div>
+    </div>
+  )
+}
+
+// Chart Generator Component
+function ChartGenerator({ setCustomCharts }: { setCustomCharts: React.Dispatch<React.SetStateAction<any[]>> }) {
+  const [chartType, setChartType] = useState<string>("bar")
+  const [chartTitle, setChartTitle] = useState<string>("Custom Chart")
+  const [dataPoints, setDataPoints] = useState<number>(5)
+  const [dataSource, setDataSource] = useState<string>("manual")
+  const [reportSource, setReportSource] = useState<string>("")
+  const [isAddingToBoard, setIsAddingToBoard] = useState(false)
+  const [activeTab, setActiveTab] = useState("type")
+  const [customData, setCustomData] = useState<ChartData[]>([
+    { name: "Jan", value1: 40, value2: 24, value3: 65 },
+    { name: "Feb", value1: 30, value2: 13, value3: 45 },
+    { name: "Mar", value1: 20, value2: 98, value3: 35 },
+    { name: "Apr", value1: 27, value2: 39, value3: 20 },
+    { name: "May", value1: 18, value2: 48, value3: 75 }
+  ])
+
+  // Add global style for SelectContent to ensure opaque background
+  React.useEffect(() => {
+    const style = document.createElement('style');
+    style.innerHTML = `
+      [data-radix-popper-content-wrapper] {
+        background-color: white !important;
+        z-index: 50 !important;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
+
+  const [config, setConfig] = useState<ChartConfig>({
+    title: chartTitle,
+    dataKeys: ["value1", "value2", "value3"],
+    dataLabels: ["Series 1", "Series 2", "Series 3"],
+    colors: ["#4CAF50", "#2196F3", "#FFC107"],
+    showLegend: true,
+    stacked: false,
+    innerRadius: 60,
+    outerRadius: 80
+  })
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setChartTitle(e.target.value)
+    setConfig(prev => ({ ...prev, title: e.target.value }))
+  }
+
+  const handleUpdateConfig = (key: string, value: any) => {
+    setConfig(prev => ({
+      ...prev,
+      [key]: value
+    }))
+  }
+
+  const handleGenerateData = () => {
+    // Generate random data
+    const newData: ChartData[] = []
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    for (let i = 0; i < dataPoints; i++) {
+      newData.push({
+        name: months[i % 12],
+        value1: Math.floor(Math.random() * 100),
+        value2: Math.floor(Math.random() * 100),
+        value3: Math.floor(Math.random() * 100)
+      })
+    }
+
+    setCustomData(newData)
+  }
+
+  const fetchReportData = () => {
+    // In a real implementation, this would fetch data from the selected report
+    setIsAddingToBoard(true)
+    setTimeout(() => {
+      // Simulating data fetch
+      handleGenerateData()
+      setIsAddingToBoard(false)
+    }, 1000)
+  }
+
+  const handleAddToDashboard = () => {
+    setIsAddingToBoard(true);
+
+    // Simulate adding to dashboard with a delay
+    setTimeout(() => {
+      // Actually add the chart to the dashboard
+      const newChart = {
+        id: `custom-chart-${Date.now()}`,
+        type: chartType,
+        title: chartTitle,
+        data: chartType === 'donut' ? getDonutChartData() : customData,
+        config: config
+      };
+
+      setCustomCharts(prev => [...prev, newChart]);
+      setIsAddingToBoard(false);
+
+      // Show success notification
+      const notification = document.createElement('div')
+      notification.className = 'fixed top-4 right-4 bg-emerald-100 text-emerald-800 p-4 rounded-lg shadow-lg flex items-center z-50'
+      notification.innerHTML = `
+        <svg class="h-5 w-5 mr-2 text-emerald-600" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+        </svg>
+        <div>
+          <p class="font-medium">Chart Added</p>
+          <p class="text-sm text-emerald-700">${chartTitle} added to dashboard</p>
+        </div>
+      `
+      document.body.appendChild(notification)
+
+      // Remove notification after 3 seconds
+      setTimeout(() => {
+        document.body.removeChild(notification)
+      }, 3000)
+    }, 1500)
+  }
+
+  const getDonutChartData = (): DonutChartData[] => {
+    return customData.map(item => ({
+      name: item.name,
+      value: item.value1
+    }))
+  }
+
+  const renderPreview = () => {
+    switch (chartType) {
+      case "bar":
+        return <BarChart data={customData} config={config} />
+      case "line":
+        return <LineChart data={customData} config={config} />
+      case "donut":
+        return <DonutChart data={getDonutChartData()} config={config} />
+      default:
+        return <BarChart data={customData} config={config} />
+    }
+  }
+
+  const getChartTypeIcon = () => {
+    switch (chartType) {
+      case "bar":
+        return <BarChart3 className="h-5 w-5 text-emerald-600" />
+      case "line":
+        return <TrendingUp className="h-5 w-5 text-blue-600" />
+      case "donut":
+        return <ChartPie className="h-5 w-5 text-amber-600" />
+      default:
+        return <ChartBar className="h-5 w-5 text-emerald-600" />
+    }
+  }
+
+  const renderDataSourceInput = () => {
+    switch (dataSource) {
+      case "report":
+        return (
+          <div className="space-y-3">
+            <Label htmlFor="report-source" className="text-sm text-slate-600">Select Report</Label>
+            <Select
+              value={reportSource}
+              onValueChange={setReportSource}
+            >
+              <SelectTrigger id="report-source" className="w-full">
+                <SelectValue placeholder="Select a report" />
+              </SelectTrigger>
+              <SelectContent className="bg-white border border-slate-200 shadow-md">
+                <SelectItem value="annual-esg-2023">
+                  <span>Annual ESG Report 2023</span>
+                </SelectItem>
+                <SelectItem value="quarterly-q1-2023">
+                  <span>Q1 2023 Sustainability Report</span>
+                </SelectItem>
+                <SelectItem value="quarterly-q2-2023">
+                  <span>Q2 2023 Sustainability Report</span>
+                </SelectItem>
+                <SelectItem value="quarterly-q3-2023">
+                  <span>Q3 2023 Sustainability Report</span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchReportData}
+              disabled={!reportSource}
+              className="w-full"
+            >
+              {isAddingToBoard ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <FileText className="h-4 w-4 mr-2" />
+              )}
+              Load Report Data
+            </Button>
+          </div>
+        )
+      case "chunk":
+        return (
+          <div className="space-y-3">
+            <Label htmlFor="chunk-source" className="text-sm text-slate-600">Select Data Chunk</Label>
+            <Select disabled>
+              <SelectTrigger id="chunk-source" className="w-full">
+                <SelectValue placeholder="API integration coming soon" />
+              </SelectTrigger>
+              <SelectContent className="bg-white border border-slate-200 shadow-md">
+                <SelectItem value="placeholder">
+                  <span>Coming soon</span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="bg-amber-50 p-3 rounded-md border border-amber-200">
+              <p className="text-xs text-amber-800 flex items-center">
+                <svg className="h-4 w-4 mr-1 text-amber-600" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+                Chunk data source integration is coming soon
+              </p>
+            </div>
+          </div>
+        )
+      case "manual":
+      default:
+        return (
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="data-points" className="text-sm text-slate-600 flex items-center">
+                <span>Number of Data Points</span>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-3 w-3 ml-1 text-slate-400" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs w-[200px]">Select how many time periods to include in your chart</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </Label>
+              <div className="flex items-center gap-2 mt-1">
+                <Input
+                  id="data-points"
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={dataPoints}
+                  onChange={e => setDataPoints(Number(e.target.value))}
+                  className="w-full"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateData}
+                  className="whitespace-nowrap"
+                >
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  Generate Random
+                </Button>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <Label className="text-sm text-slate-600 mb-2 block flex items-center">
+                <span>Edit Data Series</span>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-3 w-3 ml-1 text-slate-400" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs w-[200px]">Give your data series meaningful names and choose colors</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </Label>
+              <div className="space-y-2">
+                {config.dataLabels.map((label, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <Input
+                      value={label}
+                      onChange={e => {
+                        const newLabels = [...config.dataLabels]
+                        newLabels[idx] = e.target.value
+                        handleUpdateConfig('dataLabels', newLabels)
+                      }}
+                      className="flex-1"
+                      placeholder={`Series ${idx + 1} name`}
+                    />
+                    <div
+                      className="w-8 h-8 rounded-md cursor-pointer border shadow-sm relative group"
+                      style={{ backgroundColor: config.colors[idx] }}
+                      onClick={() => {
+                        // In a real implementation, this would open a color picker
+                        const colors = ["#4CAF50", "#2196F3", "#FFC107", "#F44336", "#9C27B0", "#795548"]
+                        const newColors = [...config.colors]
+                        newColors[idx] = colors[Math.floor(Math.random() * colors.length)]
+                        handleUpdateConfig('colors', newColors)
+                      }}
+                    >
+                      <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/5 rounded-md text-xs font-medium text-white">
+                        Click
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow-lg overflow-hidden border border-slate-200">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-emerald-50 to-slate-50 px-6 py-4 border-b border-slate-200">
+        <h3 className="text-lg font-semibold mb-1 flex items-center">
+          <ChartBar className="h-5 w-5 mr-2 text-emerald-600" />
+          Custom Chart Generator
+        </h3>
+        <p className="text-sm text-slate-500">Create and add custom visualizations to your ESG dashboard</p>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2 p-6">
+        <div className="space-y-6">
+          <Tabs defaultValue="type" className="w-full" onValueChange={setActiveTab}>
+            <TabsList className="w-full mb-4 bg-slate-100 rounded-md">
+              <TabsTrigger value="type" className="data-[state=active]:bg-white data-[state=active]:text-emerald-700">
+                <span className="flex items-center">
+                  <ChartBar className="h-4 w-4 mr-2" />
+                  Chart Type
+                </span>
+              </TabsTrigger>
+              <TabsTrigger value="data" className="data-[state=active]:bg-white data-[state=active]:text-emerald-700">
+                <span className="flex items-center">
+                  <FileText className="h-4 w-4 mr-2" />
+                  Data Source
+                </span>
+              </TabsTrigger>
+              <TabsTrigger value="appearance" className="data-[state=active]:bg-white data-[state=active]:text-emerald-700">
+                <span className="flex items-center">
+                  <Sliders className="h-4 w-4 mr-2" />
+                  Appearance
+                </span>
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="type" className="space-y-4 bg-white p-4 rounded-md border border-slate-100 shadow-sm">
+              <div>
+                <Label htmlFor="chart-title" className="text-sm text-slate-600">Chart Title</Label>
+                <Input
+                  id="chart-title"
+                  value={chartTitle}
+                  onChange={handleTitleChange}
+                  className="mt-1 w-full"
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="chart-type" className="text-sm text-slate-600">Chart Type</Label>
+                <Select
+                  value={chartType}
+                  onValueChange={setChartType}
+                >
+                  <SelectTrigger id="chart-type" className="mt-1 w-full">
+                    <SelectValue placeholder="Select chart type" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white border border-slate-200 shadow-md">
+                    <SelectItem value="bar">
+                      <div className="flex items-center">
+                        <BarChart3 className="h-4 w-4 mr-2 text-emerald-600" />
+                        <span>Bar Chart</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="line">
+                      <div className="flex items-center">
+                        <TrendingUp className="h-4 w-4 mr-2 text-blue-600" />
+                        <span>Line Chart</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="donut">
+                      <div className="flex items-center">
+                        <ChartPie className="h-4 w-4 mr-2 text-amber-600" />
+                        <span>Donut Chart</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="mt-4 flex gap-2 flex-wrap">
+                <Badge variant="outline" className="bg-slate-50 hover:bg-slate-100 cursor-pointer" onClick={() => setChartTitle("Monthly ESG Trends")}>
+                  Monthly ESG Trends
+                </Badge>
+                <Badge variant="outline" className="bg-slate-50 hover:bg-slate-100 cursor-pointer" onClick={() => setChartTitle("Carbon Emissions")}>
+                  Carbon Emissions
+                </Badge>
+                <Badge variant="outline" className="bg-slate-50 hover:bg-slate-100 cursor-pointer" onClick={() => setChartTitle("Resource Usage")}>
+                  Resource Usage
+                </Badge>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="data" className="space-y-4 bg-white p-4 rounded-md border border-slate-100 shadow-sm">
+              <div>
+                <Label htmlFor="data-source" className="text-sm text-slate-600">Data Source</Label>
+                <Select
+                  value={dataSource}
+                  onValueChange={setDataSource}
+                >
+                  <SelectTrigger id="data-source" className="mt-1 w-full">
+                    <SelectValue placeholder="Select data source" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white border border-slate-200 shadow-md">
+                    <SelectItem value="manual">
+                      <div className="flex items-center">
+                        <Wand2 className="h-4 w-4 mr-2 text-emerald-600" />
+                        <span>Manual Entry / Random</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="report">
+                      <div className="flex items-center">
+                        <FileText className="h-4 w-4 mr-2 text-blue-600" />
+                        <span>From Reports</span>
+                      </div>
+                    </SelectItem>
+                    <SelectItem value="chunk">
+                      <div className="flex items-center">
+                        <Cloud className="h-4 w-4 mr-2 text-amber-600" />
+                        <span>From Data Chunks</span>
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {renderDataSourceInput()}
+            </TabsContent>
+
+            <TabsContent value="appearance" className="space-y-4 bg-white p-4 rounded-md border border-slate-100 shadow-sm">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="showLegend"
+                    checked={config.showLegend}
+                    onChange={e => handleUpdateConfig('showLegend', e.target.checked)}
+                    className="rounded text-emerald-600"
+                  />
+                  <Label htmlFor="showLegend" className="text-sm text-slate-600">Show Legend</Label>
+                </div>
+
+                {chartType === 'bar' && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="stacked"
+                      checked={config.stacked}
+                      onChange={e => handleUpdateConfig('stacked', e.target.checked)}
+                      className="rounded text-emerald-600"
+                    />
+                    <Label htmlFor="stacked" className="text-sm text-slate-600">Stacked</Label>
+                  </div>
+                )}
+              </div>
+
+              {chartType === 'donut' && (
+                <div className="space-y-3">
+                  <Label htmlFor="innerRadius" className="text-sm text-slate-600">Donut Thickness</Label>
+                  <div className="flex gap-2 items-center">
+                    <span className="text-xs text-slate-500">Thin</span>
+                    <input
+                      type="range"
+                      id="innerRadius"
+                      min="30"
+                      max="80"
+                      value={config.innerRadius}
+                      onChange={e => handleUpdateConfig('innerRadius', Number(e.target.value))}
+                      className="flex-1"
+                    />
+                    <span className="text-xs text-slate-500">Thick</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-2">
+                <Label className="text-sm text-slate-600 mb-2 block">Chart Theme</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex justify-start items-center h-auto py-2"
+                    onClick={() => handleUpdateConfig('colors', ["#4CAF50", "#2196F3", "#FFC107"])}
+                  >
+                    <div className="flex gap-1 mr-2">
+                      <div className="w-3 h-3 bg-[#4CAF50] rounded-full"></div>
+                      <div className="w-3 h-3 bg-[#2196F3] rounded-full"></div>
+                      <div className="w-3 h-3 bg-[#FFC107] rounded-full"></div>
+                    </div>
+                    <span className="text-xs">Default</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex justify-start items-center h-auto py-2"
+                    onClick={() => handleUpdateConfig('colors', ["#3B82F6", "#60A5FA", "#93C5FD"])}
+                  >
+                    <div className="flex gap-1 mr-2">
+                      <div className="w-3 h-3 bg-[#3B82F6] rounded-full"></div>
+                      <div className="w-3 h-3 bg-[#60A5FA] rounded-full"></div>
+                      <div className="w-3 h-3 bg-[#93C5FD] rounded-full"></div>
+                    </div>
+                    <span className="text-xs">Blue</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex justify-start items-center h-auto py-2"
+                    onClick={() => handleUpdateConfig('colors', ["#10B981", "#34D399", "#6EE7B7"])}
+                  >
+                    <div className="flex gap-1 mr-2">
+                      <div className="w-3 h-3 bg-[#10B981] rounded-full"></div>
+                      <div className="w-3 h-3 bg-[#34D399] rounded-full"></div>
+                      <div className="w-3 h-3 bg-[#6EE7B7] rounded-full"></div>
+                    </div>
+                    <span className="text-xs">Green</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex justify-start items-center h-auto py-2"
+                    onClick={() => handleUpdateConfig('colors', ["#F59E0B", "#FBBF24", "#FCD34D"])}
+                  >
+                    <div className="flex gap-1 mr-2">
+                      <div className="w-3 h-3 bg-[#F59E0B] rounded-full"></div>
+                      <div className="w-3 h-3 bg-[#FBBF24] rounded-full"></div>
+                      <div className="w-3 h-3 bg-[#FCD34D] rounded-full"></div>
+                    </div>
+                    <span className="text-xs">Amber</span>
+                  </Button>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          <div className="pt-2">
+            <Button
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white relative overflow-hidden group"
+              onClick={handleAddToDashboard}
+              disabled={isAddingToBoard}
+            >
+              {isAddingToBoard ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Adding to Dashboard...
+                </>
+              ) : (
+                <>
+                  <PlusCircle className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform duration-300" />
+                  Add to Dashboard
+                </>
+              )}
+              <span className="absolute inset-0 h-full w-full bg-white scale-0 group-hover:scale-100 opacity-0 group-hover:opacity-20 rounded-md transition-all duration-300"></span>
+            </Button>
+          </div>
+        </div>
+
+        <div className="bg-slate-50 rounded-md flex flex-col items-center justify-center border border-slate-200 p-4 relative overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-white to-transparent opacity-70 z-0"></div>
+
+          <div className="z-10 flex flex-col items-center w-full">
+            <div className="h-8 w-full mb-1 flex items-center justify-between">
+              <div className="text-sm font-medium text-slate-700 flex items-center">
+                {getChartTypeIcon()}
+                <span className="ml-2">{chartTitle || "Chart Preview"}</span>
+              </div>
+
+              <div className="flex gap-1">
+                <div className="w-3 h-3 rounded-full bg-slate-300"></div>
+                <div className="w-3 h-3 rounded-full bg-slate-300"></div>
+                <div className="w-3 h-3 rounded-full bg-slate-300"></div>
+              </div>
+            </div>
+
+            <div className="w-full h-full border border-slate-200 rounded bg-white shadow-sm min-h-[300px] flex items-center justify-center p-2">
+              {renderPreview()}
+            </div>
+
+            <div className="mt-3 px-4 py-2 bg-white/80 rounded-full shadow-sm border border-slate-200 flex items-center">
+              <span className="text-xs text-slate-500 flex items-center">
+                <ArrowRight className="h-3 w-3 mr-1" />
+                Chart Preview - {activeTab === "type" ? "Define your chart type" : activeTab === "data" ? "Choose your data source" : "Customize appearance"}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // Create a simple component for visual display
-function ProgressGoalsTable({isLoading}: {isLoading: boolean}) {
+function ProgressGoalsTable({ isLoading }: { isLoading: boolean }) {
   return (
     <div className="w-full h-[300px] overflow-auto">
       <div className="min-w-full">
@@ -277,7 +989,7 @@ function RadarChartDisplay() {
         <div className="absolute inset-0 border-2 border-dashed border-gray-200 rounded-full m-5"></div>
         <div className="absolute inset-0 border border-dashed border-gray-200 rounded-full m-10"></div>
         <div className="absolute inset-0 border border-dashed border-gray-200 rounded-full m-15"></div>
-        
+
         {/* Data points */}
         <div className="absolute top-[25%] right-[15%] w-3 h-3 bg-emerald-500 rounded-full"></div>
         <div className="absolute top-[15%] left-[30%] w-3 h-3 bg-emerald-500 rounded-full"></div>
@@ -286,7 +998,7 @@ function RadarChartDisplay() {
         <div className="absolute top-[50%] right-[10%] w-3 h-3 bg-emerald-500 rounded-full"></div>
         <div className="absolute bottom-[10%] left-[50%] w-3 h-3 bg-emerald-500 rounded-full"></div>
       </div>
-      
+
       <div className="flex justify-center gap-4 mt-6">
         <div className="flex items-center">
           <div className="w-3 h-3 bg-emerald-500 rounded-full mr-2"></div>
@@ -307,14 +1019,22 @@ function RadarChartDisplay() {
 
 export function AnalyticsPage() {
   const { dateRange, metrics, chartData, isLoading: storeLoading, setDateRange, refreshData, setSelectedYear } = useDashboardStore();
-  
+
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"cards" | "compact">("cards");
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showRefreshNotification, setShowRefreshNotification] = useState(false);
-  
+  const [showChartGenerator, setShowChartGenerator] = useState(false);
+  const [customCharts, setCustomCharts] = useState<Array<{
+    id: string;
+    type: string;
+    title: string;
+    data: any[];
+    config: ChartConfig;
+  }>>([]);
+
   // Get data from store or use defaults if not available
   const envScore = (chartData as any)?.environmentalScore || defaultData.environmentalScore;
   const envScoreChange = (chartData as any)?.environmentalScoreChange || defaultData.environmentalScoreChange;
@@ -324,22 +1044,22 @@ export function AnalyticsPage() {
   const wasteManagementChange = (chartData as any)?.wasteManagementChange || defaultData.wasteManagementChange;
   const waterUsage = (chartData as any)?.waterUsage || defaultData.waterUsage;
   const waterUsageChange = (chartData as any)?.waterUsageChange || defaultData.waterUsageChange;
-  
+
   // Animate count-up numbers
   useEffect(() => {
     if (!isLoading) {
       const countUpElements = document.querySelectorAll('.animate-count-up');
-      
+
       countUpElements.forEach((element) => {
         const targetValue = parseInt(element.getAttribute('data-value') || '0', 10);
         let startValue = 0;
         const duration = 1500; // 1.5 seconds
         const startTime = Date.now();
-        
+
         const updateValue = () => {
           const currentTime = Date.now();
           const elapsedTime = currentTime - startTime;
-          
+
           if (elapsedTime < duration) {
             const progress = elapsedTime / duration;
             const currentValue = Math.ceil(progress * targetValue);
@@ -349,34 +1069,34 @@ export function AnalyticsPage() {
             element.textContent = targetValue.toString();
           }
         };
-        
+
         requestAnimationFrame(updateValue);
       });
     }
   }, [isLoading]);
-  
+
   // Simulate loading data
   useEffect(() => {
     const timer = setTimeout(() => {
       setIsLoading(false);
     }, 1500);
-    
+
     return () => clearTimeout(timer);
   }, []);
-  
+
   // Handle auto refresh
   useEffect(() => {
     if (autoRefresh) {
       const interval = window.setInterval(() => {
         refreshData();
       }, 30000); // 30 seconds
-      
+
       setRefreshInterval(interval);
     } else if (refreshInterval) {
       clearInterval(refreshInterval);
       setRefreshInterval(null);
     }
-    
+
     return () => {
       if (refreshInterval) {
         clearInterval(refreshInterval);
@@ -412,10 +1132,10 @@ export function AnalyticsPage() {
         to: dateRange.to?.toISOString()
       } : null
     };
-    
+
     // Convert to JSON string
     const jsonData = JSON.stringify(dashboardData, null, 2);
-    
+
     // Create a blob and download link
     const blob = new Blob([jsonData], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -430,7 +1150,7 @@ export function AnalyticsPage() {
 
   // Get environment trends data from store or use defaults
   const trendsData = (chartData as any)?.environmentalTrends || defaultData.environmentalTrends;
-  
+
   // Get category distribution data from store or use defaults
   const categoryData = (chartData as any)?.categoryDistribution || defaultData.categoryDistribution;
 
@@ -444,10 +1164,10 @@ export function AnalyticsPage() {
             <p className="font-medium">Data Refreshed</p>
             <p className="text-sm text-emerald-700">Dashboard updated with latest metrics</p>
           </div>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="ml-4 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-200" 
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-4 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-200"
             onClick={() => setShowRefreshNotification(false)}
           >
             <XCircle className="h-4 w-4" />
@@ -476,14 +1196,14 @@ export function AnalyticsPage() {
                 </span>
               </div>
               <span className="text-xs text-emerald-700">Live</span>
-        </div>
+            </div>
           </div>
           <p className="text-gray-500 mt-2 pl-12">Track and analyze your environmental, social, and governance metrics</p>
         </div>
         <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4 mt-4 sm:mt-0">
           <div className="relative">
-            <DateRangePicker 
-              dateRange={dateRange} 
+            <DateRangePicker
+              dateRange={dateRange}
               onDateRangeChange={(range) => {
                 setDateRange(range);
                 if (range?.from && range?.to) {
@@ -493,7 +1213,7 @@ export function AnalyticsPage() {
                     setIsLoading(false);
                   }, 1000);
                 }
-              }} 
+              }}
               className="w-full sm:w-auto mb-4 sm:mb-0"
             />
             {!dateRange?.from && (
@@ -538,9 +1258,30 @@ export function AnalyticsPage() {
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant={showChartGenerator ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => setShowChartGenerator(!showChartGenerator)}
+                  className={cn(
+                    "relative overflow-hidden group",
+                    showChartGenerator && "bg-emerald-600 hover:bg-emerald-700"
+                  )}
+                >
+                  <ChartBar className="h-4 w-4" />
+                  <span className="absolute inset-0 h-full w-full bg-emerald-100 scale-0 group-hover:scale-100 opacity-0 group-hover:opacity-20 rounded-md transition-all duration-300"></span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{showChartGenerator ? "Hide chart generator" : "Create custom chart"}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
-      
+
       {/* Key Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Environmental Score */}
@@ -575,14 +1316,14 @@ export function AnalyticsPage() {
                 )}
               </div>
             </div>
-            <Progress 
-              value={envScore} 
-              className="h-2 mt-2 bg-emerald-200" 
+            <Progress
+              value={envScore}
+              className="h-2 mt-2 bg-emerald-200"
             />
             <p className="text-xs text-gray-500 mt-2">Target: 90 · Last updated: Today</p>
           </CardContent>
         </Card>
-        
+
         {/* Energy Efficiency */}
         <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-amber-50 to-amber-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
           <CardHeader className="pb-2">
@@ -611,14 +1352,14 @@ export function AnalyticsPage() {
                 )}
               </div>
             </div>
-            <Progress 
-              value={energyEff} 
-              className="h-2 mt-2 bg-amber-200" 
+            <Progress
+              value={energyEff}
+              className="h-2 mt-2 bg-amber-200"
             />
             <p className="text-xs text-gray-500 mt-2">Target: 85 · Last updated: Today</p>
           </CardContent>
         </Card>
-        
+
         {/* Waste Management */}
         <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
           <CardHeader className="pb-2">
@@ -647,14 +1388,14 @@ export function AnalyticsPage() {
                 )}
               </div>
             </div>
-            <Progress 
-              value={wasteManagement} 
-              className="h-2 mt-2 bg-blue-200" 
+            <Progress
+              value={wasteManagement}
+              className="h-2 mt-2 bg-blue-200"
             />
             <p className="text-xs text-gray-500 mt-2">Target: 95 · Last updated: Yesterday</p>
           </CardContent>
         </Card>
-        
+
         {/* Water Usage */}
         <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-cyan-50 to-cyan-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
           <CardHeader className="pb-2">
@@ -683,67 +1424,51 @@ export function AnalyticsPage() {
                 )}
               </div>
             </div>
-            <Progress 
-              value={waterUsage} 
-              className="h-2 mt-2 bg-cyan-200" 
+            <Progress
+              value={waterUsage}
+              className="h-2 mt-2 bg-cyan-200"
             />
             <p className="text-xs text-gray-500 mt-2">Target: 75 · Last updated: 2 days ago</p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Chart Generator */}
+      {showChartGenerator && (
+        <div className="mt-6">
+          <ChartGenerator setCustomCharts={setCustomCharts} />
         </div>
+      )}
 
       {/* Main Chart */}
       <div className="mt-8">
-        <Card className="border-0 shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-xl font-semibold text-gray-900">Environmental Performance Trends</CardTitle>
-                <CardDescription>Monthly performance metrics for the past year</CardDescription>
+        <InteractiveChartWrapper
+          title="Environmental Performance Trends"
+          onRefresh={handleRefresh}
+          className="border-0"
+        >
+          {isLoading ? (
+            <div className="w-full h-[300px] flex items-center justify-center">
+              <div className="flex items-center justify-center flex-col">
+                <RefreshCw className="h-8 w-8 text-emerald-500 animate-spin mb-2" />
+                <p className="text-sm text-gray-500">Loading chart data...</p>
               </div>
-              <div className="flex space-x-2">
-                <Button variant="ghost" size="sm" className="relative overflow-hidden group">
-                  <Printer className="h-4 w-4 mr-1 group-hover:scale-110 transition-transform duration-300" />
-                  <span className="hidden sm:inline">Print</span>
-                  <span className="absolute inset-0 h-full w-full bg-blue-100 scale-0 group-hover:scale-100 opacity-0 group-hover:opacity-20 rounded-md transition-all duration-300"></span>
-                </Button>
-                <Button variant="ghost" size="sm" className="relative overflow-hidden group">
-                  <FileText className="h-4 w-4 mr-1 group-hover:scale-110 transition-transform duration-300" />
-                  <span className="hidden sm:inline">Export</span>
-                  <span className="absolute inset-0 h-full w-full bg-emerald-100 scale-0 group-hover:scale-100 opacity-0 group-hover:opacity-20 rounded-md transition-all duration-300"></span>
-                </Button>
-                <Button variant="ghost" size="sm" className="relative overflow-hidden group">
-                  <Share2 className="h-4 w-4 mr-1 group-hover:scale-110 transition-transform duration-300" />
-                  <span className="hidden sm:inline">Share</span>
-                  <span className="absolute inset-0 h-full w-full bg-purple-100 scale-0 group-hover:scale-100 opacity-0 group-hover:opacity-20 rounded-md transition-all duration-300"></span>
-                </Button>
-          </div>
-          </div>
-          </CardHeader>
-          <CardContent className="px-2 pb-2">
-            {isLoading ? (
-              <div className="w-full h-[300px] flex items-center justify-center">
-                <div className="flex items-center justify-center flex-col">
-                  <RefreshCw className="h-8 w-8 text-emerald-500 animate-spin mb-2" />
-                  <p className="text-sm text-gray-500">Loading chart data...</p>
-          </div>
-        </div>
-            ) : (
-              <div className="w-full h-[300px] animate-fade-in">
-                <LineChart 
-                  data={trendsData.map((d: MonthlyTrend) => ({
-                    name: d.month,
-                    value1: d.value,
-                    value2: d.value * 0.8, // Example secondary line
-                    value3: d.value * 0.6  // Example tertiary line
-                  }))}
-                />
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          ) : (
+            <div className="w-full h-[300px] animate-fade-in">
+              <LineChart
+                data={trendsData.map((d: MonthlyTrend) => ({
+                  name: d.month,
+                  value1: d.value,
+                  value2: d.value * 0.8, // Example secondary line
+                  value3: d.value * 0.6  // Example tertiary line
+                }))}
+              />
+            </div>
+          )}
+        </InteractiveChartWrapper>
       </div>
-      
+
       {/* Two Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
         {/* Key Metrics Table */}
@@ -835,21 +1560,21 @@ export function AnalyticsPage() {
             )}
           </CardContent>
         </Card>
-        
+
         {/* Category Distribution */}
-        <Card className="border-0 shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden">
-          <CardHeader>
-            <CardTitle className="text-xl font-semibold text-gray-900">Category Distribution</CardTitle>
-            <CardDescription>Environmental impact by category</CardDescription>
-          </CardHeader>
-          <CardContent className="pb-6">
+        <div className="lg:col-span-1">
+          <InteractiveChartWrapper
+            title="Category Distribution"
+            onRefresh={handleRefresh}
+            className="border-0"
+          >
             {isLoading ? (
               <div className="w-full h-[250px] flex items-center justify-center">
                 <Skeleton className="w-44 h-44 rounded-full" />
               </div>
             ) : (
               <div className="w-full h-[250px] flex items-center justify-center">
-                <DonutChart 
+                <DonutChart
                   data={categoryData.map((d: CategoryData) => ({
                     name: d.name,
                     value: d.value
@@ -857,181 +1582,144 @@ export function AnalyticsPage() {
                 />
               </div>
             )}
-          </CardContent>
-        </Card>
+          </InteractiveChartWrapper>
+        </div>
       </div>
-      
+
+      {/* Custom Charts Section - Render user created charts */}
+      {customCharts.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold mb-4 flex items-center">
+            <ChartBar className="h-5 w-5 mr-2 text-emerald-600" />
+            Custom Charts
+            <Badge className="ml-2 bg-emerald-100 text-emerald-800">{customCharts.length}</Badge>
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {customCharts.map((chart) => (
+              <InteractiveChartWrapper
+                key={chart.id}
+                title={chart.title}
+                onRefresh={handleRefresh}
+                className="border-0"
+              >
+                <div className="w-full h-[300px]">
+                  {chart.type === 'bar' && <BarChart data={chart.data} config={chart.config} />}
+                  {chart.type === 'line' && <LineChart data={chart.data} config={chart.config} />}
+                  {chart.type === 'donut' && <DonutChart data={chart.data} config={chart.config} />}
+                </div>
+              </InteractiveChartWrapper>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Additional Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
         {/* Bar Chart - ESG Score Breakdown */}
-        <Card className="border-0 shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-xl font-semibold text-gray-900">ESG Score Breakdown</CardTitle>
-                <CardDescription>Quarterly comparison of ESG performance categories</CardDescription>
-              </div>
-              <Button variant="ghost" size="sm">
-                <Filter className="h-4 w-4 mr-1" />
-                <span className="hidden sm:inline">Filter</span>
-              </Button>
+        <InteractiveChartWrapper
+          title="ESG Score Breakdown"
+          onRefresh={handleRefresh}
+          className="border-0"
+        >
+          {isLoading ? (
+            <div className="w-full h-[300px] flex items-center justify-center">
+              <Skeleton className="w-full h-full rounded-md" />
             </div>
-          </CardHeader>
-          <CardContent className="px-2 pb-2">
-            {isLoading ? (
-              <div className="w-full h-[300px] flex items-center justify-center">
-                <Skeleton className="w-full h-full rounded-md" />
-              </div>
-            ) : (
-              <div className="w-full h-[300px]">
-                <BarChart 
-                  data={[
-                    {
-                      name: "Q1",
-                      value1: 65,  // Environmental
-                      value2: 48,  // Social
-                      value3: 76   // Governance
-                    },
-                    {
-                      name: "Q2",
-                      value1: 72,  // Environmental
-                      value2: 53,  // Social
-                      value3: 80   // Governance
-                    },
-                    {
-                      name: "Q3",
-                      value1: 78,  // Environmental
-                      value2: 60,  // Social
-                      value3: 85   // Governance
-                    },
-                    {
-                      name: "Q4",
-                      value1: 85,  // Environmental
-                      value2: 68,  // Social
-                      value3: 88   // Governance
-                    }
-                  ]}
-                />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        
+          ) : (
+            <div className="w-full h-[300px]">
+              <BarChart
+                data={[
+                  {
+                    name: "Q1",
+                    value1: 65,  // Environmental
+                    value2: 48,  // Social
+                    value3: 76   // Governance
+                  },
+                  {
+                    name: "Q2",
+                    value1: 72,  // Environmental
+                    value2: 53,  // Social
+                    value3: 80   // Governance
+                  },
+                  {
+                    name: "Q3",
+                    value1: 78,  // Environmental
+                    value2: 60,  // Social
+                    value3: 85   // Governance
+                  },
+                  {
+                    name: "Q4",
+                    value1: 85,  // Environmental
+                    value2: 68,  // Social
+                    value3: 88   // Governance
+                  }
+                ]}
+              />
+            </div>
+          )}
+        </InteractiveChartWrapper>
+
         {/* Heatmap - Sustainability Impact Areas */}
-        <Card className="border-0 shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-xl font-semibold text-gray-900">Sustainability Impact Areas</CardTitle>
-                <CardDescription>Intensity of environmental impact by department and category</CardDescription>
-              </div>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon">
-                      <FileText className="h-4 w-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Export heatmap</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+        <InteractiveChartWrapper
+          title="Sustainability Impact Areas"
+          onRefresh={handleRefresh}
+          className="border-0"
+        >
+          {isLoading ? (
+            <div className="w-full h-[300px] flex items-center justify-center">
+              <Skeleton className="w-full h-full rounded-md" />
             </div>
-          </CardHeader>
-          <CardContent className="px-2 pb-2">
-            {isLoading ? (
-              <div className="w-full h-[300px] flex items-center justify-center">
-                <Skeleton className="w-full h-full rounded-md" />
-              </div>
-            ) : (
-              <div className="w-full h-[300px]">
-                <Heatmap 
-                  data={[
-                    { year: "Operations", emissions: 80, energy: 45, water: 72, waste: 92 },
-                    { year: "Supply Chain", emissions: 60, energy: 25, water: 82, waste: 78 },
-                    { year: "Logistics", emissions: 72, energy: 35, water: 45, waste: 90 },
-                    { year: "Offices", emissions: 40, energy: 50, water: 32, waste: 45 },
-                    { year: "Manufacturing", emissions: 95, energy: 75, water: 88, waste: 96 }
-                  ]}
-                />
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          ) : (
+            <div className="w-full h-[300px]">
+              <Heatmap
+                data={[
+                  { year: "Operations", emissions: 80, energy: 45, water: 72, waste: 92 },
+                  { year: "Supply Chain", emissions: 60, energy: 25, water: 82, waste: 78 },
+                  { year: "Logistics", emissions: 72, energy: 35, water: 45, waste: 90 },
+                  { year: "Offices", emissions: 40, energy: 50, water: 32, waste: 45 },
+                  { year: "Manufacturing", emissions: 95, energy: 75, water: 88, waste: 96 }
+                ]}
+              />
+            </div>
+          )}
+        </InteractiveChartWrapper>
       </div>
-      
+
       {/* New Charts Section */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
         {/* Radar Chart - ESG Performance */}
-        <Card className="border-0 shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden hover:-translate-y-1">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-xl font-semibold text-gray-900">ESG Performance Radar</CardTitle>
-                <CardDescription>Comparing current performance against targets and industry averages</CardDescription>
-              </div>
-              <Button variant="ghost" size="sm" onClick={handleExport}>
-                <Download className="h-4 w-4 mr-1" />
-                <span className="hidden sm:inline">Export</span>
-              </Button>
+        <InteractiveChartWrapper
+          title="ESG Performance Radar"
+          onRefresh={handleRefresh}
+          className="border-0"
+        >
+          {isLoading ? (
+            <div className="w-full h-[300px] flex items-center justify-center">
+              <Skeleton className="w-full h-full rounded-md" />
             </div>
-          </CardHeader>
-          <CardContent className="px-2 pb-2">
-            {isLoading ? (
-              <div className="w-full h-[300px] flex items-center justify-center">
-                <Skeleton className="w-full h-full rounded-md" />
-              </div>
-            ) : (
-              <div className="animate-fade-in">
-                <RadarChartDisplay />
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        
-        {/* Area/Bubble Chart - ESG Goals Progress */}
-        <Card className="border-0 shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden hover:-translate-y-1">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-xl font-semibold text-gray-900">ESG Goals & Milestones</CardTitle>
-                <CardDescription>Progress tracking towards key sustainability goals</CardDescription>
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm">
-                    <Filter className="h-4 w-4 mr-1" />
-                    <span className="hidden sm:inline">View</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Chart Type</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem className="flex items-center">
-                    <ChartBar className="h-4 w-4 mr-2" />
-                    <span>Bar Chart</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem className="flex items-center">
-                    <ChartPie className="h-4 w-4 mr-2" />
-                    <span>Pie Chart</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+          ) : (
+            <div className="animate-fade-in">
+              <RadarChartDisplay />
             </div>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="w-full h-[300px] flex items-center justify-center">
-                <Skeleton className="w-full h-full rounded-md" />
-              </div>
-            ) : (
-              <div className="animate-fade-in">
-                <ProgressGoalsTable isLoading={isLoading} />
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          )}
+        </InteractiveChartWrapper>
+
+        {/* ESG Goals Progress */}
+        <InteractiveChartWrapper
+          title="ESG Goals & Milestones"
+          onRefresh={handleRefresh}
+          className="border-0"
+        >
+          {isLoading ? (
+            <div className="w-full h-[300px] flex items-center justify-center">
+              <Skeleton className="w-full h-full rounded-md" />
+            </div>
+          ) : (
+            <div className="animate-fade-in">
+              <ProgressGoalsTable isLoading={isLoading} />
+            </div>
+          )}
+        </InteractiveChartWrapper>
       </div>
     </div>
   );
