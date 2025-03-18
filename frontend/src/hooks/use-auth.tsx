@@ -33,36 +33,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // This bypasses authentication for development purposes
   const DEV_BYPASS_AUTH = false; // Changed to false to re-enable normal authentication
   
-  // Keep the mock user and session definitions in case they need to be re-enabled for development
-  const mockUser = DEV_BYPASS_AUTH ? {
-    id: 'dev-user-123',
-    email: 'dev@example.com',
-    role: 'user',
-    app_metadata: {},
-    user_metadata: { name: 'Dev User' },
-    aud: 'authenticated',
-    created_at: new Date().toISOString()
-  } as User : null;
-  
-  const mockSession = DEV_BYPASS_AUTH ? {
-    access_token: 'mock-token',
-    refresh_token: 'mock-refresh-token',
-    expires_in: 3600,
-    expires_at: Math.floor(Date.now() / 1000) + 3600,
-    token_type: 'bearer',
-    user: mockUser as User
-  } as Session : null;
-  // ===== END DEV BYPASS =====
-
-  const [user, setUser] = useState<User | null>(DEV_BYPASS_AUTH ? mockUser : null)
-  const [session, setSession] = useState<Session | null>(DEV_BYPASS_AUTH ? mockSession : null)
-  const [isLoading, setIsLoading] = useState<boolean>(!DEV_BYPASS_AUTH)
+  // Avoid pre-creating these objects for performance
+  const [user, setUser] = useState<User | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
+  const [isLoading, setIsLoading] = useState<boolean>(true)
   const router = useRouter()
   const pathname = usePathname()
 
   // Check for active session on mount and listen for auth state changes
   useEffect(() => {
     if (DEV_BYPASS_AUTH) {
+      // Only create mock objects if needed
+      const mockUser = {
+        id: 'dev-user-123',
+        email: 'dev@example.com',
+        role: 'user',
+        app_metadata: {},
+        user_metadata: { name: 'Dev User' },
+        aud: 'authenticated',
+        created_at: new Date().toISOString()
+      } as User;
+      
+      const mockSession = {
+        access_token: 'mock-token',
+        refresh_token: 'mock-refresh-token',
+        expires_in: 3600,
+        expires_at: Math.floor(Date.now() / 1000) + 3600,
+        token_type: 'bearer',
+        user: mockUser
+      } as Session;
+      
+      setUser(mockUser);
+      setSession(mockSession);
       setIsLoading(false)
       return () => {}
     }
@@ -108,8 +110,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               currentPath: pathname
             })
             if (session) {
+              // We should trust Supabase here - if we got a session, user is authenticated
+              // The email_confirmed_at check is already handled by Supabase internally
               setSession(session)
               setUser(session.user)
+              
+              // If they're on an auth page, redirect to dashboard
               if (pathname?.includes('/auth/') && pathname !== '/auth/update-password') {
                 router.push('/dashboard')
               }
@@ -138,6 +144,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (session) {
               setSession(session)
               setUser(session.user)
+              
+              // Show confirmation message if we detect this is a newly confirmed account
+              if (session.user.email_confirmed_at || session.user.confirmed_at) {
+                toast.success("Email verified successfully!", {
+                  description: "Your account is now active. Please sign in to continue."
+                })
+              }
             }
             break
         }
@@ -162,22 +175,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password
+      const { data, error } = await authSignIn(email, password)
+      
+      if (error) {
+        console.error('Login error:', error)
+        toast.error('Login failed', {
+          description: error instanceof Error ? error.message : 'An unexpected error occurred',
+        })
+        return { error: error as Error }
+      }
+      
+      // Show success toast when user signs in successfully
+      toast.success('Logged in successfully', {
+        description: 'Welcome back to your ESG dashboard!',
+        duration: 3000,
       })
       
-      if (error) throw error
-      
-      // Set session persistence after successful login
-      await supabase.auth.setSession({
-        access_token: (await supabase.auth.getSession()).data.session?.access_token ?? '',
-        refresh_token: (await supabase.auth.getSession()).data.session?.refresh_token ?? ''
-      })
-      
-      toast.success('Welcome back!', {
-        description: 'You have successfully logged in.',
-      })
+      // Don't manually set the session - Supabase will handle this automatically
+      // and the onAuthStateChange listener will pick up the changes
+      console.log("Login successful, session will be handled automatically")
       
       return { error: null }
     } catch (error) {
@@ -199,17 +215,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     
     try {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-      })
+      const { data, error, message } = await authSignUp(email, password)
       
       if (error) throw error
       
+      // Show the email verification message with more details
       toast.success('Account created!', {
-        description: 'Please check your email to confirm your account.',
+        description: message || 'Please check your email to confirm your account before logging in.',
+        duration: 10000, // Show for longer to ensure user sees it
       })
       
+      // Don't redirect to dashboard - user needs to verify email first
       return { error: null }
     } catch (error) {
       console.error('Error signing up:', error)

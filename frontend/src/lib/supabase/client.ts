@@ -71,17 +71,8 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 })
 
-// Only clear tokens in client-side environment
+// Only perform client-side initialization
 if (typeof window !== 'undefined') {
-  // Clear any potentially corrupted tokens from storage
-  const tokensToRemove = [
-    'supabase.auth.token',
-    'supabase.auth.expires_at',
-    'supabase.auth.refresh_token',
-    'jwt_token'
-  ]
-  tokensToRemove.forEach(token => customStorage.removeItem(token))
-  
   // Add verification log
   console.log("🔑 Supabase client initialized with browser-safe storage")
 }

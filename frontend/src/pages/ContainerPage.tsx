@@ -7,7 +7,7 @@ import {
   BarChart3,
   FileText,
   MessageSquare,
-  UserIcon,
+  User,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -15,6 +15,7 @@ import {
   Settings,
   Bell,
   Search,
+  FileBarChart,
 } from "lucide-react"
 
 // UI Components
@@ -34,8 +35,9 @@ import {
 // Import page components
 import ChatPage from "@/pages/ChatPage"
 import DocumentsPage from "@/pages/DocumentsPage"
-import AnalyticsPage from "@/pages/AnalyticsPage"
+import { AnalyticsPage } from "@/pages/AnalyticsPage"
 import ProfilePage from "@/pages/ProfilePage"
+import ReportsPage from "@/pages/ReportsPage"
 
 // Define tab interface
 interface DashboardTab {
@@ -67,6 +69,14 @@ const dashboardTabs: DashboardTab[] = [
     description: "Manage and upload reports",
   },
   {
+    id: "reports",
+    label: "Reports",
+    icon: FileBarChart,
+    component: <ReportsPage />,
+    color: "text-purple-500",
+    description: "View generated ESG reports",
+  },
+  {
     id: "chat",
     label: "Chat",
     icon: MessageSquare,
@@ -77,7 +87,7 @@ const dashboardTabs: DashboardTab[] = [
   {
     id: "profile",
     label: "Profile",
-    icon: UserIcon,
+    icon: User,
     component: <ProfilePage />,
     color: "text-orange-500",
     description: "Account settings",
@@ -275,7 +285,7 @@ export function Container() {
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => handleTabClick("profile")}>
-                <UserIcon className="mr-2 h-4 w-4" />
+                <User className="mr-2 h-4 w-4" />
                 <span>Profile</span>
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => signOut()}>
@@ -369,7 +379,6 @@ export function Container() {
                         className="bg-green-100 hover:bg-green-200 text-green-700 border-0 ml-2 rounded-full px-2 py-0.5 text-xs font-medium"
                       >
                         {documentCount}
-                        {documentCount}
                       </Badge>
                     )}
                     {!isExpanded && showBadge && (
@@ -397,7 +406,7 @@ export function Container() {
                   <div className="overflow-hidden">
                     <p className="text-sm font-medium text-slate-700 truncate">{user?.email || "roshan@gaman.ai"}</p>
                     <p className="text-xs text-slate-500 truncate">
-                      Signed in with google
+                      Signed in with {user?.app_metadata?.provider === 'google' ? 'Google' : 'email'}
                     </p>
                   </div>
                 </div>
@@ -424,7 +433,7 @@ export function Container() {
                   </Avatar>
                   <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 z-50 hidden group-hover:block bg-emerald-600 text-white rounded px-2 py-1 text-xs whitespace-nowrap shadow">
                     <p className="font-medium">{user?.email || "roshan@gaman.ai"}</p>
-                    <p className="text-xs text-emerald-100">Signed in with google</p>
+                    <p className="text-xs text-emerald-100">Signed in with {user?.app_metadata?.provider === 'google' ? 'Google' : 'email'}</p>
                   </div>
                 </div>
                 <div className="group relative">
@@ -432,7 +441,7 @@ export function Container() {
                     variant="ghost"
                     size="icon"
                     className="h-10 w-10 rounded-full text-slate-500 hover:bg-red-50 hover:text-red-600"
-                    onClick={() => signOut()}
+                      onClick={() => signOut()}
                   >
                     <LogOut className="h-5 w-5" />
                   </Button>
@@ -504,7 +513,7 @@ export function Container() {
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => handleTabClick("profile")} className="hover:bg-gray-50">
-                  <UserIcon className="mr-2 h-4 w-4" />
+                  <User className="mr-2 h-4 w-4" />
                   <span>Profile</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem className="hover:bg-gray-50">

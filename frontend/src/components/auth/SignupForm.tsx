@@ -22,6 +22,7 @@ type SignupFormValues = {
 
 export default function SignupForm() {
   const [isLoading, setIsLoading] = useState(false)
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const router = useRouter()
@@ -42,21 +43,32 @@ export default function SignupForm() {
       const { error } = await signUp(data.email, data.password)
       if (error) throw error
       
-      // After successful signup, redirect to dashboard
-      // The auth state change listener in useAuth will handle the actual redirect
-      // when the session is established
-      router.push('/dashboard')
+      // Show success UI after signup
+      form.reset(); // Reset the form
       
-      toast.success('Welcome!', {
-        description: 'Your account has been created successfully.',
-      })
+      // Redirect to login page after a short delay to let the user read the toast message
+      setTimeout(() => {
+        router.push('/auth/login');
+      }, 5000);
+      
     } catch (error) {
-      console.error(error)
-      toast.error('Error', {
-        description: error instanceof Error ? error.message : 'An error occurred. Please try again.',
-      })
+      console.error("Signup form error:", error)
+      // Toast is already handled in the auth hook
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    setIsGoogleLoading(true)
+    try {
+      await signInWithGoogle()
+      // Redirect handled by OAuth provider
+    } catch (error) {
+      console.log("🔑 Error signing up with Google")
+      console.error(error)
+    } finally {
+      setIsGoogleLoading(false)
     }
   }
 
@@ -77,7 +89,7 @@ export default function SignupForm() {
             placeholder="name@company.com"
             autoComplete="email"
             required
-            className="h-11"
+            className="h-11 placeholder:text-slate-400"
           />
           {form.formState.errors.email && (
             <p className="text-xs text-red-500">{form.formState.errors.email.message}</p>
@@ -94,7 +106,7 @@ export default function SignupForm() {
               placeholder="••••••••"
               autoComplete="new-password"
               required
-              className="h-11 pr-10"
+              className="h-11 pr-10 placeholder:text-slate-400"
             />
             <button
               type="button"
@@ -124,7 +136,10 @@ export default function SignupForm() {
               placeholder="••••••••"
               autoComplete="new-password"
               required
-              className="h-11 pr-10"
+              className="h-11 pr-10 placeholder:text-slate-400"
+              onPaste={(e) => e.preventDefault()}
+              onCopy={(e) => e.preventDefault()}
+              onCut={(e) => e.preventDefault()}
             />
             <button
               type="button"
@@ -140,7 +155,7 @@ export default function SignupForm() {
           )}
         </div>
 
-        <Button type="submit" className="h-11 w-full bg-emerald-600 hover:bg-emerald-700" disabled={isLoading}>
+        <Button type="submit" className="h-11 w-full bg-emerald-600 hover:bg-emerald-700" disabled={isLoading || isGoogleLoading}>
           {isLoading ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -164,10 +179,10 @@ export default function SignupForm() {
           type="button"
           variant="outline"
           className="h-11 w-full"
-          onClick={signInWithGoogle}
-          disabled={isLoading}
+          onClick={handleGoogleSignIn}
+          disabled={isLoading || isGoogleLoading}
         >
-          {isLoading ? (
+          {isGoogleLoading ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
             <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
