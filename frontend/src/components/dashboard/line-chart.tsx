@@ -18,9 +18,30 @@ interface LineChartProps {
     value2: number
     value3: number
   }>
+  config?: {
+    title?: string
+    showLegend?: boolean
+    showDots?: boolean
+    dataKeys?: string[]
+    dataLabels?: string[]
+    colors?: string[]
+  }
 }
 
-export function LineChart({ data }: LineChartProps) {
+export function LineChart({ data, config }: LineChartProps) {
+  // Default configuration
+  const defaultConfig = {
+    showLegend: true,
+    showDots: true,
+    dataKeys: ["value1", "value2", "value3"],
+    dataLabels: ["Environmental Score", "Energy Efficiency", "Waste Management"],
+    colors: ["#4CAF50", "#2196F3", "#FFC107"]
+  }
+
+  // Merge provided config with defaults
+  const mergedConfig = { ...defaultConfig, ...config }
+  const { showLegend, showDots, dataKeys, dataLabels, colors } = mergedConfig
+
   return (
     <div className="h-[300px] w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -35,34 +56,19 @@ export function LineChart({ data }: LineChartProps) {
               borderRadius: "6px",
             }}
           />
-          <Legend />
-          <Line
-            name="Primary"
-            type="monotone"
-            dataKey="value1"
-            stroke="#4CAF50"
-            strokeWidth={2}
-            dot={{ strokeWidth: 2 }}
-            activeDot={{ r: 6, strokeWidth: 2 }}
-          />
-          <Line
-            name="Secondary"
-            type="monotone"
-            dataKey="value2"
-            stroke="#FFD700"
-            strokeWidth={2}
-            dot={{ strokeWidth: 2 }}
-            activeDot={{ r: 6, strokeWidth: 2 }}
-          />
-          <Line
-            name="Tertiary"
-            type="monotone"
-            dataKey="value3"
-            stroke="#81C784"
-            strokeWidth={2}
-            dot={{ strokeWidth: 2 }}
-            activeDot={{ r: 6, strokeWidth: 2 }}
-          />
+          {showLegend && <Legend />}
+          {dataKeys.map((key, index) => (
+            <Line
+              key={key}
+              type="monotone"
+              dataKey={key}
+              name={dataLabels?.[index] || key}
+              stroke={colors?.[index] || `#${Math.floor(Math.random() * 16777215).toString(16)}`}
+              strokeWidth={2}
+              dot={showDots ? { r: 4 } : false}
+              activeDot={{ r: 6 }}
+            />
+          ))}
         </RechartsLineChart>
       </ResponsiveContainer>
     </div>
