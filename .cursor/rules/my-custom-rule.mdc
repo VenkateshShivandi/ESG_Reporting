@@ -1,6 +1,7 @@
 ---
 description: Project-specific rules for ESG Reporting, focusing on parsing (PDFs, Excel, etc.), RAG integration, Supabase storage, and frontend UI for dashboards, document uploads, and analytics.
 globs: *.py, *.ts, backend/**, frontend/**, *.json, *.toml, src/**, tests/**, public/**, .cursor/rules/**
+alwaysApply: false
 ---
 # Project-Specific Rules for ESG Reporting
 
@@ -20,6 +21,7 @@ You must follow all rules specified in the following `.mdc` files located in the
 - [testing-strategy.mdc](mdc:.cursor/rules/testing-strategy.mdc)
 - [typescript.mdc](mdc:.cursor/rules/typescript.mdc)
 - [ui-shadcn.mdc](mdc:.cursor/rules/ui-shadcn.mdc)
+- [coding-preference.mdc](mdc:.cursor/rules/coding-preference.mdc)
 
 Additionally, process and follow all other `.mdc` files in the `.cursor/rules` directory, even those not explicitly listed above, to ensure comprehensive rule coverage. If conflicts arise between rules in different files, prioritize more specific rules over general ones.
 
