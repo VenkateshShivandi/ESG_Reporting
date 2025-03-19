@@ -21,14 +21,35 @@ interface BarChartProps {
     value2: number
     value3: number
   }>
+  config?: {
+    title?: string
+    showLegend?: boolean
+    stacked?: boolean
+    dataKeys?: string[]
+    dataLabels?: string[]
+    colors?: string[]
+  }
 }
 
-export function BarChart({ data }: BarChartProps) {
+export function BarChart({ data, config }: BarChartProps) {
   const { drillDownData, setSelectedYear } = useDashboardStore()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedYearData, setSelectedYearData] = useState<{ year: string; data: { [month: string]: number } } | null>(
     null,
   )
+
+  // Default configuration
+  const defaultConfig = {
+    showLegend: true,
+    stacked: false,
+    dataKeys: ["value1", "value2", "value3"],
+    dataLabels: ["Environmental Score", "Energy Efficiency", "Waste Management"],
+    colors: ["#4CAF50", "#81C784", "#C8E6C9"]
+  }
+
+  // Merge provided config with defaults
+  const mergedConfig = { ...defaultConfig, ...config }
+  const { showLegend, stacked, dataKeys, dataLabels, colors } = mergedConfig
 
   const handleBarClick = (data: any) => {
     const year = data.name
@@ -41,7 +62,7 @@ export function BarChart({ data }: BarChartProps) {
     <>
       <div className="h-[300px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <RechartsBarChart data={data}>
+          <RechartsBarChart data={data} stackOffset={stacked ? "normal" : undefined}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="name" />
             <YAxis />
@@ -52,17 +73,19 @@ export function BarChart({ data }: BarChartProps) {
                 borderRadius: "6px",
               }}
             />
-            <Legend />
-            <Bar
-              name="Environmental Score"
-              dataKey="value1"
-              fill="#4CAF50"
-              radius={[4, 4, 0, 0]}
-              onClick={handleBarClick}
-              cursor="pointer"
-            />
-            <Bar name="Energy Efficiency" dataKey="value2" fill="#81C784" radius={[4, 4, 0, 0]} />
-            <Bar name="Waste Management" dataKey="value3" fill="#C8E6C9" radius={[4, 4, 0, 0]} />
+            {showLegend && <Legend />}
+            {dataKeys.map((key, index) => (
+              <Bar
+                key={key}
+                name={dataLabels?.[index] || key}
+                dataKey={key}
+                fill={colors?.[index] || `#${Math.floor(Math.random() * 16777215).toString(16)}`}
+                radius={[4, 4, 0, 0]}
+                onClick={handleBarClick}
+                cursor="pointer"
+                stackId={stacked ? "stack" : undefined}
+              />
+            ))}
           </RechartsBarChart>
         </ResponsiveContainer>
       </div>

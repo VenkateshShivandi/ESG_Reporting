@@ -1,8 +1,17 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowUpDown, ChevronDown, ChevronUp } from "lucide-react"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { ArrowUpDown, ChevronDown, ChevronUp, Search } from "lucide-react"
 
 interface DataTableProps {
   data: Array<{
@@ -13,93 +22,175 @@ interface DataTableProps {
     change: number
     status: "improved" | "declined" | "unchanged"
   }>
+  config?: {
+    title?: string
+    pageSize?: number
+    sortBy?: string
+    searchable?: boolean
+  }
 }
 
-export function DataTable({ data }: DataTableProps) {
-  const [sortField, setSortField] = useState<string>("metric")
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === "asc" ? "desc" : "asc")
-    } else {
-      setSortField(field)
-      setSortDirection("asc")
-    }
+export function DataTable({ data, config }: DataTableProps) {
+  // Default configuration
+  const defaultConfig = {
+    pageSize: 5,
+    sortBy: "metric",
+    searchable: true
   }
 
-  const sortedData = [...data].sort((a, b) => {
-    const aValue = a[sortField as keyof typeof a]
-    const bValue = b[sortField as keyof typeof b]
+  // Merge provided config with defaults
+  const mergedConfig = { ...defaultConfig, ...config }
+  const { pageSize, sortBy: initialSortBy, searchable } = mergedConfig
+
+  const [sortBy, setSortBy] = useState(initialSortBy)
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [currentPage, setCurrentPage] = useState(1)
+
+  // Filter data based on search query
+  const filteredData = searchQuery
+    ? data.filter((item) =>
+      item.metric.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    : data
+
+  // Sort data based on sort column and order
+  const sortedData = [...filteredData].sort((a, b) => {
+    const aValue = a[sortBy as keyof typeof a]
+    const bValue = b[sortBy as keyof typeof b]
 
     if (typeof aValue === "string" && typeof bValue === "string") {
-      return sortDirection === "asc" ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue)
+      return sortOrder === "asc"
+        ? aValue.localeCompare(bValue)
+        : bValue.localeCompare(aValue)
     }
 
     if (typeof aValue === "number" && typeof bValue === "number") {
-      return sortDirection === "asc" ? aValue - bValue : bValue - aValue
+      return sortOrder === "asc" ? aValue - bValue : bValue - aValue
     }
 
     return 0
   })
 
-  const SortIcon = ({ field }: { field: string }) => {
-    if (sortField !== field) return <ArrowUpDown className="ml-1 h-3 w-3" />
-    return sortDirection === "asc" ? <ChevronUp className="ml-1 h-3 w-3" /> : <ChevronDown className="ml-1 h-3 w-3" />
+  // Paginate data
+  const pageCount = Math.ceil(sortedData.length / pageSize)
+  const paginatedData = sortedData.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  )
+
+  const handleSort = (column: string) => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc")
+    } else {
+      setSortBy(column)
+      setSortOrder("asc")
+    }
   }
 
   return (
     <div className="w-full">
-      <table className="w-full border-collapse text-[13px]">
-        <thead>
-          <tr className="border-b border-gray-200 bg-gray-50">
-            <th className="py-2 px-2.5 text-left sticky top-0 bg-gray-50 z-10">
-              <Button variant="ghost" onClick={() => handleSort("metric")} className="font-medium text-[13px] h-6 px-1">
+      {searchable && (
+        <div className="mb-4 flex items-center">
+          <div className="relative flex-1">
+            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search metrics..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="cursor-pointer hover:bg-muted/50" onClick={() => handleSort("metric")}>
                 Metric
-                <SortIcon field="metric" />
-              </Button>
-            </th>
-            <th className="py-2 px-2.5 text-right sticky top-0 bg-gray-50 z-10">
-              <Button variant="ghost" onClick={() => handleSort("current")} className="font-medium text-[13px] h-6 px-1">
+                {sortBy === "metric" && (
+                  <span className="ml-2">
+                    {sortOrder === "asc" ? <ChevronUp className="inline h-4 w-4" /> : <ChevronDown className="inline h-4 w-4" />}
+                  </span>
+                )}
+              </TableHead>
+              <TableHead className="cursor-pointer hover:bg-muted/50 text-right" onClick={() => handleSort("current")}>
                 Current
-                <SortIcon field="current" />
-              </Button>
-            </th>
-            <th className="py-2 px-2.5 text-right sticky top-0 bg-gray-50 z-10">
-              <Button variant="ghost" onClick={() => handleSort("previous")} className="font-medium text-[13px] h-6 px-1">
+                {sortBy === "current" && (
+                  <span className="ml-2">
+                    {sortOrder === "asc" ? <ChevronUp className="inline h-4 w-4" /> : <ChevronDown className="inline h-4 w-4" />}
+                  </span>
+                )}
+              </TableHead>
+              <TableHead className="cursor-pointer hover:bg-muted/50 text-right" onClick={() => handleSort("previous")}>
                 Previous
-                <SortIcon field="previous" />
-              </Button>
-            </th>
-            <th className="py-2 px-2.5 text-right sticky top-0 bg-gray-50 z-10">
-              <Button variant="ghost" onClick={() => handleSort("change")} className="font-medium text-[13px] h-6 px-1">
+                {sortBy === "previous" && (
+                  <span className="ml-2">
+                    {sortOrder === "asc" ? <ChevronUp className="inline h-4 w-4" /> : <ChevronDown className="inline h-4 w-4" />}
+                  </span>
+                )}
+              </TableHead>
+              <TableHead className="cursor-pointer hover:bg-muted/50 text-right" onClick={() => handleSort("change")}>
                 Change
-                <SortIcon field="change" />
-              </Button>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {sortedData.map((row) => (
-            <tr key={row.id} className="border-b border-gray-100 hover:bg-gray-50">
-              <td className="py-1.5 px-2.5">{row.metric}</td>
-              <td className="py-1.5 px-2.5 text-right">{row.current.toFixed(1)}</td>
-              <td className="py-1.5 px-2.5 text-right">{row.previous.toFixed(1)}</td>
-              <td
-                className={`py-1.5 px-2.5 text-right font-medium ${row.status === "improved"
-                    ? "text-green-600"
-                    : row.status === "declined"
-                      ? "text-red-600"
-                      : "text-gray-600"
-                  }`}
-              >
-                {row.change > 0 ? "+" : ""}
-                {row.change.toFixed(1)}%
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                {sortBy === "change" && (
+                  <span className="ml-2">
+                    {sortOrder === "asc" ? <ChevronUp className="inline h-4 w-4" /> : <ChevronDown className="inline h-4 w-4" />}
+                  </span>
+                )}
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paginatedData.map((item) => (
+              <TableRow key={item.id}>
+                <TableCell>{item.metric}</TableCell>
+                <TableCell className="text-right">{item.current.toFixed(2)}</TableCell>
+                <TableCell className="text-right">{item.previous.toFixed(2)}</TableCell>
+                <TableCell
+                  className={`text-right ${item.status === "improved"
+                      ? "text-green-500"
+                      : item.status === "declined"
+                        ? "text-red-500"
+                        : ""
+                    }`}
+                >
+                  {item.change > 0 ? `+${item.change.toFixed(2)}%` : `${item.change.toFixed(2)}%`}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {pageCount > 1 && (
+        <div className="mt-4 flex items-center justify-between">
+          <div className="text-sm text-muted-foreground">
+            Showing {(currentPage - 1) * pageSize + 1} to{" "}
+            {Math.min(currentPage * pageSize, filteredData.length)} of{" "}
+            {filteredData.length} entries
+          </div>
+          <div className="flex gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(Math.min(pageCount, currentPage + 1))}
+              disabled={currentPage === pageCount}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
