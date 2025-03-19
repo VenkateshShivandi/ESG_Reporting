@@ -102,7 +102,8 @@ def run_etl_pipeline(pdf_path: str, output_dir: str, **kwargs) -> Dict[str, Any]
     # Use the chunks from transformed_data since result might not have them yet
     if "chunks" in transformed_data:
         enriched_chunks = enrich_chunks_with_metadata(transformed_data["chunks"], doc_metadata, section_hierarchy)
-        result["chunks"] = enriched_chunks  # Store enriched chunks in result
+        result["chunks"] = enriched_chunks
+        result["chunk_count"] = len(enriched_chunks)
     
     return result
 
@@ -136,7 +137,7 @@ if __name__ == "__main__":
         else:
             result = run_etl_pipeline(input_path, output_dir)
             if result["status"] == "success":
-                print(f"Successfully processed {input_path} - Created {result['chunk_count']} chunks")
+                print(f"Successfully processed {input_path} - Created {result.get('chunk_count', 0)} chunks")
             else:
                 print(f"Failed to process {input_path}: {result.get('error', 'Unknown error')}")
     elif len(sys.argv) > 1:
@@ -149,7 +150,7 @@ if __name__ == "__main__":
         else:
             result = run_etl_pipeline(input_path, output_dir)
             if result["status"] == "success":
-                print(f"Successfully processed {input_path} - Created {result['chunk_count']} chunks")
+                print(f"Successfully processed {input_path} - Created {result.get('chunk_count', 0)} chunks")
                 print(f"Output saved to {result['output_path']}")
             else:
                 print(f"Failed to process {input_path}: {result.get('error', 'Unknown error')}")
