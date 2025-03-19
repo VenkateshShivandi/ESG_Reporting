@@ -33,7 +33,6 @@ import {
   Calendar,
   ChartBar,
   ChartPie,
-  ClipboardIcon,
   Cloud,
   Download,
   Droplet,
@@ -59,7 +58,12 @@ import {
   Wand2,
   EyeOff,
   Sliders,
-  Check
+  Check,
+  Loader2,
+  Plus,
+  Settings,
+  SlidersHorizontal,
+  Trash
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -107,6 +111,9 @@ import { cn } from "@/lib/utils";
 
 // Types for date range
 import type { DateRange } from "react-day-picker";
+
+// Add imports
+import { fetchDataChunks, fetchChunkData } from '@/lib/api/analytics';
 
 export interface KeyMetric {
   metric: string;
@@ -309,6 +316,11 @@ function ChartGenerator({ setCustomCharts }: { setCustomCharts: React.Dispatch<R
     { name: "May", value1: 18, value2: 48, value3: 75 }
   ])
 
+  // Add these states for data chunks
+  const [dataChunks, setDataChunks] = useState<Array<{ id: string, name: string, description: string, category: string }>>([])
+  const [selectedChunk, setSelectedChunk] = useState<string>("")
+  const [isLoadingChunks, setIsLoadingChunks] = useState<boolean>(false)
+
   // Add global style for SelectContent to ensure opaque background
   React.useEffect(() => {
     const style = document.createElement('style');
@@ -323,6 +335,13 @@ function ChartGenerator({ setCustomCharts }: { setCustomCharts: React.Dispatch<R
       document.head.removeChild(style);
     };
   }, []);
+
+  // Fetch data chunks when the data source is set to "chunk"
+  React.useEffect(() => {
+    if (dataSource === "chunk") {
+      handleFetchDataChunks();
+    }
+  }, [dataSource]);
 
   const [config, setConfig] = useState<ChartConfig>({
     title: chartTitle,
@@ -373,6 +392,74 @@ function ChartGenerator({ setCustomCharts }: { setCustomCharts: React.Dispatch<R
       setIsAddingToBoard(false)
     }, 1000)
   }
+
+  // new function to fetch available data chunks
+  const handleFetchDataChunks = async () => {
+    setIsLoadingChunks(true);
+    try {
+      const data = await fetchDataChunks();
+      setDataChunks(data);
+    } catch (error) {
+      console.error('Failed to fetch data chunks:', error);
+    } finally {
+      setIsLoadingChunks(false);
+    }
+  };
+
+  // new function to fetch data for a specific chunk
+  const handleFetchChunkData = async (chunkId: string) => {
+    if (!chunkId) return;
+
+    setIsAddingToBoard(true);
+    try {
+      const data = await fetchChunkData(chunkId);
+
+      // Update chart type if available from the API
+      if (data.type) {
+        setChartType(data.type);
+      }
+
+      // Update chart title
+      if (data.title) {
+        setChartTitle(data.title);
+        setConfig(prev => ({ ...prev, title: data.title }));
+      }
+
+      // Process the data into the format expected by the chart
+      if (data.labels && data.series) {
+        const transformedData: ChartData[] = data.labels.map((label: string, index: number) => {
+          // Initialize with required properties to satisfy TypeScript
+          const item: ChartData = {
+            name: label,
+            value1: 0,
+            value2: 0,
+            value3: 0
+          };
+
+          // Add each series data point
+          data.series.forEach((series: any, seriesIndex: number) => {
+            const keyName = `value${seriesIndex + 1}`;
+            item[keyName] = series.data[index];
+          });
+
+          return item;
+        });
+
+        setCustomData(transformedData);
+
+        // Update data labels in config
+        const seriesNames = data.series.map((s: any) => s.name);
+        setConfig(prev => ({
+          ...prev,
+          dataLabels: seriesNames
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch chunk data:', error);
+    } finally {
+      setIsAddingToBoard(false);
+    }
+  };
 
   const handleAddToDashboard = () => {
     setIsAddingToBoard(true);
@@ -493,24 +580,45 @@ function ChartGenerator({ setCustomCharts }: { setCustomCharts: React.Dispatch<R
         return (
           <div className="space-y-3">
             <Label htmlFor="chunk-source" className="text-sm text-slate-600">Select Data Chunk</Label>
-            <Select disabled>
+            <Select
+              value={selectedChunk}
+              onValueChange={setSelectedChunk}
+              disabled={isLoadingChunks}
+            >
               <SelectTrigger id="chunk-source" className="w-full">
-                <SelectValue placeholder="API integration coming soon" />
+                <SelectValue placeholder={isLoadingChunks ? "Loading chunks..." : "Select a data chunk"} />
               </SelectTrigger>
               <SelectContent className="bg-white border border-slate-200 shadow-md">
-                <SelectItem value="placeholder">
-                  <span>Coming soon</span>
-                </SelectItem>
+                {dataChunks.length > 0 ? (
+                  dataChunks.map(chunk => (
+                    <SelectItem key={chunk.id} value={chunk.id}>
+                      <div className="flex flex-col items-start w-full text-left">
+                        <span className="text-left w-full">{chunk.name}</span>
+                        <span className="text-xs text-slate-500 text-left w-full">{chunk.description}</span>
+                      </div>
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="placeholder" disabled>
+                    <span className="text-left w-full">{isLoadingChunks ? "Loading..." : "No data chunks available"}</span>
+                  </SelectItem>
+                )}
               </SelectContent>
             </Select>
-            <div className="bg-amber-50 p-3 rounded-md border border-amber-200">
-              <p className="text-xs text-amber-800 flex items-center">
-                <svg className="h-4 w-4 mr-1 text-amber-600" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-                Chunk data source integration is coming soon
-              </p>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleFetchChunkData(selectedChunk)}
+              disabled={!selectedChunk || isLoadingChunks || isAddingToBoard}
+              className="w-full"
+            >
+              {isAddingToBoard ? (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Cloud className="h-4 w-4 mr-2" />
+              )}
+              Load Chunk Data
+            </Button>
           </div>
         )
       case "manual":
@@ -603,6 +711,28 @@ function ChartGenerator({ setCustomCharts }: { setCustomCharts: React.Dispatch<R
         )
     }
   }
+
+  useEffect(() => {
+    if (dataSource === 'api' && selectedChunk) {
+      handleFetchChunkData(selectedChunk);
+    }
+  }, [dataSource, selectedChunk]);
+
+  useEffect(() => {
+    if (dataSource === 'api') {
+      handleFetchDataChunks();
+    }
+  }, [dataSource]);
+
+  useEffect(() => {
+    if (dataSource === 'manual') {
+      handleGenerateData();
+    } else if (dataSource === 'report') {
+      fetchReportData();
+    } else if (dataSource === 'api') {
+      handleFetchDataChunks();
+    }
+  }, [dataSource]);
 
   return (
     <div className="bg-white rounded-lg shadow-lg overflow-hidden border border-slate-200">
