@@ -12,6 +12,7 @@ import pytesseract
 import cv2
 from skimage import measure
 from sklearn.cluster import KMeans
+from typing import List, Dict, Any, Tuple
 
 # ANSI color codes
 class Colors:
@@ -51,50 +52,43 @@ console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setFormatter(ColoredFormatter())
 logger.addHandler(console_handler)
 
-pdf_path = "./test_files/test.pdf"
-
-
-
-def extract_images(pdf_path):
+def extract_images(pdf_path: str) -> List[Dict[str, Any]]:
+    """Extract images from PDF with metadata"""
+    logger.info(f"🔍 Starting PDF image extraction from: {pdf_path}")
+    
     try:
         doc = fitz.open(pdf_path)
-        image_list = []
-        
         logger.info(f"✅ Successfully opened PDF: {pdf_path}")
-        logger.info(f"Processing {len(doc)} pages for image extraction...")
-        
-        for page_num in range(len(doc)):
-            try:
-                page = doc.load_page(page_num)
-                image_items = page.get_images(full=True)
-                
-                if image_items:
-                    logger.info(f"✅ Found {len(image_items)} images on page {page_num+1}")
-                else:
-                    logger.warning(f"⚠️ No images found on page {page_num+1}")
-                
-                for img_index, img in enumerate(image_items):
-                    try:
-                        xref = img[0]
-                        base_image = doc.extract_image(xref)
-                        image_data = base_image["image"]
-                        image_list.append({
-                            "page": page_num+1,
-                            "index": img_index,
-                            "data": image_data,
-                            "format": base_image["ext"]
-                        })
-                        logger.debug(f"✅ Extracted image {img_index+1} from page {page_num+1}")
-                    except Exception as e:
-                        logger.error(f"❌ Failed to extract image {img_index} on page {page_num+1}: {str(e)}")
-            except Exception as e:
-                logger.error(f"❌ Error processing page {page_num+1}: {str(e)}")
-        
-        logger.info(f"✅ Extraction complete. Total images found: {len(image_list)}")
-        return image_list
     except Exception as e:
-        logger.error(f"❌ Failed to process PDF {pdf_path}: {str(e)}")
+        logger.error(f"❌ Failed to open PDF: {e}")
         return []
+    
+    logger.info(f"Processing {doc.page_count} pages for image extraction...")
+    images = []
+        
+    for page_num in range(len(doc)):
+        page = doc[page_num]
+        image_list = page.get_images()
+                
+        for img_idx, img in enumerate(image_list):
+            try:
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                
+                if base_image:
+                    image_data = {
+                        'data': base_image["image"],
+                        'format': base_image["ext"],
+                        'page': page_num + 1,
+                        'index': img_idx
+                    }
+                    images.append(image_data)
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to extract image {img_idx} from page {page_num + 1}: {e}")
+                continue
+        
+    logger.info(f"✅ Successfully extracted {len(images)} images")
+    return images
 
 def process_image(image_data):
     try:
@@ -159,201 +153,81 @@ class ImageAnalyzer:
             return None
 
     @staticmethod
-    def analyze_content_value(image_data):
-        """Assess image usefulness with focus on text content"""
-        try:
-            img = Image.open(io.BytesIO(image_data))
-            np_img = np.array(img)
-            
-            # Calculate text density first
-            text_analysis = ImageAnalyzer._analyze_text_density(np_img)
-            
-            # If almost no text content, might be decorative or blank
-            if text_analysis and text_analysis['is_mostly_empty']:
-                logger.warning(f"⚠️ Image has very little text content ({text_analysis['text_percentage']:.1%})")
-                return {
-                    "text_density": text_analysis,
-                    "usefulness_score": 0.1
-                }
-
-            return {
-                "text_density": text_analysis,
-                "ocr_content": ImageAnalyzer._analyze_text_content(np_img),
-                "edge_density": ImageAnalyzer._calculate_edge_density(np_img)
+    def analyze_content_value(image_data: bytes) -> Dict[str, Any]:
+        """Analyze image content for business value"""
+        # Convert bytes to numpy array
+        image_array = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            return {'error': 'Failed to decode image'}
+        
+        analysis = {
+            'dimensions': img.shape[:2],
+            'text_density': ImageAnalyzer._analyze_text_density(img),
+            'visual_complexity': ImageAnalyzer._analyze_visual_complexity(img)
             }
-        except Exception as e:
-            logger.error(f"❌ Content analysis failed: {str(e)}")
-            return None
+        
+        return analysis
 
     @staticmethod
-    def _analyze_text_content(np_img):
-        """Evaluate text presence and quality using OCR"""
-        try:
-            # Convert to grayscale for OCR
-            gray = cv2.cvtColor(np_img, cv2.COLOR_BGR2GRAY)
-            text = pytesseract.image_to_string(gray)
+    def _analyze_visual_complexity(img: np.ndarray) -> Dict[str, float]:
+        """Analyze visual complexity of image"""
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Calculate edge density using Canny edge detection
+        edges = cv2.Canny(gray, 100, 200)
+        edge_density = np.sum(edges == 255) / edges.size
+        
+        # Calculate color variance
+        color_variance = np.var(img)
             
-            # Calculate text metrics
-            word_count = len(text.split())
-            line_count = len(text.split('\n'))
+        return {
+            'edge_density': edge_density,
+            'color_variance': float(color_variance),
+            'is_complex': edge_density > 0.1 or color_variance > 1000
+        }
+
+    @staticmethod
+    def determine_usefulness(analysis: Dict[str, Any]) -> str:
+        """Determine image usefulness based on analysis"""
+        if 'error' in analysis:
+            return 'low'
             
-            return {
-                "word_count": word_count,
-                "line_count": line_count,
-                "readability_score": min(word_count / 50, 1.0)  # Normalized 0-1
-            }
-        except Exception as e:
-            logger.debug(f"⚠️ Text analysis error: {str(e)}")
-            return None
-
-    @staticmethod
-    def _analyze_graphical_content(np_img):
-        """Detect charts/diagrams using edge detection"""
-        try:
-            edges = cv2.Canny(np_img, 100, 200)
-            edge_pixels = np.sum(edges > 0)
-            total_pixels = edges.size
-            return edge_pixels / total_pixels  # Edge density ratio
-        except Exception as e:
-            logger.debug(f"⚠️ Graphical analysis error: {str(e)}")
-            return None
-
-    @staticmethod
-    def _calculate_edge_density(np_img):
-        """Calculate edge presence using Sobel operator"""
-        try:
-            gray = cv2.cvtColor(np_img, cv2.COLOR_BGR2GRAY)
-            sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=5)
-            sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=5)
-            edge_mag = np.sqrt(sobelx**2 + sobely**2)
-            return np.mean(edge_mag)  # Higher = more edges
-        except Exception as e:
-            logger.debug(f"⚠️ Edge analysis error: {str(e)}")
-            return None
-
-    @staticmethod
-    def determine_usefulness(analysis):
-        """Classify image based on text content and other metrics"""
-        if not analysis:
-            return "low"
-
-        # Get text density metrics
-        text_density = analysis.get('text_density', {})
-        text_percentage = text_density.get('text_percentage', 0)
+        text_density = analysis.get('text_density', {}).get('text_percentage', 0)
+        complexity = analysis.get('visual_complexity', {})
+        edge_density = complexity.get('edge_density', 0)
+        color_variance = complexity.get('color_variance', 0)
         
-        # Check if image is mostly empty
-        if text_density.get('is_mostly_empty', True):
-            return "low"
-
-        # Get OCR confidence and word count
-        ocr_data = analysis.get('ocr_content', {})
-        word_count = ocr_data.get('word_count', 0) if ocr_data else 0
-        
-        # Calculate score based primarily on text metrics
-        text_score = min(text_percentage * 5, 1.0)  # Normalize text density
-        word_score = min(word_count / 50, 1.0)      # Normalize word count
-        
-        # Weighted score calculation
-        total_score = (
-            text_score * 0.6 +           # Text density weight
-            word_score * 0.4             # Word count weight
-        )
-
-        # Log detailed scoring
-        logger.debug(f"""
-        Text Content Scoring:
-        - Text Density Score: {text_score:.2f} ({text_percentage:.1%} text)
-        - Word Count Score: {word_score:.2f} ({word_count} words)
-        - Total Score: {total_score:.2f}
-        """)
-
-        # Classify based on total score
-        if total_score > 0.7:
-            return "high"
-        elif total_score > 0.3:
-            return "medium"
+        if text_density > 20 or edge_density > 0.15:
+            return 'high'
+        elif text_density > 10 or edge_density > 0.1:
+            return 'medium'
         else:
-            return "low"
+            return 'low'
 
-def save_images(image_list, output_dir):
-    if not os.path.exists(output_dir):
+def save_images(images: List[Dict[str, Any]], output_dir: str = "extracted_images") -> None:
+    """Save extracted images to disk"""
+    os.makedirs(output_dir, exist_ok=True)
+    
+    for idx, img in enumerate(images):
         try:
-            os.makedirs(output_dir)
-            logger.info(f"✅ Created output directory: {output_dir}")
+            output_path = os.path.join(output_dir, f"image_{img['page']}_{idx}.{img['format']}")
+            with open(output_path, 'wb') as f:
+                f.write(img['data'])
         except Exception as e:
-            logger.error(f"❌ Failed to create output directory {output_dir}: {str(e)}")
-            return False, False
-    
-    success_count = 0
-    error_count = 0
-    high_value = 0
-    medium_value = 0
-    low_value = 0
-    
-    for image in image_list:
-        try:
-            # Analyze image content
-            analysis = ImageAnalyzer.analyze_content_value(image['data'])
-            
-            # Get text percentage
-            text_percentage = analysis.get('text_density', {}).get('text_percentage', 0)
-            text_percent_display = f"{text_percentage*100:.0f}"
-            
-            usefulness = ImageAnalyzer.determine_usefulness(analysis)
-            
-            # Log with text percentage
-            if usefulness == "high":
-                high_value += 1
-                logger.info(f"💎 High-value image on page {image['page']} (text content: {text_percent_display}%)")
-            elif usefulness == "medium":
-                medium_value += 1
-                logger.info(f"🔍 Medium-value image on page {image['page']} (text content: {text_percent_display}%)")
-            else:
-                low_value += 1
-                logger.warning(f"⚠️ Low-value image skipped on page {image['page']} (text content: {text_percent_display}%)")
-                continue
-            
-            # Save medium and high value images
-            if usefulness in ["high", "medium"]:
-                output_path = os.path.join(
-                    output_dir, 
-                    f"page_{image['page']}_index_{image['index']}_{usefulness}_value_{text_percent_display}pct_text.{image['format']}"
-                )
-                img = Image.open(io.BytesIO(image['data']))
-                save_image(img, output_path)
-                success_count += 1
-                
-        except Exception as e:
-            logger.error(f"❌ Failed to process image from page {image['page']}, index {image['index']}: {str(e)}")
-            error_count += 1
-    
-    # Print summary statistics
-    logger.info(f"\n📊 Content Value Summary:")
-    logger.info(f"  💎 High-value images: {high_value}")
-    logger.info(f"  🔍 Medium-value images: {medium_value}")
-    logger.info(f"  ⚠️ Low-value images (skipped): {low_value}")
-    logger.info(f"  ✅ Successfully saved: {success_count} images")
-    if error_count > 0:
-        logger.warning(f"  ❌ Failed to save: {error_count} images")
-    
-    return success_count, error_count
+            logger.error(f"❌ Failed to save image {idx}: {e}")
 
 # Main execution
 try:
-    logger.info(f"🔍 Starting PDF image extraction from: {pdf_path}")
-    image_list = extract_images(pdf_path)
+    if len(sys.argv) != 2:
+        print("Usage: python image_simplified.py <path_to_pdf>")
+        sys.exit(1)
     
-    if image_list:
-        logger.info(f"💾 Saving {len(image_list)} extracted images to output directory")
-        success, errors = save_images(image_list, "./output_images")
-        
-        # Final summary
-        if errors == 0:
-            logger.info(f"✅ Process completed successfully. Extracted and saved {success} images.")
-        else:
-            logger.warning(f"⚠️ Process completed with issues. Saved {success} images, encountered {errors} errors.")
-    else:
-        logger.warning("⚠️ No images were extracted from the PDF")
+    pdf_path = sys.argv[1]
+    images = extract_images(pdf_path)
+    save_images(images)
 except Exception as e:
     logger.error(f"❌ An unexpected error occurred: {str(e)}")
 

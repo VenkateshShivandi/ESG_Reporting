@@ -55,7 +55,7 @@ class ESGPDFProcessor:
         table_areas = []
 
         with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = [executor.submit(extract_table_from_page, page) 
+            futures = [executor.submit(extract_table_from_page, self.pdf_path, page) 
                       for page in range(1, num_pages + 1)]
             for page_idx, future in enumerate(futures):
                 table_list = future.result()
