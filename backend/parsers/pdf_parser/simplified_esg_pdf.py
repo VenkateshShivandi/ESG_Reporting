@@ -1,4 +1,9 @@
+import sys
 import os
+
+# Ensure the current directory is in Python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import fitz
 import camelot
 import json
@@ -8,10 +13,10 @@ from typing import List, Dict, Tuple
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-# Import necessary components from other files
-from .image_simplified import extract_images, save_images, ImageAnalyzer
-from .text_simplified import SimplePDFParser, DocumentSection
-from .camelot_simplified import extract_table_from_page, get_num_pages
+# Modified imports
+from image_simplified import extract_images, save_images, ImageAnalyzer
+from text_simplified import SimplePDFParser, DocumentSection
+from camelot_simplified import extract_table_from_page, get_num_pages
 
 @dataclass
 class ESGReport:
@@ -129,6 +134,10 @@ class ESGPDFProcessor:
 
     def _is_in_excluded_area(self, bbox: Tuple) -> bool:
         """Check if text area overlaps with excluded regions"""
+        # Handle None bbox case
+        if bbox is None:
+            return False
+            
         for excluded in self.excluded_areas:
             if (bbox[0] < excluded[2] and bbox[2] > excluded[0] and
                 bbox[1] < excluded[3] and bbox[3] > excluded[1]):
