@@ -23,7 +23,7 @@ class ESGReport:
     file_stats: Dict
     tables: List[Dict]
     images: List[Dict]
-    text_content: List[DocumentSection]
+    text_content: List[Dict]
     processing_summary: Dict
 
 class ESGPDFProcessor:
@@ -155,11 +155,14 @@ class ESGPDFProcessor:
 
     def generate_report(self, stats: Dict, tables: List, images: List, text: List) -> ESGReport:
         """Generate final processing report"""
+        # Convert DocumentSection objects to dictionaries
+        text_content_dict = [self._section_to_dict(section) for section in text]
+        
         return ESGReport(
             file_stats=stats,
             tables=tables,
             images=images,
-            text_content=text,
+            text_content=text_content_dict,  # Use converted dictionaries
             processing_summary={
                 'tables_extracted': len(tables),
                 'images_saved': len(images),
