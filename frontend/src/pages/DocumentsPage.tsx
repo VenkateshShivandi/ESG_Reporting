@@ -1,25 +1,30 @@
 "use client"
 
 import React from "react"
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import type { NextPage } from "next"
-import { 
-  Upload, 
+import {
+  Upload,
   FolderClosed,
   FolderOpen,
-  FileText, 
-  FileSpreadsheet, 
+  FileText,
+  FileSpreadsheet,
   FileType,
   File,
   FileCheck,
-  Trash2, 
-  Download, 
-  ChevronRight, 
-  Loader2, 
-  Info, 
-  TableProperties, 
-  GitGraph, 
-  X 
+  Trash2,
+  Download,
+  ChevronRight,
+  Loader2,
+  Info,
+  TableProperties,
+  GitGraph,
+  X,
+  Folder,
+  MoreVertical,
+  Edit,
+  FolderInput,
+  RefreshCw
 } from "lucide-react"
 import { documentsApi } from "@/lib/api/documents"
 import { Button } from "@/components/ui/button"
@@ -45,20 +50,29 @@ import { toast } from "sonner"
 import type { FileItem, UploadProgress, ProcessedFileResult } from "@/lib/types/documents"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 type Props = {}
 
 const ALLOWED_FILE_TYPES = ".xlsx,.csv,.docx,.xml,.pdf"
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
-// Function to get the appropriate icon based on file extension
-const getFileIcon = (filename: string, type: string) => {
-  if (type === "folder") {
-    return <FolderClosed className="w-5 h-5 text-yellow-600" />
+// Get icon for file or folder
+const getFileIcon = (filename: string, type?: string) => {
+  // If it's a folder type (case insensitive), return folder icon
+  if (type && (type.toLowerCase() === "folder" || type.toLowerCase() === "directory")) {
+    return <Folder className="w-5 h-5 text-yellow-600" />
   }
 
+  // Return corresponding icon based on file extension
   const extension = filename.split('.').pop()?.toLowerCase()
-  
+
   switch (extension) {
     case 'docx':
     case 'doc':
@@ -86,10 +100,37 @@ const DocumentsPage: NextPage<Props> = () => {
   const [processingError, setProcessingError] = useState<string | null>(null)
   const [fileDetails, setFileDetails] = useState<ProcessedFileResult | null>(null)
   const [showFileDetails, setShowFileDetails] = useState(false)
+  const [renamingItem, setRenamingItem] = useState<FileItem | null>(null)
+  const [newItemName, setNewItemName] = useState("")
+  const renameInputRef = useRef<HTMLInputElement>(null)
+  // create a unique identifier for comparing the item being renamed
+  const getItemUniqueId = useCallback((item: FileItem) => {
+    // use the path+name as the unique identifier, to avoid the problem of id being null
+    return [...(item.path || []), item.name].join('/');
+  }, []);
 
   const getCurrentFolderItems = useCallback(() => {
-    return files.filter((item) => JSON.stringify(item.path) === JSON.stringify(currentPath))
+    return files
+      .filter((item) => JSON.stringify(item.path) === JSON.stringify(currentPath))
+      .filter((item) => item.name !== '.folder'); // Hide the .folder placeholder files
   }, [files, currentPath])
+
+  // Update document count when files change
+  useEffect(() => {
+    // Count only real document files (not folders or placeholder files)
+    const documentCount = files.filter(item =>
+      item.type === "file" &&
+      item.name !== '.folder' &&
+      !item.name.startsWith('.')
+    ).length;
+
+    // Dispatch an event with the document count
+    const event = new CustomEvent('documentCountUpdate', {
+      detail: { count: documentCount }
+    });
+
+    window.dispatchEvent(event);
+  }, [files]);
 
   const loadFiles = useCallback(async () => {
     try {
@@ -122,12 +163,10 @@ const DocumentsPage: NextPage<Props> = () => {
   const handleSelectAll = () => {
     const currentItems = getCurrentFolderItems()
     const currentPaths = currentItems.map(item => [...currentPath, item.name].join('/'))
-    
+
     if (selectedItems.length === currentItems.length) {
-      // If all items are selected, unselect all
       setSelectedItems([])
     } else {
-      // Otherwise, select all items in the current folder
       setSelectedItems(currentPaths)
     }
   }
@@ -146,7 +185,6 @@ const DocumentsPage: NextPage<Props> = () => {
         const file = files[i]
         const fileId = Math.random().toString(36).substring(7)
 
-        // Validate file type and size (keeping existing validation)
         const fileType = file.name.split(".").pop()?.toLowerCase()
         const allowedTypes = ["xlsx", "csv", "docx", "xml", "pdf"]
         if (!fileType || !allowedTypes.includes(fileType)) {
@@ -158,21 +196,15 @@ const DocumentsPage: NextPage<Props> = () => {
           toast.error(`File too large: ${file.name}`)
           continue
         }
-        
+
         setUploadProgress((prev) => ({ ...prev, [fileId]: 0 }))
 
         try {
-          // Upload file to storage
           const { fileId: uploadedFileId } = await documentsApi.uploadFile(file, currentPath)
           setUploadProgress((prev) => ({ ...prev, [fileId]: 60 }))
-          
-          // Process the file
           await documentsApi.processFile(file)
           setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }))
-          
-          // Refresh the file list
           await loadFiles()
-          
           toast.success(`File ${file.name} processed successfully`)
         } catch (error) {
           console.error("File processing error:", error)
@@ -198,10 +230,9 @@ const DocumentsPage: NextPage<Props> = () => {
       return
     }
 
-    // Check if folder already exists in current path
-    if (files.some(item => 
-      item.type === "folder" && 
-      item.name === name && 
+    if (files.some(item =>
+      item.type === "folder" &&
+      item.name === name &&
       JSON.stringify(item.path) === JSON.stringify(currentPath)
     )) {
       toast.error("A folder with this name already exists")
@@ -210,7 +241,6 @@ const DocumentsPage: NextPage<Props> = () => {
 
     try {
       await documentsApi.createFolder(name, currentPath)
-      // Refresh the file list
       loadFiles()
       toast.success(`Folder ${name} created successfully`)
     } catch (error) {
@@ -221,27 +251,15 @@ const DocumentsPage: NextPage<Props> = () => {
 
   const handleDelete = async (itemPath?: string) => {
     try {
-      console.log('Starting delete operation for:', itemPath || 'selected items')
-      
       if (itemPath) {
-        // Single item delete
-        console.log('Attempting to delete single item:', itemPath)
         await documentsApi.deleteFile(itemPath)
-        console.log('Successfully deleted item:', itemPath)
-        
-        // Refresh the file list
         await loadFiles()
         setSelectedItems((prev) => prev.filter((id) => id !== itemPath))
         toast.success("Item deleted successfully")
       } else {
-        // Multiple items delete
-        console.log('Attempting to delete multiple items:', selectedItems)
         for (const path of selectedItems) {
           await documentsApi.deleteFile(path)
-          console.log('Successfully deleted item:', path)
         }
-        
-        // Refresh the file list
         await loadFiles()
         setSelectedItems([])
         toast.success("Selected items deleted successfully")
@@ -255,8 +273,7 @@ const DocumentsPage: NextPage<Props> = () => {
   const handleDownload = async (item: FileItem) => {
     try {
       const { url } = await documentsApi.getDownloadUrl(item.id)
-      
-      // If we have a local file, use it directly
+
       if (item.file) {
         const localUrl = URL.createObjectURL(item.file)
         const a = document.createElement("a")
@@ -267,13 +284,124 @@ const DocumentsPage: NextPage<Props> = () => {
         URL.revokeObjectURL(localUrl)
         document.body.removeChild(a)
       } else {
-        // Use the downloaded URL
         window.open(url, '_blank')
       }
     } catch (error) {
       console.error("Download error:", error)
       toast.error("Failed to download file")
     }
+  }
+
+  const handleStartRename = (item: FileItem) => {
+    setRenamingItem(item)
+    setNewItemName(item.name)
+
+    // register a single click interceptor to prevent click events from bubbling to external processors
+    const clickInterceptor = (e: MouseEvent) => {
+      e.stopPropagation();
+      document.removeEventListener('click', clickInterceptor, true);
+    };
+    // register in the capture phase to ensure we intercept first
+    document.addEventListener('click', clickInterceptor, true);
+
+    // Focus the input after it renders with a longer delay to ensure menu is closed
+    setTimeout(() => {
+      if (renameInputRef.current) {
+        renameInputRef.current.focus();
+        renameInputRef.current.select();
+      }
+    }, 100); // Increased delay to 100ms
+  }
+
+  const handleCancelRename = () => {
+    setRenamingItem(null)
+    setNewItemName("")
+  }
+
+  const handleSubmitRename = useCallback(async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+
+    if (renamingItem && newItemName && newItemName !== renamingItem.name) {
+      try {
+        const fullPath = renamingItem.path.length > 0
+          ? `${renamingItem.path.join('/')}/${renamingItem.name}`
+          : renamingItem.name
+
+        const response = await documentsApi.renameItem(fullPath, newItemName)
+
+        // handle warning information
+        if (response.warning) {
+          toast.warning(`Partial success: ${response.warning}`, {
+            description: "New folder created, but the original folder may still exist",
+            duration: 5000
+          })
+        } else {
+          toast.success(`Renamed to ${newItemName}`)
+        }
+
+        // Reload the file list regardless, ensuring UI reflects the latest state
+        await loadFiles()
+      } catch (error: any) {
+        console.error("Rename error:", error)
+
+        // Check if there's detailed error information
+        const errorMessage = error.response?.data?.error || "Rename failed"
+
+        if (errorMessage.includes("already exists")) {
+          toast.error(`Rename failed: A file or folder with the same name already exists`)
+        } else if (renamingItem.type === "folder") {
+          toast.error(`Folder rename failed`, {
+            description: "Please refresh the page to see the actual status, operation may be partially successful"
+          })
+        } else {
+          toast.error(`Rename failed: ${errorMessage}`)
+        }
+
+        // Reload the file list to ensure UI is in sync with the server
+        await loadFiles()
+      }
+    }
+
+    setRenamingItem(null)
+    setNewItemName("")
+  }, [renamingItem, newItemName, loadFiles]);
+
+  // Setup document click handler for rename operation
+  useEffect(() => {
+    if (!renamingItem) return; // If there's no item being renamed, don't add event listener
+
+    // Delay adding the outside-click handler a bit to avoid menu click conflicts
+    const timerId = setTimeout(() => {
+      // Handle clicks outside the rename input
+      const handleClickOutside = (e: MouseEvent) => {
+        // Only process when click is not on the input itself
+        if (renameInputRef.current && !renameInputRef.current.contains(e.target as Node)) {
+          handleSubmitRename();
+        }
+      };
+
+      // Use capture phase event listening to ensure we process before other handlers
+      document.addEventListener('mousedown', handleClickOutside);
+
+      // Clean up
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }, 300); // Wait 300ms before adding the event listener
+
+    return () => {
+      clearTimeout(timerId);
+    };
+  }, [renamingItem, handleSubmitRename]);
+
+  const handleMoveItem = async (item: FileItem) => {
+    // This would open a folder selection dialog
+    toast.info("Move functionality to be implemented")
+  }
+
+  const handleReUpload = async (item: FileItem) => {
+    // This would trigger a file input to replace the file
+    toast.info("Re-upload functionality to be implemented")
   }
 
   const formatFileSize = (bytes?: number) => {
@@ -621,7 +749,7 @@ const DocumentsPage: NextPage<Props> = () => {
                   type="checkbox"
                   className="h-4 w-4 rounded border-gray-300"
                   checked={
-                    getCurrentFolderItems().length > 0 && 
+                    getCurrentFolderItems().length > 0 &&
                     selectedItems.length === getCurrentFolderItems().length
                   }
                   onChange={handleSelectAll}
@@ -637,13 +765,10 @@ const DocumentsPage: NextPage<Props> = () => {
             {getCurrentFolderItems().map((item) => (
               <TableRow
                 key={item.name}
-                className={`${
-                  selectedItems.includes([...currentPath, item.name].join('/')) ? "bg-muted" : ""
-                } ${
-                  item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
-                }`}
+                className={`${selectedItems.includes([...currentPath, item.name].join('/')) ? "bg-muted" : ""
+                  } ${item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
+                  }`}
                 onClick={(e) => {
-                  // If it's a folder and the click wasn't on the checkbox, navigate into it
                   if (item.type === "folder" && !(e.target as HTMLElement).closest('input[type="checkbox"]')) {
                     setCurrentPath([...currentPath, item.name])
                   } else {
@@ -662,7 +787,31 @@ const DocumentsPage: NextPage<Props> = () => {
                 <TableCell className="font-medium">
                   <div className="flex items-center space-x-2">
                     {getFileIcon(item.name, item.type)}
-                    <span>{item.name}</span>
+                    {renamingItem && getItemUniqueId(renamingItem) === getItemUniqueId(item) ? (
+                      <form
+                        onSubmit={handleSubmitRename}
+                        className="flex items-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <Input
+                          ref={renameInputRef}
+                          value={newItemName}
+                          onChange={(e) => setNewItemName(e.target.value)}
+                          className="h-8 min-w-[180px] border-blue-400 focus-visible:ring-blue-400"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Escape') {
+                              handleCancelRename()
+                            } else if (e.key === 'Enter') {
+                              handleSubmitRename(e)
+                            }
+                            e.stopPropagation();
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </form>
+                    ) : (
+                      <span>{item.name}</span>
+                    )}
                     {uploadProgress[item.id] !== undefined && (
                       <div className="w-24 h-1 ml-2 bg-gray-200 rounded-full">
                         <div
@@ -675,9 +824,11 @@ const DocumentsPage: NextPage<Props> = () => {
                 </TableCell>
                 <TableCell>{formatFileSize(item.size)}</TableCell>
                 <TableCell>
-                  {item.modified instanceof Date
-                    ? item.modified.toLocaleDateString()
-                    : new Date(item.modified).toLocaleDateString()}
+                  {typeof item.modified === 'string'
+                    ? new Date(item.modified).toLocaleDateString()
+                    : item.modified instanceof Date
+                      ? item.modified.toLocaleDateString()
+                      : new Date().toLocaleDateString()}
                 </TableCell>
                 <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex items-center space-x-2">
@@ -691,21 +842,44 @@ const DocumentsPage: NextPage<Props> = () => {
                         <Info className="w-4 h-4" />
                       </Button>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={(e) => {
-                        e.stopPropagation() // Prevent row click event
-                        // Construct full path by joining current path with filename
-                        const fullPath = currentPath.length > 0 
-                          ? `${currentPath.join('/')}/${item.name}`
-                          : item.name
-                        console.log('Delete button clicked for item:', fullPath)
-                        handleDelete(fullPath)
-                      }}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
+
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" title="More actions">
+                          <MoreVertical className="w-4 h-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleStartRename(item)}>
+                          <Edit className="w-4 h-4 mr-2" />
+                          <span>Rename</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleMoveItem(item)}>
+                          <FolderInput className="w-4 h-4 mr-2" />
+                          <span>Move to folder</span>
+                        </DropdownMenuItem>
+                        {item.type === "file" && (
+                          <DropdownMenuItem onClick={() => handleReUpload(item)}>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            <span>Re-upload</span>
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const fullPath = currentPath.length > 0
+                              ? `${currentPath.join('/')}/${item.name}`
+                              : item.name
+                            handleDelete(fullPath)
+                          }}
+                          className="text-red-500 hover:text-red-600 focus:text-red-600"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          <span>Delete</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </TableCell>
               </TableRow>

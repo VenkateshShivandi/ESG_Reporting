@@ -91,4 +91,3 @@ def parse_docx(file_path: str) -> Dict[str, Any]:
         "sections": extract_sections_from_docx(file_path),
         "tables": extract_tables_with_context(doc)
     }
-
