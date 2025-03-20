@@ -218,7 +218,7 @@ class ESGGraphBuilder:
             try:
                 # Call LLM to extract entities and relationships - UPDATED API CALL
                 response = self.client.chat.completions.create(
-                    model="gpt-4-turbo",
+                    model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": "You are an expert at extracting entities and relationships from text."},
                         {"role": "user", "content": prompt}
@@ -334,7 +334,7 @@ class ESGGraphBuilder:
             try:
                 # Call LLM to extract claims - UPDATED API CALL
                 response = self.client.chat.completions.create(
-                    model="gpt-4-turbo",
+                    model="gpt-4o-mini",
                     messages=[
                         {"role": "system", "content": "You are an expert at extracting claims about entities from text."},
                         {"role": "user", "content": prompt}
