@@ -602,3 +602,952 @@ class Neo4jGraphStore:
         except Exception as e:
             self.logger.error(f"Error running custom query: {str(e)}")
             return []
+
+    def detect_communities(
+        self, 
+        algorithm: str = "louvain",
+        store_results: bool = True,
+        min_community_size: int = 3,
+        resolution: float = 1.0,
+        max_levels: int = 10,
+        weight_property: str = "strength",
+        verbose: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Detect communities in the graph using Neo4j Graph Data Science library.
+        
+        Args:
+            algorithm: Community detection algorithm ("louvain", "leiden", or "label_propagation")
+            store_results: Whether to store community assignments in Neo4j
+            min_community_size: Minimum number of nodes for a community to be considered
+            resolution: Resolution parameter for Louvain/Leiden algorithm (higher values = smaller communities)
+            max_levels: Maximum number of iterations for the algorithm
+            weight_property: Relationship property to use as edge weight
+            verbose: Whether to print detailed statistics during detection
+            
+        Returns:
+            Dict containing community structure and statistics
+        """
+        if not self.driver:
+            self.logger.error("Not connected to Neo4j")
+            return {"error": "Not connected to Neo4j"}
+        
+        # Configure logging
+        log_header = f"\n{'='*20} COMMUNITY DETECTION {'='*20}"
+        self.logger.info(log_header)
+        self.logger.info(f"Algorithm: {algorithm}")
+        self.logger.info(f"Resolution: {resolution}")
+        self.logger.info(f"Min community size: {min_community_size}")
+        self.logger.info(f"Max levels: {max_levels}")
+        if verbose:
+            print(log_header)
+            print(f"Algorithm: {algorithm}")
+            print(f"Resolution: {resolution}")
+            print(f"Min community size: {min_community_size}")
+            print(f"Max levels: {max_levels}")
+        
+        try:
+            with self.driver.session(database=self.database) as session:
+                # Check if GDS is available
+                gds_available = self._check_gds_available(session)
+                if not gds_available:
+                    error_msg = "Neo4j Graph Data Science library is not available. Please install it in your Neo4j instance."
+                    self.logger.error(error_msg)
+                    return {"error": error_msg}
+                
+                # Get graph statistics before community detection
+                graph_stats = self._get_graph_statistics(session)
+                
+                # Create in-memory graph projection for GDS
+                graph_name = "community_detection_graph"
+                projection_result = self._create_graph_projection(
+                    session, 
+                    graph_name, 
+                    weight_property
+                )
+                
+                if "error" in projection_result:
+                    return projection_result
+                
+                # Run community detection algorithm
+                community_result = self._run_community_detection(
+                    session,
+                    graph_name,
+                    algorithm,
+                    resolution,
+                    max_levels,
+                    min_community_size,
+                    weight_property,
+                    store_results,
+                    verbose
+                )
+                
+                # Clean up the projected graph
+                self._drop_graph_projection(session, graph_name)
+                
+                # Combine all results
+                result = {
+                    "algorithm": algorithm,
+                    "resolution": resolution,
+                    "min_community_size": min_community_size,
+                    "max_levels": max_levels,
+                    "graph": graph_stats,
+                    "communities": community_result
+                }
+                
+                # Log completion
+                self.logger.info(f"Community detection complete using GDS {algorithm} algorithm")
+                self.logger.info(f"{'='*60}")
+                
+                return result
+        
+        except Exception as e:
+            self.logger.error(f"Error in GDS community detection: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return {"error": str(e)}
+
+    def _check_gds_available(self, session) -> bool:
+        """
+        Check if Neo4j Graph Data Science library is available
+        
+        Args:
+            session: Neo4j session
+            
+        Returns:
+            bool: True if GDS is available, False otherwise
+        """
+        try:
+            result = session.run("CALL gds.list() YIELD name RETURN count(*) AS count")
+            record = result.single()
+            return record is not None
+        except Exception:
+            return False
+
+    def _get_graph_statistics(self, session) -> Dict[str, Any]:
+        """
+        Get basic statistics about the graph
+        
+        Args:
+            session: Neo4j session
+            
+        Returns:
+            Dict with graph statistics
+        """
+        try:
+            # Count nodes
+            node_result = session.run("MATCH (n:Entity) RETURN count(n) AS nodeCount")
+            node_count = node_result.single()["nodeCount"]
+            
+            # Count relationships
+            rel_result = session.run("MATCH ()-[r]->() RETURN count(r) AS relCount")
+            rel_count = rel_result.single()["relCount"]
+            
+            # Count entity types
+            type_result = session.run("""
+                MATCH (n:Entity)
+                RETURN n.type AS type, count(*) AS count
+                ORDER BY count DESC
+            """)
+            node_types = {record["type"]: record["count"] for record in type_result}
+            
+            # Calculate density (approximation)
+            density = 0
+            if node_count > 1:
+                density = (2 * rel_count) / (node_count * (node_count - 1))
+            
+            # Get average degree without requiring APOC
+            try:
+                # First try with APOC if available
+                deg_result = session.run("""
+                    MATCH (n)
+                    RETURN avg(apoc.node.degree(n)) AS avgDegree
+                """)
+                record = deg_result.single()
+                avg_degree = record["avgDegree"] if record else 0
+            except Exception as e:
+                self.logger.info(f"APOC not available for degree calculation, using alternative: {str(e)}")
+                # Use COUNT instead of size() with a pattern expression (neo4j 4.x+ compatible)
+                deg_result = session.run("""
+                    MATCH (n)
+                    OPTIONAL MATCH (n)-[r]-()
+                    WITH n, COUNT(r) AS degree
+                    RETURN avg(degree) AS avgDegree
+                """)
+                record = deg_result.single()
+                avg_degree = record["avgDegree"] if record else 0
+            
+            return {
+                "nodes": node_count,
+                "edges": rel_count,
+                "density": density,
+                "avg_degree": avg_degree,
+                "node_types": node_types
+            }
+        except Exception as e:
+            self.logger.warning(f"Error getting graph statistics: {str(e)}")
+            return {
+                "nodes": 0,
+                "edges": 0,
+                "density": 0,
+                "avg_degree": 0,
+                "node_types": {}
+            }
+
+    def _create_graph_projection(
+        self, 
+        session, 
+        graph_name: str, 
+        weight_property: str = "strength"
+    ) -> Dict[str, Any]:
+        """
+        Create a named graph projection for GDS algorithms
+        
+        Args:
+            session: Neo4j session
+            graph_name: Name for the projected graph
+            weight_property: Relationship property to use as weight
+            
+        Returns:
+            Dict with projection results or error
+        """
+        try:
+            # First, check if graph already exists and drop it
+            self._drop_graph_projection(session, graph_name)
+            
+            # Create native projection including all relevant node labels and relationship types
+            query = f"""
+            CALL gds.graph.project(
+                '{graph_name}',
+                'Entity',
+                '*',
+                {{
+                    relationshipProperties: {{
+                        {weight_property}: {{
+                            property: '{weight_property}',
+                            defaultValue: 1.0
+                        }}
+                    }}
+                }}
+            ) YIELD nodeCount, relationshipCount, projectMillis
+            """
+            
+            result = session.run(query)
+            record = result.single()
+            
+            self.logger.info(f"Created graph projection '{graph_name}' with {record['nodeCount']} nodes and {record['relationshipCount']} relationships in {record['projectMillis']}ms")
+            
+            return {
+                "name": graph_name,
+                "nodes": record["nodeCount"],
+                "relationships": record["relationshipCount"],
+                "creation_time_ms": record["projectMillis"]
+            }
+            
+        except Exception as e:
+            error_msg = f"Error creating graph projection: {str(e)}"
+            self.logger.error(error_msg)
+            return {"error": error_msg}
+
+    def _drop_graph_projection(self, session, graph_name: str) -> None:
+        """
+        Drop a named graph projection if it exists
+        
+        Args:
+            session: Neo4j session
+            graph_name: Name of the projected graph
+        """
+        try:
+            # Check if graph exists first
+            check_query = f"""
+            CALL gds.graph.exists('{graph_name}') 
+            YIELD exists
+            RETURN exists
+            """
+            result = session.run(check_query)
+            record = result.single()
+            
+            if record and record["exists"]:
+                # Use the newer syntax to avoid the deprecation warning about 'schema' field
+                # Explicitly YIELD only the fields we need
+                session.run(f"""
+                CALL gds.graph.drop('{graph_name}', false) 
+                YIELD graphName
+                """)
+                self.logger.info(f"Dropped graph projection '{graph_name}'")
+            else:
+                self.logger.info(f"Graph projection '{graph_name}' does not exist, no need to drop")
+                
+        except Exception as e:
+            self.logger.warning(f"Error dropping graph projection: {str(e)}")
+
+    def _run_community_detection(
+        self, 
+        session,
+        graph_name: str,
+        algorithm: str = "louvain",
+        resolution: float = 1.0,
+        max_levels: int = 10,
+        min_community_size: int = 3,
+        weight_property: str = "strength",
+        store_results: bool = True,
+        verbose: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Run community detection algorithm using GDS
+        
+        Args:
+            session: Neo4j session
+            graph_name: Name of the projected graph
+            algorithm: Community detection algorithm
+            resolution: Resolution parameter
+            max_levels: Maximum iterations/levels
+            min_community_size: Minimum community size
+            weight_property: Relationship weight property
+            store_results: Whether to store results in Neo4j
+            verbose: Whether to print detailed outputs
+            
+        Returns:
+            Dict with community detection results
+        """
+        algorithm = algorithm.lower()
+        
+        try:
+            # Choose algorithm and parameters
+            if algorithm == "louvain":
+                return self._run_louvain(
+                    session, 
+                    graph_name, 
+                    resolution, 
+                    max_levels, 
+                    min_community_size,
+                    weight_property,
+                    store_results,
+                    verbose
+                )
+            elif algorithm == "leiden":
+                return self._run_leiden(
+                    session, 
+                    graph_name, 
+                    resolution, 
+                    max_levels, 
+                    min_community_size,
+                    weight_property,
+                    store_results,
+                    verbose
+                )
+            elif algorithm == "label_propagation":
+                return self._run_label_propagation(
+                    session, 
+                    graph_name, 
+                    max_levels, 
+                    min_community_size,
+                    weight_property,
+                    store_results,
+                    verbose
+                )
+            else:
+                error_msg = f"Unsupported algorithm: {algorithm}. Use 'louvain', 'leiden', or 'label_propagation'"
+                self.logger.error(error_msg)
+                return {"error": error_msg}
+        
+        except Exception as e:
+            error_msg = f"Error running community detection: {str(e)}"
+            self.logger.error(error_msg)
+            return {"error": error_msg}
+
+    def _run_louvain(
+        self, 
+        session,
+        graph_name: str,
+        resolution: float = 1.0,
+        max_levels: int = 10,
+        min_community_size: int = 3,
+        weight_property: str = "strength",
+        store_results: bool = True,
+        verbose: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Run Louvain community detection using GDS
+        """
+        self.logger.info(f"Running Louvain community detection (resolution={resolution}, maxLevels={max_levels})")
+        if verbose:
+            print(f"\nRunning Louvain community detection algorithm...")
+        
+        # Determine which mode to use based on whether storage is requested
+        mode = "write" if store_results else "stats"
+        
+        # Build the query with more version compatibility
+        if mode == "write":
+            # For write mode, we need to specify writeProperty (required in newer GDS versions)
+            base_query = f"""
+            CALL gds.louvain.{mode}(
+                '{graph_name}',
+                {{
+                    relationshipWeightProperty: '{weight_property}',
+                    maxLevels: {max_levels},
+                    minCommunitySize: {min_community_size},
+                    gamma: {resolution},
+                    tolerance: 0.0001,
+                    includeIntermediateCommunities: true,
+                    writeProperty: 'community'
+                }}
+            )
+            """
+        else:
+            # For stats mode, no writeProperty needed
+            base_query = f"""
+            CALL gds.louvain.{mode}(
+                '{graph_name}',
+                {{
+                    relationshipWeightProperty: '{weight_property}',
+                    maxLevels: {max_levels},
+                    minCommunitySize: {min_community_size},
+                    gamma: {resolution},
+                    tolerance: 0.0001,
+                    includeIntermediateCommunities: true
+                }}
+            )
+            """
+        
+        # Try different yield fields to handle different GDS versions
+        versions_to_try = []
+        
+        if mode == "write":
+            # First try newer version output fields
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, modularity, modularities, ranLevels, 
+                nodePropertiesWritten, computeMillis
+                """,
+                "time_field": "computeMillis"
+            })
+            # Then try older version
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, modularity, modularities, ranLevels, 
+                nodePropertiesWritten
+                """,
+                "time_field": None  # No time field in this version
+            })
+        else:
+            # Stats mode versions
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, modularity, modularities, ranLevels, computeMillis
+                """,
+                "time_field": "computeMillis"
+            })
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, modularity, modularities, ranLevels
+                """,
+                "time_field": None
+            })
+        
+        record = None
+        execution_time = 0
+        error_messages = []
+        
+        # Try all version combinations
+        for version in versions_to_try:
+            try:
+                query = base_query + version["suffix"]
+                
+                if verbose:
+                    print(f"Trying query: {query}")
+                
+                result = session.run(query)
+                record = result.single()
+                
+                # Get execution time if available
+                if version["time_field"] and version["time_field"] in record:
+                    execution_time = record[version["time_field"]]
+                
+                # If we get here, query was successful
+                break
+                
+            except Exception as e:
+                error_messages.append(str(e))
+                self.logger.warning(f"Query attempt failed: {str(e)}")
+                continue
+        
+        # If all attempts failed
+        if record is None:
+            error_details = "\n".join(error_messages)
+            self.logger.error(f"All Louvain query attempts failed:\n{error_details}")
+            return {"error": f"Louvain algorithm failed with multiple attempts. Latest error: {error_messages[-1] if error_messages else 'Unknown error'}"}
+        
+        # Get community distribution after running the algorithm
+        if store_results:
+            community_sizes = self._get_community_distribution(session)
+            community_nodes = self._get_top_community_nodes(session, 5)
+        else:
+            community_sizes = {"not_stored": True}
+            community_nodes = {"not_stored": True}
+        
+        levels_info = {}
+        if "modularities" in record and record["modularities"]:
+            for level in range(len(record["modularities"])):
+                levels_info[f"level_{level}"] = {
+                    "modularity": record["modularities"][level]
+                }
+        
+        result_data = {
+            "communityCount": record["communityCount"],
+            "modularity": record["modularity"],
+            "ranLevels": record["ranLevels"] if "ranLevels" in record else 0,
+            "executionTimeMs": execution_time,
+            "levels": levels_info,
+            "communitySizes": community_sizes,
+            "topCommunities": community_nodes
+        }
+        
+        if verbose:
+            print(f"Louvain completed: {record['communityCount']} communities detected")
+            print(f"Modularity: {record['modularity']:.4f}")
+            print(f"Levels computed: {result_data['ranLevels']}")
+            if "nodePropertiesWritten" in record:
+                print(f"Properties written to {record['nodePropertiesWritten']} nodes")
+        
+        return result_data
+
+    def _run_leiden(
+        self,
+        session,
+        graph_name: str,
+        resolution: float = 1.0,
+        max_iterations: int = 10,
+        min_community_size: int = 3,
+        weight_property: str = "strength",
+        store_results: bool = True,
+        verbose: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Run Leiden community detection using GDS
+        
+        Args:
+            session: Neo4j session
+            graph_name: Name of the projected graph
+            resolution: Resolution parameter
+            max_iterations: Maximum iterations
+            min_community_size: Minimum community size
+            weight_property: Relationship weight property
+            store_results: Whether to store results in Neo4j
+            verbose: Whether to print detailed outputs
+            
+        Returns:
+            Dict with Leiden results
+        """
+        self.logger.info(f"Running Leiden community detection (resolution={resolution}, maxIterations={max_iterations})")
+        if verbose:
+            print(f"\nRunning Leiden community detection algorithm...")
+        
+        # Check if Leiden is available (only in GDS 2.0+)
+        try:
+            session.run("CALL gds.leiden.list()")
+        except Exception:
+            error_msg = "Leiden algorithm not available in this Neo4j GDS version. Please use Louvain instead or upgrade GDS."
+            self.logger.error(error_msg)
+            return {"error": error_msg}
+        
+        # Determine which mode to use based on whether storage is requested
+        mode = "write" if store_results else "stats"
+        
+        # Build the query with more version compatibility
+        if mode == "write":
+            # For write mode, we need to specify writeProperty
+            base_query = f"""
+            CALL gds.leiden.{mode}(
+                '{graph_name}',
+                {{
+                    relationshipWeightProperty: '{weight_property}',
+                    maxIterations: {max_iterations},
+                    minCommunitySize: {min_community_size},
+                    gamma: {resolution},
+                    theta: 0.01,
+                    writeProperty: 'community'
+                }}
+            )
+            """
+        else:
+            # For stats mode, no writeProperty needed
+            base_query = f"""
+            CALL gds.leiden.{mode}(
+                '{graph_name}',
+                {{
+                    relationshipWeightProperty: '{weight_property}',
+                    maxIterations: {max_iterations},
+                    minCommunitySize: {min_community_size},
+                    gamma: {resolution},
+                    theta: 0.01
+                }}
+            )
+            """
+        
+        # Try different yield fields to handle different GDS versions
+        versions_to_try = []
+        
+        if mode == "write":
+            # Try different combinations of output fields
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, modularity, ranIterations, didConverge,
+                nodePropertiesWritten, computeMillis
+                """,
+                "time_field": "computeMillis"
+            })
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, modularity, ranIterations, didConverge,
+                nodePropertiesWritten
+                """,
+                "time_field": None
+            })
+        else:
+            # Stats mode versions
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, modularity, ranIterations, didConverge, computeMillis
+                """,
+                "time_field": "computeMillis"
+            })
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, modularity, ranIterations, didConverge
+                """,
+                "time_field": None
+            })
+        
+        record = None
+        execution_time = 0
+        error_messages = []
+        
+        # Try all version combinations
+        for version in versions_to_try:
+            try:
+                query = base_query + version["suffix"]
+                
+                if verbose:
+                    print(f"Trying query: {query}")
+                
+                result = session.run(query)
+                record = result.single()
+                
+                # Get execution time if available
+                if version["time_field"] and version["time_field"] in record:
+                    execution_time = record[version["time_field"]]
+                
+                # If we get here, query was successful
+                break
+                
+            except Exception as e:
+                error_messages.append(str(e))
+                self.logger.warning(f"Query attempt failed: {str(e)}")
+                continue
+        
+        # If all attempts failed
+        if record is None:
+            error_details = "\n".join(error_messages)
+            self.logger.error(f"All Leiden query attempts failed:\n{error_details}")
+            return {"error": f"Leiden algorithm failed with multiple attempts. Latest error: {error_messages[-1] if error_messages else 'Unknown error'}"}
+        
+        # Get community distribution after running the algorithm
+        if store_results:
+            community_sizes = self._get_community_distribution(session)
+            community_nodes = self._get_top_community_nodes(session, 5)
+        else:
+            community_sizes = {"not_stored": True}
+            community_nodes = {"not_stored": True}
+        
+        result_data = {
+            "communityCount": record["communityCount"],
+            "modularity": record["modularity"],
+            "ranIterations": record["ranIterations"] if "ranIterations" in record else 0,
+            "didConverge": record["didConverge"] if "didConverge" in record else False,
+            "executionTimeMs": execution_time,
+            "communitySizes": community_sizes,
+            "topCommunities": community_nodes
+        }
+        
+        if verbose:
+            print(f"Leiden completed: {record['communityCount']} communities detected")
+            print(f"Modularity: {record['modularity']:.4f}")
+            print(f"Iterations: {result_data['ranIterations']} (converged: {result_data['didConverge']})")
+            if "nodePropertiesWritten" in record:
+                print(f"Properties written to {record['nodePropertiesWritten']} nodes")
+        
+        return result_data
+
+    def _run_label_propagation(
+        self,
+        session,
+        graph_name: str,
+        max_iterations: int = 10,
+        min_community_size: int = 3,
+        weight_property: str = "strength",
+        store_results: bool = True,
+        verbose: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Run Label Propagation community detection using GDS
+        
+        Args:
+            session: Neo4j session
+            graph_name: Name of the projected graph
+            max_iterations: Maximum iterations
+            min_community_size: Minimum community size
+            weight_property: Relationship weight property
+            store_results: Whether to store results in Neo4j
+            verbose: Whether to print detailed outputs
+            
+        Returns:
+            Dict with Label Propagation results
+        """
+        self.logger.info(f"Running Label Propagation community detection (maxIterations={max_iterations})")
+        if verbose:
+            print(f"\nRunning Label Propagation community detection algorithm...")
+        
+        # Determine which mode to use based on whether storage is requested
+        mode = "write" if store_results else "stats"
+        
+        # Build the query with more version compatibility
+        if mode == "write":
+            # For write mode, we need to specify writeProperty
+            base_query = f"""
+            CALL gds.labelPropagation.{mode}(
+                '{graph_name}',
+                {{
+                    relationshipWeightProperty: '{weight_property}',
+                    maxIterations: {max_iterations},
+                    writeProperty: 'community'
+                }}
+            )
+            """
+        else:
+            # For stats mode, no writeProperty needed
+            base_query = f"""
+            CALL gds.labelPropagation.{mode}(
+                '{graph_name}',
+                {{
+                    relationshipWeightProperty: '{weight_property}',
+                    maxIterations: {max_iterations}
+                }}
+            )
+            """
+        
+        # Try different yield fields to handle different GDS versions
+        versions_to_try = []
+        
+        if mode == "write":
+            # Try different combinations of output fields
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, didConverge, ranIterations,
+                nodePropertiesWritten, computeMillis
+                """,
+                "time_field": "computeMillis"
+            })
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, didConverge, ranIterations,
+                nodePropertiesWritten
+                """,
+                "time_field": None
+            })
+        else:
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, didConverge, ranIterations, computeMillis
+                """,
+                "time_field": "computeMillis"
+            })
+            versions_to_try.append({
+                "suffix": """
+                YIELD communityCount, didConverge, ranIterations
+                """,
+                "time_field": None
+            })
+        
+        record = None
+        execution_time = 0
+        error_messages = []
+        
+        # Try all version combinations
+        for version in versions_to_try:
+            try:
+                query = base_query + version["suffix"]
+                
+                if verbose:
+                    print(f"Trying query: {query}")
+                
+                result = session.run(query)
+                record = result.single()
+                
+                # Get execution time if available
+                if version["time_field"] and version["time_field"] in record:
+                    execution_time = record[version["time_field"]]
+                
+                # If we get here, query was successful
+                break
+                
+            except Exception as e:
+                error_messages.append(str(e))
+                self.logger.warning(f"Query attempt failed: {str(e)}")
+                continue
+        
+        # If all attempts failed
+        if record is None:
+            error_details = "\n".join(error_messages)
+            self.logger.error(f"All Label Propagation query attempts failed:\n{error_details}")
+            return {"error": f"Label Propagation algorithm failed with multiple attempts. Latest error: {error_messages[-1] if error_messages else 'Unknown error'}"}
+        
+        # Get community distribution after running the algorithm
+        if store_results:
+            community_sizes = self._get_community_distribution(session)
+            community_nodes = self._get_top_community_nodes(session, 5)
+        else:
+            community_sizes = {"not_stored": True}
+            community_nodes = {"not_stored": True}
+        
+        result_data = {
+            "communityCount": record["communityCount"],
+            "ranIterations": record["ranIterations"] if "ranIterations" in record else 0,
+            "didConverge": record["didConverge"] if "didConverge" in record else False,
+            "executionTimeMs": execution_time, 
+            "communitySizes": community_sizes,
+            "topCommunities": community_nodes
+        }
+        
+        if verbose:
+            print(f"Label Propagation completed: {record['communityCount']} communities detected")
+            print(f"Iterations: {result_data['ranIterations']} (converged: {result_data['didConverge']})")
+            if "nodePropertiesWritten" in record:
+                print(f"Properties written to {record['nodePropertiesWritten']} nodes")
+        
+        return result_data
+
+    def _get_community_distribution(self, session) -> Dict[str, Any]:
+        """
+        Get distribution of community sizes after running community detection
+        
+        Args:
+            session: Neo4j session
+            
+        Returns:
+            Dict with community size statistics
+        """
+        try:
+            # Query community sizes
+            query = """
+            MATCH (n:Entity)
+            WHERE n.community IS NOT NULL
+            RETURN n.community AS community, count(*) AS size
+            ORDER BY size DESC
+            """
+            
+            result = session.run(query)
+            community_sizes = {str(record["community"]): record["size"] for record in result}
+            
+            # Calculate size distribution
+            sizes = list(community_sizes.values())
+            if not sizes:
+                return {"no_communities_found": True}
+            
+            size_ranges = {
+                "1": 0,
+                "2-5": 0,
+                "6-10": 0,
+                "11-20": 0,
+                "21-50": 0,
+                "51-100": 0,
+                "101+": 0
+            }
+            
+            for size in sizes:
+                if size == 1:
+                    size_ranges["1"] += 1
+                elif size <= 5:
+                    size_ranges["2-5"] += 1
+                elif size <= 10:
+                    size_ranges["6-10"] += 1
+                elif size <= 20:
+                    size_ranges["11-20"] += 1
+                elif size <= 50:
+                    size_ranges["21-50"] += 1
+                elif size <= 100:
+                    size_ranges["51-100"] += 1
+                else:
+                    size_ranges["101+"] += 1
+            
+            return {
+                "total_communities": len(community_sizes),
+                "largest_size": max(sizes) if sizes else 0,
+                "smallest_size": min(sizes) if sizes else 0,
+                "average_size": sum(sizes) / len(sizes) if sizes else 0,
+                "size_distribution": size_ranges,
+                "community_sizes": community_sizes
+            }
+            
+        except Exception as e:
+            self.logger.warning(f"Error getting community distribution: {str(e)}")
+            return {"error": str(e)}
+
+    def _get_top_community_nodes(self, session, num_communities: int = 5) -> Dict[str, Any]:
+        """
+        Get sample nodes from top communities
+        
+        Args:
+            session: Neo4j session
+            num_communities: Number of top communities to analyze
+            
+        Returns:
+            Dict with community nodes information
+        """
+        try:
+            # Get top communities by size
+            query = """
+            MATCH (n:Entity)
+            WHERE n.community IS NOT NULL
+            WITH n.community AS community, count(*) AS size
+            ORDER BY size DESC
+            LIMIT $num_communities
+            RETURN community, size
+            """
+            
+            result = session.run(query, {"num_communities": num_communities})
+            top_communities = [(record["community"], record["size"]) for record in result]
+            
+            community_nodes = {}
+            for comm_id, size in top_communities:
+                # Get node types in this community
+                type_query = """
+                MATCH (n:Entity {community: $community})
+                RETURN n.type AS type, count(*) AS count
+                ORDER BY count DESC
+                """
+                
+                type_result = session.run(type_query, {"community": comm_id})
+                type_counts = {record["type"]: record["count"] for record in type_result}
+                
+                # Get sample nodes
+                sample_query = """
+                MATCH (n:Entity {community: $community})
+                RETURN n.name AS name, n.type AS type
+                LIMIT 5
+                """
+                
+                sample_result = session.run(sample_query, {"community": comm_id})
+                sample_nodes = [{"name": record["name"], "type": record["type"]} for record in sample_result]
+                
+                community_nodes[str(comm_id)] = {
+                    "size": size,
+                    "type_distribution": type_counts,
+                    "sample_nodes": sample_nodes
+                }
+            
+            return community_nodes
+            
+        except Exception as e:
+            self.logger.warning(f"Error getting top community nodes: {str(e)}")
+            return {"error": str(e)}

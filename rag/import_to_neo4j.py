@@ -3,6 +3,10 @@
 Import ESG knowledge graph files into Neo4j database.
 This script uses the Neo4jGraphStore class to import entity, relationship,
 and claim data from JSON files into a Neo4j database.
+
+Requirements:
+- Neo4j database with GDS (Graph Data Science) library installed for community detection
+- If GDS is not available, use --skip-communities flag
 """
 
 import argparse
@@ -12,7 +16,11 @@ from graph_store import Neo4jGraphStore
 
 def main():
     """Import knowledge graph files into Neo4j"""
-    parser = argparse.ArgumentParser(description="Import ESG knowledge graph into Neo4j")
+    parser = argparse.ArgumentParser(
+        description="Import ESG knowledge graph into Neo4j",
+        epilog="""Note: Community detection requires Neo4j Graph Data Science (GDS) library. 
+        If you encounter errors, use --skip-communities flag. APOC extension is recommended but not required."""
+    )
     
     # Input file arguments
     parser.add_argument("--entities", "-e", required=True,
@@ -37,6 +45,11 @@ def main():
                         help="Clear existing data in Neo4j before importing")
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="Enable verbose output")
+    parser.add_argument("--skip-communities", action="store_true",
+                        help="Skip community detection step")
+    parser.add_argument("--algorithm", default="louvain",
+                        choices=["louvain", "leiden", "label_propagation"],
+                        help="Community detection algorithm to use")
     
     args = parser.parse_args()
     
@@ -89,6 +102,42 @@ def main():
         print(f"  - Entities: {result['entities']}")
         print(f"  - Relationships: {result['relationships']}")
         print(f"  - Claims: {result['claims']}")
+        
+        # Detect communities if not skipped
+        if not args.skip_communities:
+            try:
+                print(f"\nAttempting community detection using {args.algorithm} algorithm...")
+                community_result = graph_store.detect_communities(
+                    algorithm=args.algorithm, 
+                    min_community_size=5,
+                    resolution=1.0,
+                    max_levels=5,
+                    verbose=args.verbose
+                )
+                
+                if "error" in community_result:
+                    print(f"Community detection error: {community_result['error']}")
+                    print("Run with --skip-communities to skip this step or install Neo4j GDS library.")
+                elif "communities" in community_result and community_result["communities"]:
+                    print("Community detection completed successfully!")
+                    if isinstance(community_result["communities"], dict):
+                        community_count = community_result["communities"].get("communityCount", 0)
+                        print(f"Detected {community_count} communities")
+                        
+                        # Try to access level information if available
+                        if "levels" in community_result:
+                            print(f"Detected {len(community_result['levels'])} hierarchical levels")
+                        
+                        for key in community_result["communities"]:
+                            if key.startswith("level_") and isinstance(community_result["communities"][key], dict):
+                                print(f"{key}: {community_result['communities'][key].get('count', 0)} communities")
+                else:
+                    print("Community detection completed but no detailed information is available.")
+            except Exception as e:
+                print(f"Community detection failed: {str(e)}")
+                print("Consider running with --skip-communities next time.")
+        else:
+            print("\nSkipping community detection as requested.")
         
     finally:
         # Close the connection
