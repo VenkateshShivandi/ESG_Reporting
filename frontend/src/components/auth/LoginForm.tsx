@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "sonner"
 import { useAuth } from "@/hooks/use-auth"
+import supabase from "@/lib/supabase/client"
 
 type LoginFormValues = {
   email: string
@@ -22,6 +23,7 @@ type LoginFormValues = {
 
 export default function LoginForm() {
   const [isLoading, setIsLoading] = useState(false)
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const router = useRouter()
   const { signIn, signInWithGoogle } = useAuth()
@@ -38,22 +40,60 @@ export default function LoginForm() {
   async function onSubmit(data: LoginFormValues) {
     setIsLoading(true)
     try {
-      const { error } = await signIn(data.email, data.password, data.rememberMe)
-      if (error) throw error
-      toast.success("Welcome back!", {
-        description: "You have successfully logged in.",
-      })
-      router.push("/")
+      const { error } = await signIn(data.email, data.password, data.rememberMe || false)
+      
+      if (error) {
+        // Check if the error is due to unconfirmed email
+        if (error.message?.includes('Email not confirmed')) {
+          toast.error('Email not confirmed', {
+            description: (
+              <div className="space-y-2">
+                <p>Please check your inbox for the confirmation email.</p>
+                <button
+                  onClick={async () => {
+                    try {
+                      const { error: resendError } = await supabase.auth.resend({
+                        type: 'signup',
+                        email: data.email,
+                        options: {
+                          emailRedirectTo: `${window.location.origin}/auth/confirm`
+                        }
+                      })
+                      
+                      if (resendError) throw resendError
+                      
+                      toast.success('Confirmation email resent!', {
+                        description: 'The email should arrive within a minute. Please check your inbox or spam folder for the confirmation link.',
+                        duration: 10000,
+                      })
+                    } catch (error) {
+                      console.error('Error resending confirmation:', error)
+                      toast.error('Failed to resend confirmation email')
+                    }
+                  }}
+                  className="w-full mt-2 text-sm text-emerald-600 hover:text-emerald-700 font-medium"
+                >
+                  Resend confirmation email →
+                </button>
+              </div>
+            ),
+            duration: 10000,
+          })
+        } else {
+          throw error
+        }
+      }
+      
     } catch (error) {
-      console.error(error)
-      // Toast handled by auth hook
+      console.error("Login form error:", error)
+      // Toast already handled by auth hook
     } finally {
       setIsLoading(false)
     }
   }
 
   async function handleGoogleSignIn() {
-    setIsLoading(true)
+    setIsGoogleLoading(true)
     try {
       await signInWithGoogle()
       // Redirect handled by OAuth provider
@@ -61,7 +101,7 @@ export default function LoginForm() {
       console.log("🔑 Error logging in with Google")
       console.error(error)
     } finally {
-      setIsLoading(false)
+      setIsGoogleLoading(false)
     }
   }
 
@@ -155,9 +195,9 @@ export default function LoginForm() {
         variant="outline" 
         className="h-11 w-full" 
         onClick={handleGoogleSignIn} 
-        disabled={isLoading}
+        disabled={isLoading || isGoogleLoading}
       >
-        {isLoading ? (
+        {isGoogleLoading ? (
           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
         ) : (
           <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">

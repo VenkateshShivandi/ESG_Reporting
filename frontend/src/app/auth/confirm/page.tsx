@@ -1,18 +1,43 @@
-import type { Metadata } from 'next'
+"use client"
+
+import { useEffect, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { BarChart3, CheckCircle2, FileText, Shield, Leaf, XCircle, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import Link from 'next/link'
-import { ArrowLeft, Leaf, Shield, BarChart3 } from 'lucide-react'
+import supabase from '@/lib/supabase/client'
+import { toast } from 'sonner'
 
-import LoginForm from '@/components/auth/LoginForm'
+export default function ConfirmationSuccessPage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const [isValidating, setIsValidating] = useState(true)
+  const [isValid, setIsValid] = useState(false)
 
-export const metadata: Metadata = {
-  title: 'Login | ESG Reporting Platform',
-  description: 'Securely access your sustainability metrics and reports.',
-}
+  useEffect(() => {
+    const validateToken = async () => {
+      try {
+        // Just show success and redirect
+        setIsValid(true)
+        setIsValidating(false)
+        
+        // Redirect to dashboard after 3 seconds
+        const timer = setTimeout(() => {
+          router.push('/dashboard')
+        }, 3000)
 
-export default function LoginPage() {
+        return () => clearTimeout(timer)
+      } catch (error) {
+        console.error('Error:', error)
+      }
+    }
+
+    validateToken()
+  }, [router])
+
   return (
-    <div className="flex min-h-screen flex-col md:flex-row">
-      {/* Left side - Branding & Info */}
+    <div className="flex min-h-screen">
+      {/* Left Panel - Dark Background */}
       <div className="relative hidden w-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 md:block md:w-1/2">
         <div className="absolute inset-0 z-0 opacity-20">
           <svg className="h-full w-full" viewBox="0 0 800 800">
@@ -85,47 +110,50 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
-
-      {/* Right side - Login Form */}
-      <div className="flex w-full items-center justify-center bg-gradient-to-b from-white to-slate-50 p-4 md:w-1/2 md:p-8">
-        <div className="w-full max-w-md">
-          {/* Mobile header */}
-          <div className="mb-8 flex items-center justify-between md:hidden">
-            <Link href="/" className="flex items-center gap-2 text-xl font-bold text-slate-900">
-              <BarChart3 className="h-6 w-6 text-emerald-600" />
-              <span>ESG Metrics</span>
-            </Link>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-white p-8 shadow-lg">
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-slate-900">Sign in to your account</h2>
-              <p className="mt-2 text-sm text-slate-600">Enter your credentials to access your ESG dashboard</p>
-            </div>
-
-        <LoginForm />
-
-            <div className="mt-6 text-center text-sm">
+      
+      {/* Right Panel - Success Message */}
+      <div className="flex flex-1 items-center justify-center p-4">
+        <div className="w-full max-w-md space-y-6">
+          {isValidating ? (
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="h-16 w-16 rounded-full bg-slate-100 flex items-center justify-center">
+                <div className="animate-spin h-8 w-8 border-4 border-emerald-600 border-t-transparent rounded-full" />
+              </div>
+              <h1 className="text-2xl font-bold text-slate-900">Verifying your email...</h1>
               <p className="text-slate-600">
-                Don't have an account?{" "}
-                <Link href="/auth/signup" className="font-medium text-emerald-600 hover:text-emerald-700 transition-colors">
-                  Sign up
-                </Link>
+                Please wait while we confirm your email address.
               </p>
             </div>
-          </div>
-
-          <div className="mt-8 text-center">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-emerald-600 transition-colors"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to home
+          ) : (
+            <div className="flex flex-col items-center text-center space-y-4">
+              <div className="h-16 w-16 rounded-full bg-green-100 flex items-center justify-center">
+                <CheckCircle2 className="h-8 w-8 text-green-600" />
+              </div>
+              <h1 className="text-2xl font-bold text-slate-900">Email Confirmed!</h1>
+              <p className="text-slate-600">
+                Thank you for confirming your email address. You will be redirected to your dashboard.
+              </p>
+              <div className="space-y-4">
+                <Button 
+                  className="w-full h-11 bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => router.push('/dashboard')}
+                >
+                  Go to Dashboard
+                </Button>
+                <p className="text-center text-sm text-slate-500">
+                  You will be redirected to the dashboard in a few seconds...
+                </p>
+              </div>
+            </div>
+          )}
+          
+          <p className="text-center">
+            <Link href="/" className="text-sm text-slate-500 hover:text-slate-700">
+              ← Back to home
             </Link>
-          </div>
+          </p>
         </div>
       </div>
     </div>
   )
-}
+} 

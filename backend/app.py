@@ -944,6 +944,156 @@ def get_metrics():
         app.logger.error(f"❌ API Error in get_metrics: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/analytics/data-chunks', methods=['GET'])
+@require_auth
+def get_data_chunks():
+    """Get available data chunks for chart generation."""
+    try:
+        app.logger.info("📊 API Call - get_data_chunks")
+        
+        # Mock response with available data chunks
+        chunks = [
+            {
+                "id": "carbon_emissions_2023",
+                "name": "Carbon Emissions 2023",
+                "description": "Monthly carbon emissions data for 2023",
+                "category": "Environmental",
+                "updated_at": datetime.now().isoformat()
+            },
+            {
+                "id": "energy_consumption_quarterly",
+                "name": "Energy Consumption (Quarterly)",
+                "description": "Quarterly energy consumption over the past 3 years",
+                "category": "Environmental",
+                "updated_at": datetime.now().isoformat()
+            },
+            {
+                "id": "diversity_metrics_2023",
+                "name": "Diversity Metrics 2023",
+                "description": "Diversity statistics across departments",
+                "category": "Social",
+                "updated_at": datetime.now().isoformat()
+            },
+            {
+                "id": "governance_compliance",
+                "name": "Governance Compliance",
+                "description": "Compliance metrics by region",
+                "category": "Governance",
+                "updated_at": datetime.now().isoformat()
+            }
+        ]
+        
+        app.logger.info(f"📥 API Response: Sent {len(chunks)} data chunks")
+        return jsonify(chunks), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_data_chunks: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/analytics/data-chunks/<chunk_id>', methods=['GET'])
+@require_auth
+def get_data_chunk(chunk_id):
+    """Get chart data for a specific data chunk."""
+    try:
+        app.logger.info(f"📊 API Call - get_data_chunk: {chunk_id}")
+        
+        # Mock responses based on chunk_id
+        chart_data = {}
+        
+        if chunk_id == "carbon_emissions_2023":
+            chart_data = {
+                "title": "Carbon Emissions 2023",
+                "type": "bar",
+                "labels": ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+                "series": [
+                    {
+                        "name": "Office Emissions",
+                        "data": [42, 38, 35, 40, 36, 33, 34, 31, 35, 32, 29, 25]
+                    },
+                    {
+                        "name": "Manufacturing",
+                        "data": [65, 59, 80, 81, 56, 55, 60, 58, 56, 52, 49, 48]
+                    },
+                    {
+                        "name": "Transportation",
+                        "data": [28, 25, 26, 32, 30, 27, 29, 28, 25, 23, 24, 20]
+                    }
+                ]
+            }
+        elif chunk_id == "energy_consumption_quarterly":
+            chart_data = {
+                "title": "Energy Consumption (Quarterly)",
+                "type": "line",
+                "labels": ["Q1 2021", "Q2 2021", "Q3 2021", "Q4 2021", "Q1 2022", "Q2 2022", "Q3 2022", "Q4 2022", "Q1 2023", "Q2 2023", "Q3 2023", "Q4 2023"],
+                "series": [
+                    {
+                        "name": "Electricity (kWh)",
+                        "data": [48000, 46500, 47200, 45800, 44900, 43500, 42800, 41200, 40500, 38900, 37500, 36200]
+                    },
+                    {
+                        "name": "Natural Gas (therms)",
+                        "data": [12500, 9800, 8500, 13200, 11900, 9200, 7900, 12600, 10800, 8600, 7200, 11500]
+                    }
+                ]
+            }
+        elif chunk_id == "diversity_metrics_2023":
+            chart_data = {
+                "title": "Diversity Metrics 2023",
+                "type": "bar",
+                "labels": ["Engineering", "Marketing", "Operations", "Finance", "HR", "Sales", "Executive"],
+                "series": [
+                    {
+                        "name": "Women",
+                        "data": [35, 62, 48, 53, 72, 45, 38]
+                    },
+                    {
+                        "name": "Underrepresented Minorities",
+                        "data": [28, 32, 29, 25, 35, 30, 22]
+                    },
+                    {
+                        "name": "Veterans",
+                        "data": [8, 5, 12, 7, 6, 9, 10]
+                    }
+                ]
+            }
+        elif chunk_id == "governance_compliance":
+            chart_data = {
+                "title": "Governance Compliance",
+                "type": "donut",
+                "labels": ["North America", "Europe", "Asia Pacific", "Latin America", "Africa"],
+                "series": [
+                    {
+                        "name": "Compliance Rate",
+                        "data": [98, 97, 92, 88, 85]
+                    }
+                ]
+            }
+        else:
+            chart_data = {
+                "title": "Sample Data",
+                "type": "bar",
+                "labels": ["Jan", "Feb", "Mar", "Apr", "May"],
+                "series": [
+                    {
+                        "name": "Series 1",
+                        "data": [40, 30, 20, 27, 18]
+                    },
+                    {
+                        "name": "Series 2",
+                        "data": [24, 13, 98, 39, 48]
+                    },
+                    {
+                        "name": "Series 3",
+                        "data": [65, 45, 35, 20, 75]
+                    }
+                ]
+            }
+        
+        app.logger.info(f"📥 API Response: Sent chart data for chunk {chunk_id}")
+        return jsonify(chart_data), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_data_chunk: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/analytics/reports', methods=['GET'])
 @require_auth
 def get_reports():
