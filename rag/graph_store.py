@@ -611,7 +611,8 @@ class Neo4jGraphStore:
         resolution: float = 1.0,
         max_levels: int = 10,
         weight_property: str = "strength",
-        verbose: bool = True
+        verbose: bool = True,
+        projection_name: str = None
     ) -> Dict[str, Any]:
         """
         Detect communities in the graph using Neo4j Graph Data Science library.
@@ -624,6 +625,7 @@ class Neo4jGraphStore:
             max_levels: Maximum number of iterations for the algorithm
             weight_property: Relationship property to use as edge weight
             verbose: Whether to print detailed statistics during detection
+            projection_name: Name of an existing graph projection to use (if None, creates a temporary one)
             
         Returns:
             Dict containing community structure and statistics
@@ -658,16 +660,33 @@ class Neo4jGraphStore:
                 # Get graph statistics before community detection
                 graph_stats = self._get_graph_statistics(session)
                 
-                # Create in-memory graph projection for GDS
-                graph_name = "community_detection_graph"
-                projection_result = self._create_graph_projection(
-                    session, 
-                    graph_name, 
-                    weight_property
-                )
+                # Determine whether to use an existing projection or create a new one
+                graph_name = projection_name or "community_detection_graph"
                 
-                if "error" in projection_result:
-                    return projection_result
+                # If no projection name provided, create a temporary one
+                if projection_name is None:
+                    projection_result = self._create_graph_projection(
+                        session, 
+                        graph_name, 
+                        weight_property
+                    )
+                    
+                    if "error" in projection_result:
+                        return projection_result
+                else:
+                    # Verify the provided projection exists
+                    check_result = session.run(
+                        "CALL gds.graph.exists($name) YIELD exists RETURN exists",
+                        {"name": graph_name}
+                    )
+                    record = check_result.single()
+                    if not record or not record["exists"]:
+                        error_msg = f"Graph projection '{graph_name}' does not exist."
+                        self.logger.error(error_msg)
+                        return {"error": error_msg}
+                    
+                    if verbose:
+                        print(f"Using existing graph projection: {graph_name}")
                 
                 # Run community detection algorithm
                 community_result = self._run_community_detection(
@@ -682,8 +701,9 @@ class Neo4jGraphStore:
                     verbose
                 )
                 
-                # Clean up the projected graph
-                self._drop_graph_projection(session, graph_name)
+                # Clean up the projected graph only if we created it ourselves
+                if projection_name is None:
+                    self._drop_graph_projection(session, graph_name)
                 
                 # Combine all results
                 result = {
@@ -969,8 +989,21 @@ class Neo4jGraphStore:
     ) -> Dict[str, Any]:
         """
         Run Louvain community detection using GDS
+        
+        Args:
+            session: Neo4j session
+            graph_name: Name of the projected graph
+            resolution: Resolution parameter (not used in some GDS versions)
+            max_levels: Maximum number of levels to run
+            min_community_size: Minimum community size
+            weight_property: Relationship weight property
+            store_results: Whether to store results in Neo4j
+            verbose: Whether to print detailed outputs
+            
+        Returns:
+            Dict with Louvain results
         """
-        self.logger.info(f"Running Louvain community detection (resolution={resolution}, maxLevels={max_levels})")
+        self.logger.info(f"Running Louvain community detection (maxLevels={max_levels})")
         if verbose:
             print(f"\nRunning Louvain community detection algorithm...")
         
@@ -979,7 +1012,7 @@ class Neo4jGraphStore:
         
         # Build the query with more version compatibility
         if mode == "write":
-            # For write mode, we need to specify writeProperty (required in newer GDS versions)
+            # For write mode, we need to specify writeProperty
             base_query = f"""
             CALL gds.louvain.{mode}(
                 '{graph_name}',
@@ -987,10 +1020,9 @@ class Neo4jGraphStore:
                     relationshipWeightProperty: '{weight_property}',
                     maxLevels: {max_levels},
                     minCommunitySize: {min_community_size},
-                    gamma: {resolution},
                     tolerance: 0.0001,
                     includeIntermediateCommunities: true,
-                    writeProperty: 'community'
+                    writeProperty: 'communityId_strength'
                 }}
             )
             """
@@ -1003,7 +1035,6 @@ class Neo4jGraphStore:
                     relationshipWeightProperty: '{weight_property}',
                     maxLevels: {max_levels},
                     minCommunitySize: {min_community_size},
-                    gamma: {resolution},
                     tolerance: 0.0001,
                     includeIntermediateCommunities: true
                 }}
@@ -1164,7 +1195,7 @@ class Neo4jGraphStore:
                     relationshipWeightProperty: '{weight_property}',
                     maxIterations: {max_iterations},
                     minCommunitySize: {min_community_size},
-                    gamma: {resolution},
+                    resolution: {resolution},
                     theta: 0.01,
                     writeProperty: 'community'
                 }}
@@ -1179,7 +1210,7 @@ class Neo4jGraphStore:
                     relationshipWeightProperty: '{weight_property}',
                     maxIterations: {max_iterations},
                     minCommunitySize: {min_community_size},
-                    gamma: {resolution},
+                    resolution: {resolution},
                     theta: 0.01
                 }}
             )
