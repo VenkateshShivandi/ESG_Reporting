@@ -24,6 +24,39 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from dotenv import load_dotenv
 
+# Get the absolute path to the project root directory
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Check multiple locations for .env.local
+env_locations = [
+    os.path.join(PROJECT_ROOT, 'rag', '.env.local'),  # rag/.env.local
+    os.path.join(PROJECT_ROOT, '.env.local'),         # ./.env.local
+    os.path.join(PROJECT_ROOT, 'backend', '.env.local'),  # backend/.env.local
+    os.path.join(PROJECT_ROOT, 'frontend', '.env.local')  # frontend/.env.local
+]
+
+# Try to load from any available .env.local
+env_file = None
+for loc in env_locations:
+    if os.path.exists(loc):
+        env_file = loc
+        break
+
+if env_file:
+    print(f"Loading environment from: {env_file}")
+    load_dotenv(env_file)
+else:
+    print("No .env.local file found in any of the expected locations")
+    sys.exit(1)
+
+# Debug: Print loaded environment variables
+print(f"Loaded NEO4J_URI: {os.getenv('NEO4J_URI')}")
+print(f"Loaded NEO4J_USERNAME: {os.getenv('NEO4J_USERNAME')}")
+print(f"Loaded NEO4J_PASSWORD: {'[set]' if os.getenv('NEO4J_PASSWORD') else '[not set]'}")
+
+# Add project root to Python path to fix imports
+sys.path.insert(0, PROJECT_ROOT)
+
 # Import our pipeline components
 from rag.chunking import PDFChunker, process_document
 from rag.build_esg_graph import ESGGraphBuilder
@@ -304,16 +337,16 @@ def main():
                         type=int, default=5,
                         help="Maximum number of parallel workers")
     
-    # Neo4j options
+    # Neo4j options - use environment variables as defaults
     parser.add_argument("--neo4j-uri",
                         default=os.getenv("NEO4J_URI"),
-                        help="Neo4j URI")
+                        help="Neo4j URI (default: from environment)")
     parser.add_argument("--neo4j-username",
                         default=os.getenv("NEO4J_USERNAME"),
-                        help="Neo4j username")
+                        help="Neo4j username (default: from environment)")
     parser.add_argument("--neo4j-password",
                         default=os.getenv("NEO4J_PASSWORD"),
-                        help="Neo4j password")
+                        help="Neo4j password (default: from environment)")
     parser.add_argument("--neo4j-database",
                         default="neo4j",
                         help="Neo4j database name")
@@ -333,17 +366,19 @@ def main():
     # OpenAI options
     parser.add_argument("--openai-api-key",
                         default=os.getenv("OPENAI_API_KEY"),
-                        help="OpenAI API key")
+                        help="OpenAI API key (default: from environment)")
     
     args = parser.parse_args()
     
     # Validate Neo4j connection parameters
     if not all([args.neo4j_uri, args.neo4j_username, args.neo4j_password]):
-        parser.error(
-            "Neo4j connection parameters are required. "
-            "Use arguments or environment variables: "
-            "NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD"
+        logger.error(
+            "Neo4j connection parameters are missing. Please check your .env.local file or provide them as arguments:\n"
+            f"URI: {args.neo4j_uri}\n"
+            f"Username: {args.neo4j_username}\n"
+            f"Password: {'[set]' if args.neo4j_password else '[not set]'}"
         )
+        sys.exit(1)
     
     # Create and run the pipeline
     pipeline = ESGPipeline(
@@ -379,6 +414,4 @@ def main():
         print(f"\nResults saved to: {os.path.join(args.output_dir, 'pipeline_results.json')}")
 
 if __name__ == "__main__":
-    # Load environment variables
-    load_dotenv()
     main() 
