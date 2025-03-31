@@ -59,7 +59,6 @@ class ESGGraphBuilder:
         self.chunks = []
         self.entities = {}  # Map of entity name to entity info
         self.relationships = []
-        self.claims = []
         
         # Create output directory
         os.makedirs(output_dir, exist_ok=True)
@@ -110,43 +109,6 @@ class ESGGraphBuilder:
             # Parse the response
             result = response.choices[0].message.content
             chunk_entities, chunk_relationships = self._parse_extraction_result(result, chunk['chunk_id'])
-            
-            # Optional: Check if more entities can be extracted using the LOOP_PROMPT
-            if len(chunk_entities) > 0 and ENTITY_LOOP_PROMPT:
-                loop_response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": "You are an expert at extracting entities and relationships from text."},
-                        {"role": "user", "content": prompt},
-                        {"role": "assistant", "content": result},
-                        {"role": "user", "content": ENTITY_LOOP_PROMPT}
-                    ],
-                    temperature=0.1,
-                    max_tokens=100
-                )
-                
-                loop_result = loop_response.choices[0].message.content
-                if "YES" in loop_result:
-                    continue_prompt = ENTITY_CONTINUE_PROMPT
-                    
-                    continue_response = self.client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": "You are an expert at extracting entities and relationships from text."},
-                            {"role": "user", "content": prompt},
-                            {"role": "assistant", "content": result},
-                            {"role": "user", "content": continue_prompt}
-                        ],
-                        temperature=0.2,
-                        max_tokens=4000
-                    )
-                    
-                    continue_result = continue_response.choices[0].message.content
-                    more_entities, more_relationships = self._parse_extraction_result(continue_result, chunk['chunk_id'])
-                    
-                    # Add more entities and relationships
-                    chunk_entities.update(more_entities)
-                    chunk_relationships.extend(more_relationships)
             
         except Exception as e:
             print(f"Error processing chunk {i+1}: {str(e)}")
@@ -215,154 +177,6 @@ class ESGGraphBuilder:
         
         return entities, relationships
     
-    def _process_chunk_for_claims(self, chunk_index_and_data) -> List[Dict]:
-        """Process a single chunk for claims (for parallel execution)"""
-        i, chunk, entity_specs = chunk_index_and_data
-        chunk_claims = []
-        
-        # Prepare the extraction prompt using the imported claim template
-        prompt = CLAIM_EXTRACTION_PROMPT.format(
-            entity_specs=entity_specs,
-            claim_description="environmental, social, and governance claims or activities",
-            input_text=chunk["text"][:8000],
-            tuple_delimiter=self.tuple_delimiter,
-            record_delimiter=self.record_delimiter,
-            completion_delimiter=self.completion_delimiter
-        )
-        
-        try:
-            # Call LLM to extract claims
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are an expert at extracting claims about entities from text."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.2,
-                max_tokens=4000
-            )
-            
-            # Parse the response
-            result = response.choices[0].message.content
-            chunk_claims = self._parse_claims_result(result, chunk['chunk_id'])
-            
-            # Optional: Check if more claims can be extracted using LOOP_PROMPT
-            if len(chunk_claims) > 0 and CLAIM_LOOP_PROMPT:
-                loop_response = self.client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": "You are an expert at extracting claims about entities from text."},
-                        {"role": "user", "content": prompt},
-                        {"role": "assistant", "content": result},
-                        {"role": "user", "content": CLAIM_LOOP_PROMPT}
-                    ],
-                    temperature=0.1,
-                    max_tokens=100
-                )
-                
-                loop_result = loop_response.choices[0].message.content
-                if "YES" in loop_result:
-                    continue_prompt = CLAIM_CONTINUE_PROMPT
-                    
-                    continue_response = self.client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": "You are an expert at extracting claims about entities from text."},
-                            {"role": "user", "content": prompt},
-                            {"role": "assistant", "content": result},
-                            {"role": "user", "content": continue_prompt}
-                        ],
-                        temperature=0.2,
-                        max_tokens=4000
-                    )
-                    
-                    continue_result = continue_response.choices[0].message.content
-                    more_claims = self._parse_claims_result(continue_result, chunk['chunk_id'])
-                    chunk_claims.extend(more_claims)
-            
-        except Exception as e:
-            print(f"Error processing chunk {i+1} for claims: {str(e)}")
-        
-        return i, chunk_claims
-    
-    def extract_claims(self) -> List[Dict]:
-        """Extract claims from all chunks about extracted entities using the imported prompt"""
-        if not self.entities:
-            print("No entities found. Cannot extract claims.")
-            return []
-        
-        print("\n" + "="*70)
-        print(f"Extracting claims about {len(self.entities)} entities...")
-        print("="*70)
-        
-        claims = []
-        entity_specs = ",".join(self.entities.keys())
-        
-        # Process in batches if there are too many entities
-        if len(entity_specs) > 1000:
-            # Create smaller batches of entities
-            entity_batches = []
-            current_batch = []
-            current_length = 0
-            
-            for entity in self.entities.keys():
-                if current_length + len(entity) > 1000:
-                    entity_batches.append(",".join(current_batch))
-                    current_batch = [entity]
-                    current_length = len(entity)
-                else:
-                    current_batch.append(entity)
-                    current_length += len(entity) + 1  # +1 for the comma
-            
-            if current_batch:
-                entity_batches.append(",".join(current_batch))
-            
-            print(f"Split {len(self.entities)} entities into {len(entity_batches)} batches")
-            
-            # Process each batch
-            for batch_idx, batch_entities in enumerate(entity_batches):
-                print(f"\nProcessing entity batch {batch_idx+1}/{len(entity_batches)}")
-                batch_claims = self._extract_claims_for_entities(batch_entities)
-                claims.extend(batch_claims)
-        else:
-            claims = self._extract_claims_for_entities(entity_specs)
-        
-        self.claims = claims
-        print(f"\nExtracted a total of {len(claims)} claims about entities")
-        
-        return claims
-    
-    def _extract_claims_for_entities(self, entity_specs: str) -> List[Dict]:
-        """Extract claims for a specific set of entities using parallel processing"""
-        claims = []
-        
-        # Prepare the data for parallel processing
-        chunk_data = [(i, chunk, entity_specs) for i, chunk in enumerate(self.chunks)]
-        
-        # Process chunks in parallel
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all tasks
-            future_to_chunk = {
-                executor.submit(self._process_chunk_for_claims, chunk_item): chunk_item[0] 
-                for chunk_item in chunk_data
-            }
-            
-            # Process results as they complete, with progress bar
-            with tqdm(total=len(chunk_data), desc="Processing chunks for claims") as pbar:
-                for future in concurrent.futures.as_completed(future_to_chunk):
-                    chunk_idx = future_to_chunk[future]
-                    try:
-                        i, chunk_claims = future.result()
-                        claims.extend(chunk_claims)
-                        print(f"Chunk {i+1}: Extracted {len(chunk_claims)} claims")
-                        pbar.update(1)
-                        
-                    except Exception as e:
-                        print(f"Error processing chunk {chunk_idx+1} for claims: {str(e)}")
-                        pbar.update(1)
-        
-        return claims
-    
     def _parse_extraction_result(self, result: str, chunk_id: str) -> Tuple[Dict[str, Dict], List[Dict]]:
         """Parse the LLM extraction result into entities and relationships"""
         entities = {}
@@ -427,66 +241,14 @@ class ESGGraphBuilder:
         
         return entities, relationships
     
-    def _parse_claims_result(self, result: str, chunk_id: str) -> List[Dict]:
-        """Parse the LLM claims extraction result according to the claim format"""
-        claims = []
-        
-        # Clean up the result
-        result = result.strip()
-        if self.completion_delimiter in result:
-            result = result.split(self.completion_delimiter)[0].strip()
-        
-        # Split into records
-        records = result.split(self.record_delimiter)
-        
-        for record in records:
-            record = record.strip()
-            if not record or "NO" in record:  # Skip "NO" responses from the loop prompt
-                continue
-            
-            # Extract claim content (format: (subject|object|type|status|start_date|end_date|description|source))
-            match = re.match(r'\((.+)', record)
-            if not match:
-                continue
-            
-            content = match.group(1)
-            parts = content.split(self.tuple_delimiter)
-            
-            if len(parts) >= 7:
-                subject = parts[0].strip()
-                object_entity = parts[1].strip()
-                claim_type = parts[2].strip()
-                claim_status = parts[3].strip()
-                
-                # Handle dates
-                start_date = parts[4].strip() if parts[4].strip() != "NONE" else None
-                end_date = parts[5].strip() if parts[5].strip() != "NONE" else None
-                
-                description = parts[6].strip()
-                source_text = parts[7].strip().rstrip(")") if len(parts) > 7 else ""
-                
-                claims.append({
-                    "subject": subject,
-                    "object": object_entity if object_entity != "NONE" else None,
-                    "type": claim_type,
-                    "status": claim_status,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "description": description,
-                    "source_text": source_text,
-                    "chunk_id": chunk_id
-                })
-        
-        return claims
-    
-    def save_results(self) -> Tuple[str, str, str]:
-        """Save entities, relationships, and claims to JSON files with proper aggregation"""
+    def save_results(self, entities: Dict[str, Dict], relationships: List[Dict]) -> Tuple[str, str]:
+        """Save entities and relationships to JSON files"""
         print("\nAggregating and summarizing extracted data...")
         
         # 1. ENTITY AGGREGATION
         # Prepare entities for output with improved description summarization
         entity_output = []
-        for entity_name, entity_info in self.entities.items():
+        for entity_name, entity_info in entities.items():
             # Combine descriptions - in a real implementation, you might use an LLM to generate a concise summary
             if len(entity_info["descriptions"]) > 1:
                 # Simple concatenation of unique descriptions (removing duplicates)
@@ -505,7 +267,7 @@ class ESGGraphBuilder:
         # 2. RELATIONSHIP AGGREGATION
         # Group and aggregate relationships by source, target, and description
         relationship_map = {}
-        for rel in self.relationships:
+        for rel in relationships:
             # Create a unique key for each relationship
             key = f"{rel['source']}|{rel['target']}|{rel['description']}"
             
@@ -530,70 +292,6 @@ class ESGGraphBuilder:
         # Convert relationship map to list
         aggregated_relationships = list(relationship_map.values())
         
-        # 3. CLAIM AGGREGATION
-        # Group and aggregate claims by subject, object, and type
-        claim_map = {}
-        for claim in self.claims:
-            # Create a unique key for each claim
-            key = f"{claim['subject']}|{claim.get('object', 'NONE')}|{claim['type']}|{claim['status']}"
-            
-            if key in claim_map:
-                # For duplicate claims, we'll keep all descriptions and source texts
-                if claim["description"] not in claim_map[key]["descriptions"]:
-                    claim_map[key]["descriptions"].append(claim["description"])
-                
-                if claim["source_text"] and claim["source_text"] not in claim_map[key]["source_texts"]:
-                    claim_map[key]["source_texts"].append(claim["source_text"])
-                
-                # Track all chunk IDs
-                claim_map[key]["chunk_ids"].append(claim["chunk_id"])
-                
-                # Keep the most specific date range
-                if claim["start_date"]:
-                    if not claim_map[key]["start_date"] or claim["start_date"] < claim_map[key]["start_date"]:
-                        claim_map[key]["start_date"] = claim["start_date"]
-                
-                if claim["end_date"]:
-                    if not claim_map[key]["end_date"] or claim["end_date"] > claim_map[key]["end_date"]:
-                        claim_map[key]["end_date"] = claim["end_date"]
-                
-                # Increment occurrence count
-                claim_map[key]["occurrence_count"] += 1
-            else:
-                # Create new entry
-                claim_map[key] = {
-                    "subject": claim["subject"],
-                    "object": claim.get("object"),
-                    "type": claim["type"],
-                    "status": claim["status"],
-                    "descriptions": [claim["description"]],
-                    "source_texts": [claim["source_text"]] if claim["source_text"] else [],
-                    "start_date": claim.get("start_date"),
-                    "end_date": claim.get("end_date"),
-                    "chunk_ids": [claim["chunk_id"]],
-                    "occurrence_count": 1
-                }
-        
-        # Combine descriptions for each claim
-        aggregated_claims = []
-        for claim_info in claim_map.values():
-            # Combine all descriptions (in a real implementation, you might use an LLM to generate a summary)
-            combined_description = "; ".join(claim_info["descriptions"])
-            combined_source = "; ".join(claim_info["source_texts"])
-            
-            aggregated_claims.append({
-                "subject": claim_info["subject"],
-                "object": claim_info["object"],
-                "type": claim_info["type"],
-                "status": claim_info["status"],
-                "description": combined_description,
-                "source_text": combined_source,
-                "start_date": claim_info["start_date"],
-                "end_date": claim_info["end_date"],
-                "chunk_ids": claim_info["chunk_ids"],
-                "confidence": min(1.0, claim_info["occurrence_count"] / 5.0)  # Simple confidence calculation
-            })
-        
         # Save entities
         entities_file = os.path.join(self.output_dir, "entities.json")
         with open(entities_file, 'w', encoding='utf-8') as f:
@@ -604,19 +302,14 @@ class ESGGraphBuilder:
         with open(relationships_file, 'w', encoding='utf-8') as f:
             json.dump(aggregated_relationships, f, ensure_ascii=False, indent=2)
         
-        # Save claims
-        claims_file = os.path.join(self.output_dir, "claims.json")
-        with open(claims_file, 'w', encoding='utf-8') as f:
-            json.dump(aggregated_claims, f, ensure_ascii=False, indent=2)
-        
+        # Update output messages
         print("\n" + "="*70)
-        print(f"Results saved with aggregation:")
-        print(f"  - Entities: {entities_file} ({len(entity_output)} unique entities from {len(self.entities)} extractions)")
-        print(f"  - Relationships: {relationships_file} ({len(aggregated_relationships)} unique relationships from {len(self.relationships)} extractions)")
-        print(f"  - Claims: {claims_file} ({len(aggregated_claims)} unique claims from {len(self.claims)} extractions)")
+        print(f"Results saved:")
+        print(f"  - Entities: {entities_file} ({len(entity_output)} unique entities)")
+        print(f"  - Relationships: {relationships_file} ({len(aggregated_relationships)} unique relationships)")
         print("="*70)
         
-        return entities_file, relationships_file, claims_file
+        return entities_file, relationships_file
     
     def _fuzzy_match_entities(self, name1: str, name2: str, threshold: float = 0.85) -> Tuple[bool, float]:
         """
@@ -799,29 +492,16 @@ class ESGGraphBuilder:
         print(f"Reduced {len(original_entities)} entities to {len(merged_entities)} through fuzzy matching")
         return merged_entities
     
-    def build_graph(self) -> Dict[str, Any]:
-        """Build the knowledge graph from document chunks"""
-        # Step 1: Load chunks (with limit)
+    def build_graph(self):
+        """Main entry point for graph construction"""
         self.load_chunks()
+        entities, relationships = self.extract_entities_and_relationships()
+        self.save_results(entities, relationships)
         
-        # Step 2: Extract entities and relationships (in parallel)
-        self.extract_entities_and_relationships()
-        
-        # Step 3: Extract claims (in parallel)
-        self.extract_claims()
-        
-        # Step 4: Save results
-        entities_file, relationships_file, claims_file = self.save_results()
-        
+        # Return the results dictionary
         return {
-            "entities": len(self.entities),
-            "relationships": len(self.relationships),
-            "claims": len(self.claims),
-            "files": {
-                "entities": entities_file,
-                "relationships": relationships_file,
-                "claims": claims_file
-            }
+            "entities": len(entities),
+            "relationships": len(relationships)
         }
 
 
@@ -852,7 +532,7 @@ def main():
     
     result = builder.build_graph()
     print("\nKnowledge graph built successfully!")
-    print(f"Extracted {result['entities']} entities, {result['relationships']} relationships, and {result['claims']} claims")
+    print(f"Extracted {result['entities']} entities, {result['relationships']} relationships")
 
 if __name__ == "__main__":
     main() 
