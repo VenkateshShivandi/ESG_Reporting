@@ -33,7 +33,8 @@ CORS(app, resources={
     r"/api/*": {
         "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
         "methods": ["GET", "POST", "DELETE"],
-        "allow_headers": ["*"]
+        "allow_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Content-Type"]
     }
 })
 
@@ -1170,6 +1171,69 @@ def get_report_status(report_id):
         return jsonify(status), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in get_report_status: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/list-reports', methods=['GET'])
+@require_auth
+def list_reports():
+    """List all reports for the authenticated user."""
+    try:
+        app.logger.info("📞 API Call - list_reports")
+        
+        # Get user ID from the authenticated request
+        user_id = request.user['id']
+        if not user_id:
+            app.logger.error("❌ No user ID found in authenticated request")
+            return jsonify({'error': 'Authentication required'}), 401
+            
+        app.logger.info(f"🔍 Fetching reports for user: {user_id}")
+        
+        # In a real implementation, you would query your database
+        # For now, return mock data that matches the Report interface
+        current_date = datetime.now()
+        
+        reports = [
+            {
+                "id": "rep_001",
+                "name": "Q4 2023 ESG Report",
+                "type": "GRI",
+                "timestamp": current_date - timedelta(days=30),
+                "files": ["esg1.pdf", "2._Relacion_de_evidencias.xlsx"],
+                "status": "completed",
+                "generated_at": (current_date - timedelta(days=30)).isoformat(),
+                "content": "# Q4 2023 ESG Report\n\n## Executive Summary\nThis report covers our ESG performance for Q4 2023...",
+                "metrics": {
+                    "environmental_score": 82,
+                    "social_score": 78,
+                    "governance_score": 91
+                }
+            },
+            {
+                "id": "rep_002",
+                "name": "Annual Sustainability Report 2023",
+                "type": "SASB",
+                "timestamp": current_date - timedelta(days=60),
+                "files": ["esg1.pdf"],
+                "status": "completed",
+                "generated_at": (current_date - timedelta(days=60)).isoformat(),
+                "content": "# Annual Sustainability Report 2023\n\n## Overview\nOur commitment to sustainability...",
+                "metrics": {
+                    "environmental_score": 79,
+                    "social_score": 85,
+                    "governance_score": 88
+                }
+            }
+        ]
+        
+        # Convert datetime objects to ISO format strings for JSON serialization
+        for report in reports:
+            report["timestamp"] = report["timestamp"].isoformat()
+        
+        app.logger.info(f"📤 API Response: Returning {len(reports)} reports")
+        return jsonify(reports), 200
+        
+    except Exception as e:
+        app.logger.error(f"❌ API Error in list_reports: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
