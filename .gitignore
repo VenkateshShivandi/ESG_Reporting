@@ -1,54 +1,35 @@
-# --- General Ignores ---
-.DS_Store
-*.log
-*.tmp
-*.swp
-*.swo
-*.zip
-*.tar.gz
-
-# --- Environment Files ---
-.env*
-!.env.example  # Keep template file
-!backend/.env.example  # Keep backend template if needed
-!frontend/.env.example # Keep frontend template if needed
-
-# --- Python Specific ---
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.mypy_cache/
-venv/
-.coverage
-
-# --- JavaScript/Node Specific ---
-node_modules/
+# Ignore folders and environment variables
+node_modules
 package-lock.json
+setup
 
-# --- Frontend Specific ---
-frontend/.next/
-frontend/node_modules/
+# vscode files to ignore
+.vscode
+
+# macos files to ignore
+.DS_Store
+
+# environment variables
+.env*
+
+# python cache
+__pycache__
+# virtual environment
+venv
+
+# rag/experiments
+rag/experiments/*
+
+
+# frontend/node_modules
+frontend/node_modules/*
+
+# frontend/package-lock.json
 frontend/package-lock.json
 
-# --- IDE/Editor Config ---
-.vscode/
-.idea/
+# frontend/.next
+frontend/.next/*
 
-# --- Project Specific ---
-# Local test files and outputs
-test_files/
-output/
+.coverage
 
-# Experimental directories
-rag/experiments/
-setup/
-
-# --- Document Files ---
-# Uncomment if you want to ignore all PDFs
-# *.pdf
-
-# --- Package Manager Files ---
-# Python package management
-*.egg-info/
-dist/
-build/
+.pytest_cache

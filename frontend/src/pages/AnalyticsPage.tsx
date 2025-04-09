@@ -114,7 +114,6 @@ import type { DateRange } from "react-day-picker";
 
 // Add imports
 import { fetchDataChunks, fetchChunkData } from '@/lib/api/analytics';
-import { ExcelAnalytics } from "@/components/dashboard/excel-analytics";
 
 export interface KeyMetric {
   metric: string;
@@ -510,13 +509,13 @@ function ChartGenerator({ setCustomCharts }: { setCustomCharts: React.Dispatch<R
   const renderPreview = () => {
     switch (chartType) {
       case "bar":
-        return <BarChart data={customData} />
+        return <BarChart data={customData} config={config} />
       case "line":
-        return <LineChart data={customData} />
+        return <LineChart data={customData} config={config} />
       case "donut":
-        return <DonutChart data={getDonutChartData()} />
+        return <DonutChart data={getDonutChartData()} config={config} />
       default:
-        return <BarChart data={customData} />
+        return <BarChart data={customData} config={config} />
     }
   }
 
@@ -988,47 +987,7 @@ function ChartGenerator({ setCustomCharts }: { setCustomCharts: React.Dispatch<R
               <span className="absolute inset-0 h-full w-full bg-white scale-0 group-hover:scale-100 opacity-0 group-hover:opacity-20 rounded-md transition-all duration-300"></span>
             </Button>
           </div>
-        )
-      case "manual":
-      default:
-        return (
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="data-points" className="text-sm text-slate-600 flex items-center">
-                <span>Number of Data Points</span>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <Info className="h-3 w-3 ml-1 text-slate-400" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p className="text-xs w-[200px]">Select how many time periods to include in your chart</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </Label>
-              <div className="flex items-center gap-2 mt-1">
-                <Input
-                  id="data-points"
-                  type="number"
-                  min={1}
-                  max={12}
-                  value={dataPoints}
-                  onChange={e => setDataPoints(Number(e.target.value))}
-                  className="w-full"
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleGenerateData}
-                  className="whitespace-nowrap"
-                >
-                  <Wand2 className="h-4 w-4 mr-2" />
-                  Generate Random
-                </Button>
-              </div>
-            </div>
-
+        </div>
 
         <div className="bg-slate-50 rounded-md flex flex-col items-center justify-center border border-slate-200 p-4 relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-white to-transparent opacity-70 z-0"></div>
@@ -1453,484 +1412,446 @@ export function AnalyticsPage() {
         </div>
       </div>
 
-      {/* Main Tabs */}
-      <Tabs defaultValue="excel" className="space-y-4">
-        <div className="flex items-center justify-between">
-          <TabsList className="grid grid-cols-1 w-fit">
-            {/* <TabsTrigger value="dashboard">Dashboard</TabsTrigger> */}
-            <TabsTrigger value="excel">Excel Analytics</TabsTrigger>
-          </TabsList>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
-              {isLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
-              Refresh
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleExport} disabled={isLoading}>
-              <Download className="h-4 w-4 mr-1" />
-              Export
-            </Button>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-4 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-200"
-            onClick={() => setShowRefreshNotification(false)}
-          >
-            <XCircle className="h-4 w-4" />
-          </Button>
+      {/* Key Metrics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Environmental Score */}
+        <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-emerald-50 to-emerald-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <CardHeader className="pb-2">
+            <div className="flex justify-between items-center">
+              <CardTitle className="text-lg font-medium text-gray-900">Environmental Score</CardTitle>
+              <div className="relative">
+                <Leaf className="h-5 w-5 text-emerald-600 animate-pulse" />
+                <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              </div>
+            </div>
+            <CardDescription>Overall environmental rating</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-emerald-700 animate-count-up" data-value={envScore}>{envScore}</div>
+              <div className="flex items-center">
+                {envScoreChange > 0 ? (
+                  <>
+                    <TrendingUp className="h-4 w-4 text-emerald-600 mr-1 animate-bounce-short" />
+                    <span className="text-sm font-medium text-emerald-600">+{envScoreChange}%</span>
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="h-4 w-4 text-rose-600 mr-1 animate-bounce-short" />
+                    <span className="text-sm font-medium text-rose-600">{envScoreChange}%</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <Progress
+              value={envScore}
+              className="h-2 mt-2 bg-emerald-200"
+            />
+            <p className="text-xs text-gray-500 mt-2">Target: 90 · Last updated: Today</p>
+          </CardContent>
+        </Card>
+
+        {/* Energy Efficiency */}
+        <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-amber-50 to-amber-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <CardHeader className="pb-2">
+            <div className="flex justify-between items-center">
+              <CardTitle className="text-lg font-medium text-gray-900">Energy Efficiency</CardTitle>
+              <div className="relative">
+                <TreeDeciduous className="h-5 w-5 text-amber-600 animate-sway" />
+              </div>
+            </div>
+            <CardDescription>Energy usage optimization</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-amber-700 animate-count-up" data-value={energyEff}>{energyEff}</div>
+              <div className="flex items-center">
+                {energyEffChange > 0 ? (
+                  <>
+                    <TrendingUp className="h-4 w-4 text-emerald-600 mr-1 animate-bounce-short" />
+                    <span className="text-sm font-medium text-emerald-600">+{energyEffChange}%</span>
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="h-4 w-4 text-rose-600 mr-1 animate-bounce-short" />
+                    <span className="text-sm font-medium text-rose-600">{energyEffChange}%</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <Progress
+              value={energyEff}
+              className="h-2 mt-2 bg-amber-200"
+            />
+            <p className="text-xs text-gray-500 mt-2">Target: 85 · Last updated: Today</p>
+          </CardContent>
+        </Card>
+
+        {/* Waste Management */}
+        <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <CardHeader className="pb-2">
+            <div className="flex justify-between items-center">
+              <CardTitle className="text-lg font-medium text-gray-900">Waste Management</CardTitle>
+              <div className="relative">
+                <Recycle className="h-5 w-5 text-blue-600 animate-spin-slow" />
+              </div>
+            </div>
+            <CardDescription>Recycling and waste reduction</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-blue-700 animate-count-up" data-value={wasteManagement}>{wasteManagement}</div>
+              <div className="flex items-center">
+                {wasteManagementChange > 0 ? (
+                  <>
+                    <TrendingUp className="h-4 w-4 text-emerald-600 mr-1 animate-bounce-short" />
+                    <span className="text-sm font-medium text-emerald-600">+{wasteManagementChange}%</span>
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="h-4 w-4 text-rose-600 mr-1 animate-bounce-short" />
+                    <span className="text-sm font-medium text-rose-600">{wasteManagementChange}%</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <Progress
+              value={wasteManagement}
+              className="h-2 mt-2 bg-blue-200"
+            />
+            <p className="text-xs text-gray-500 mt-2">Target: 95 · Last updated: Yesterday</p>
+          </CardContent>
+        </Card>
+
+        {/* Water Usage */}
+        <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-cyan-50 to-cyan-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+          <CardHeader className="pb-2">
+            <div className="flex justify-between items-center">
+              <CardTitle className="text-lg font-medium text-gray-900">Water Usage</CardTitle>
+              <div className="relative">
+                <Droplet className="h-5 w-5 text-cyan-600 animate-bounce-slow" />
+              </div>
+            </div>
+            <CardDescription>Water conservation metrics</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-end justify-between">
+              <div className="text-3xl font-bold text-cyan-700 animate-count-up" data-value={waterUsage}>{waterUsage}</div>
+              <div className="flex items-center">
+                {waterUsageChange > 0 ? (
+                  <>
+                    <TrendingUp className="h-4 w-4 text-emerald-600 mr-1 animate-bounce-short" />
+                    <span className="text-sm font-medium text-emerald-600">+{waterUsageChange}%</span>
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="h-4 w-4 text-rose-600 mr-1 animate-bounce-short" />
+                    <span className="text-sm font-medium text-rose-600">{waterUsageChange}%</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <Progress
+              value={waterUsage}
+              className="h-2 mt-2 bg-cyan-200"
+            />
+            <p className="text-xs text-gray-500 mt-2">Target: 75 · Last updated: 2 days ago</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Chart Generator */}
+      {showChartGenerator && (
+        <div className="mt-6">
+          <ChartGenerator setCustomCharts={setCustomCharts} />
         </div>
       )}
 
-        {/* Dashboard Tab Content */}
-        <TabsContent value="dashboard" className="space-y-6">
-          {/* Key Metrics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Environmental Score */}
-            <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-emerald-50 to-emerald-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
-              <CardHeader className="pb-2">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="text-lg font-medium text-gray-900">Environmental Score</CardTitle>
-                  <div className="relative">
-                    <Leaf className="h-5 w-5 text-emerald-600 animate-pulse" />
-                    <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                    </span>
-                  </div>
-                </div>
-                <CardDescription>Overall environmental rating</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-end justify-between">
-                  <div className="text-3xl font-bold text-emerald-700 animate-count-up" data-value={envScore}>{envScore}</div>
-                  <div className="flex items-center">
-                    {envScoreChange > 0 ? (
-                      <>
-                        <TrendingUp className="h-4 w-4 text-emerald-600 mr-1 animate-bounce-short" />
-                        <span className="text-sm font-medium text-emerald-600">+{envScoreChange}%</span>
-                      </>
-                    ) : (
-                      <>
-                        <TrendingDown className="h-4 w-4 text-rose-600 mr-1 animate-bounce-short" />
-                        <span className="text-sm font-medium text-rose-600">{envScoreChange}%</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <Progress
-                  value={envScore}
-                  className="h-2 mt-2 bg-emerald-200"
-                />
-                <p className="text-xs text-gray-500 mt-2">Target: 90 · Last updated: Today</p>
-              </CardContent>
-            </Card>
-
-            {/* Energy Efficiency */}
-            <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-amber-50 to-amber-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
-              <CardHeader className="pb-2">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="text-lg font-medium text-gray-900">Energy Efficiency</CardTitle>
-                  <div className="relative">
-                    <TreeDeciduous className="h-5 w-5 text-amber-600 animate-sway" />
-                  </div>
-                </div>
-                <CardDescription>Energy usage optimization</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-end justify-between">
-                  <div className="text-3xl font-bold text-amber-700 animate-count-up" data-value={energyEff}>{energyEff}</div>
-                  <div className="flex items-center">
-                    {energyEffChange > 0 ? (
-                      <>
-                        <TrendingUp className="h-4 w-4 text-emerald-600 mr-1 animate-bounce-short" />
-                        <span className="text-sm font-medium text-emerald-600">+{energyEffChange}%</span>
-                      </>
-                    ) : (
-                      <>
-                        <TrendingDown className="h-4 w-4 text-rose-600 mr-1 animate-bounce-short" />
-                        <span className="text-sm font-medium text-rose-600">{energyEffChange}%</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <Progress
-                  value={energyEff}
-                  className="h-2 mt-2 bg-amber-200"
-                />
-                <p className="text-xs text-gray-500 mt-2">Target: 85 · Last updated: Today</p>
-              </CardContent>
-            </Card>
-
-            {/* Waste Management */}
-            <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
-              <CardHeader className="pb-2">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="text-lg font-medium text-gray-900">Waste Management</CardTitle>
-                  <div className="relative">
-                    <Recycle className="h-5 w-5 text-blue-600 animate-spin-slow" />
-                  </div>
-                </div>
-                <CardDescription>Recycling and waste reduction</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-end justify-between">
-                  <div className="text-3xl font-bold text-blue-700 animate-count-up" data-value={wasteManagement}>{wasteManagement}</div>
-                  <div className="flex items-center">
-                    {wasteManagementChange > 0 ? (
-                      <>
-                        <TrendingUp className="h-4 w-4 text-emerald-600 mr-1 animate-bounce-short" />
-                        <span className="text-sm font-medium text-emerald-600">+{wasteManagementChange}%</span>
-                      </>
-                    ) : (
-                      <>
-                        <TrendingDown className="h-4 w-4 text-rose-600 mr-1 animate-bounce-short" />
-                        <span className="text-sm font-medium text-rose-600">{wasteManagementChange}%</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <Progress
-                  value={wasteManagement}
-                  className="h-2 mt-2 bg-blue-200"
-                />
-                <p className="text-xs text-gray-500 mt-2">Target: 95 · Last updated: Yesterday</p>
-              </CardContent>
-            </Card>
-
-            {/* Water Usage */}
-            <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-cyan-50 to-cyan-100 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
-              <CardHeader className="pb-2">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="text-lg font-medium text-gray-900">Water Usage</CardTitle>
-                  <div className="relative">
-                    <Droplet className="h-5 w-5 text-cyan-600 animate-bounce-slow" />
-                  </div>
-                </div>
-                <CardDescription>Water conservation metrics</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-end justify-between">
-                  <div className="text-3xl font-bold text-cyan-700 animate-count-up" data-value={waterUsage}>{waterUsage}</div>
-                  <div className="flex items-center">
-                    {waterUsageChange > 0 ? (
-                      <>
-                        <TrendingUp className="h-4 w-4 text-emerald-600 mr-1 animate-bounce-short" />
-                        <span className="text-sm font-medium text-emerald-600">+{waterUsageChange}%</span>
-                      </>
-                    ) : (
-                      <>
-                        <TrendingDown className="h-4 w-4 text-rose-600 mr-1 animate-bounce-short" />
-                        <span className="text-sm font-medium text-rose-600">{waterUsageChange}%</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <Progress
-                  value={waterUsage}
-                  className="h-2 mt-2 bg-cyan-200"
-                />
-                <p className="text-xs text-gray-500 mt-2">Target: 75 · Last updated: Yesterday</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Chart Generator */}
-          {showChartGenerator && (
-            <div className="mt-6">
-              <ChartGenerator setCustomCharts={setCustomCharts} />
+      {/* Main Chart */}
+      <div className="mt-8">
+        <InteractiveChartWrapper
+          title="Environmental Performance Trends"
+          onRefresh={handleRefresh}
+          className="border-0"
+        >
+          {isLoading ? (
+            <div className="w-full h-[300px] flex items-center justify-center">
+              <div className="flex items-center justify-center flex-col">
+                <RefreshCw className="h-8 w-8 text-emerald-500 animate-spin mb-2" />
+                <p className="text-sm text-gray-500">Loading chart data...</p>
+              </div>
+            </div>
+          ) : (
+            <div className="w-full h-[300px] animate-fade-in">
+              <LineChart
+                data={trendsData.map((d: MonthlyTrend) => ({
+                  name: d.month,
+                  value1: d.value,
+                  value2: d.value * 0.8, // Example secondary line
+                  value3: d.value * 0.6  // Example tertiary line
+                }))}
+              />
             </div>
           )}
+        </InteractiveChartWrapper>
+      </div>
 
-          {/* Main Chart */}
-          <div className="mt-8">
-            <InteractiveChartWrapper
-              title="Environmental Performance Trends"
-              onRefresh={handleRefresh}
-              className="border-0"
-            >
-              {isLoading ? (
-                <div className="w-full h-[300px] flex items-center justify-center">
-                  <div className="flex items-center justify-center flex-col">
-                    <RefreshCw className="h-8 w-8 text-emerald-500 animate-spin mb-2" />
-                    <p className="text-sm text-gray-500">Loading chart data...</p>
-                  </div>
-                </div>
-              ) : (
-                <div className="w-full h-[300px] animate-fade-in">
-                  <LineChart
-                    data={trendsData.map((d: MonthlyTrend) => ({
-                      name: d.month,
-                      value1: d.value,
-                      value2: d.value * 0.8, // Example secondary line
-                      value3: d.value * 0.6  // Example tertiary line
-                    }))}
-                  />
-                </div>
-              )}
-            </InteractiveChartWrapper>
-          </div>
-
-          {/* Two Column Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
-            {/* Key Metrics Table */}
-            <Card className="border-0 shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden lg:col-span-2">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl font-semibold text-gray-900">Key Metrics</CardTitle>
-                    <CardDescription>Current performance against targets</CardDescription>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    <Filter className="h-4 w-4 mr-1" />
-                    <span>Filter</span>
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {isLoading ? (
-                  <>
-                    <Skeleton className="w-full h-10 mb-2" />
-                    <Skeleton className="w-full h-10 mb-2" />
-                    <Skeleton className="w-full h-10 mb-2" />
-                    <Skeleton className="w-full h-10 mb-2" />
-                  </>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Metric</TableHead>
-                        <TableHead>Current</TableHead>
-                        <TableHead>Previous</TableHead>
-                        <TableHead>Change</TableHead>
-                        <TableHead className="text-right">Target</TableHead>
+      {/* Two Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
+        {/* Key Metrics Table */}
+        <Card className="border-0 shadow-md hover:shadow-lg transition-all duration-300 overflow-hidden lg:col-span-2">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-xl font-semibold text-gray-900">Key Metrics</CardTitle>
+                <CardDescription>Current performance against targets</CardDescription>
+              </div>
+              <Button variant="outline" size="sm">
+                <Filter className="h-4 w-4 mr-1" />
+                <span>Filter</span>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <>
+                <Skeleton className="w-full h-10 mb-2" />
+                <Skeleton className="w-full h-10 mb-2" />
+                <Skeleton className="w-full h-10 mb-2" />
+                <Skeleton className="w-full h-10 mb-2" />
+              </>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Metric</TableHead>
+                    <TableHead>Current</TableHead>
+                    <TableHead>Previous</TableHead>
+                    <TableHead>Change</TableHead>
+                    <TableHead className="text-right">Target</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(metrics as any)?.keyMetrics?.length > 0 ? (
+                    (metrics as any).keyMetrics.map((item: KeyMetric, i: number) => (
+                      <TableRow key={i} className="hover:bg-gray-50">
+                        <TableCell className="font-medium">{item.metric}</TableCell>
+                        <TableCell>{item.current}</TableCell>
+                        <TableCell className="text-gray-500">{item.previous}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center">
+                            {item.change > 0 ? (
+                              <>
+                                <ArrowUp className="h-4 w-4 text-emerald-600 mr-1" />
+                                <span className="text-emerald-600">+{item.change}%</span>
+                              </>
+                            ) : (
+                              <>
+                                <ArrowDown className="h-4 w-4 text-rose-600 mr-1" />
+                                <span className="text-rose-600">{item.change}%</span>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-gray-600">{item.target}</TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(metrics as any)?.keyMetrics?.length > 0 ? (
-                        (metrics as any).keyMetrics.map((item: KeyMetric, i: number) => (
-                          <TableRow key={i} className="hover:bg-gray-50">
-                            <TableCell className="font-medium">{item.metric}</TableCell>
-                            <TableCell>{item.current}</TableCell>
-                            <TableCell className="text-gray-500">{item.previous}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center">
-                                {item.change > 0 ? (
-                                  <>
-                                    <ArrowUp className="h-4 w-4 text-emerald-600 mr-1" />
-                                    <span className="text-emerald-600">+{item.change}%</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <ArrowDown className="h-4 w-4 text-rose-600 mr-1" />
-                                    <span className="text-rose-600">{item.change}%</span>
-                                  </>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right font-medium text-gray-600">{item.target}</TableCell>
-                          </TableRow>
-                        ))
-                      ) : (
-                        // Use default data if metrics data is not available
-                        defaultData.keyMetrics.map((item, i) => (
-                          <TableRow key={i} className="hover:bg-gray-50">
-                            <TableCell className="font-medium">{item.metric}</TableCell>
-                            <TableCell>{item.current}</TableCell>
-                            <TableCell className="text-gray-500">{item.previous}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center">
-                                {item.change > 0 ? (
-                                  <>
-                                    <ArrowUp className="h-4 w-4 text-emerald-600 mr-1" />
-                                    <span className="text-emerald-600">+{item.change}%</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <ArrowDown className="h-4 w-4 text-rose-600 mr-1" />
-                                    <span className="text-rose-600">{item.change}%</span>
-                                  </>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right font-medium text-gray-600">{item.target}</TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+                    ))
+                  ) : (
+                    // Use default data if metrics data is not available
+                    defaultData.keyMetrics.map((item, i) => (
+                      <TableRow key={i} className="hover:bg-gray-50">
+                        <TableCell className="font-medium">{item.metric}</TableCell>
+                        <TableCell>{item.current}</TableCell>
+                        <TableCell className="text-gray-500">{item.previous}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center">
+                            {item.change > 0 ? (
+                              <>
+                                <ArrowUp className="h-4 w-4 text-emerald-600 mr-1" />
+                                <span className="text-emerald-600">+{item.change}%</span>
+                              </>
+                            ) : (
+                              <>
+                                <ArrowDown className="h-4 w-4 text-rose-600 mr-1" />
+                                <span className="text-rose-600">{item.change}%</span>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-medium text-gray-600">{item.target}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
 
-            {/* Category Distribution */}
-            <div className="lg:col-span-1">
+        {/* Category Distribution */}
+        <div className="lg:col-span-1">
+          <InteractiveChartWrapper
+            title="Category Distribution"
+            onRefresh={handleRefresh}
+            className="border-0"
+          >
+            {isLoading ? (
+              <div className="w-full h-[250px] flex items-center justify-center">
+                <Skeleton className="w-44 h-44 rounded-full" />
+              </div>
+            ) : (
+              <div className="w-full h-[250px] flex items-center justify-center">
+                <DonutChart
+                  data={categoryData.map((d: CategoryData) => ({
+                    name: d.name,
+                    value: d.value
+                  }))}
+                />
+              </div>
+            )}
+          </InteractiveChartWrapper>
+        </div>
+      </div>
+
+      {/* Custom Charts Section - Render user created charts */}
+      {customCharts.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold mb-4 flex items-center">
+            <ChartBar className="h-5 w-5 mr-2 text-emerald-600" />
+            Custom Charts
+            <Badge className="ml-2 bg-emerald-100 text-emerald-800">{customCharts.length}</Badge>
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {customCharts.map((chart) => (
               <InteractiveChartWrapper
-                title="Category Distribution"
+                key={chart.id}
+                title={chart.title}
                 onRefresh={handleRefresh}
                 className="border-0"
               >
-                {isLoading ? (
-                  <div className="w-full h-[250px] flex items-center justify-center">
-                    <Skeleton className="w-44 h-44 rounded-full" />
-                  </div>
-                ) : (
-                  <div className="w-full h-[250px] flex items-center justify-center">
-                    <DonutChart
-                      data={categoryData.map((d: CategoryData) => ({
-                        name: d.name,
-                        value: d.value
-                      }))}
-                    />
-                  </div>
-                )}
+                <div className="w-full h-[300px]">
+                  {chart.type === 'bar' && <BarChart data={chart.data} config={chart.config} />}
+                  {chart.type === 'line' && <LineChart data={chart.data} config={chart.config} />}
+                  {chart.type === 'donut' && <DonutChart data={chart.data} config={chart.config} />}
+                </div>
               </InteractiveChartWrapper>
-            </div>
+            ))}
           </div>
+        </div>
+      )}
 
-          {/* Custom Charts Section - Render user created charts */}
-          {customCharts.length > 0 && (
-            <div className="mt-8">
-              <h2 className="text-xl font-semibold mb-4 flex items-center">
-                <ChartBar className="h-5 w-5 mr-2 text-emerald-600" />
-                Custom Charts
-                <Badge className="ml-2 bg-emerald-100 text-emerald-800">{customCharts.length}</Badge>
-              </h2>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {customCharts.map((chart) => (
-                  <InteractiveChartWrapper
-                    key={chart.id}
-                    title={chart.title}
-                    onRefresh={handleRefresh}
-                    className="border-0"
-                  >
-                    <div className="w-full h-[300px]">
-                      {chart.type === 'bar' && <BarChart data={chart.data} />}
-                      {chart.type === 'line' && <LineChart data={chart.data} />}
-                      {chart.type === 'donut' && <DonutChart data={chart.data} />}
-                    </div>
-                  </InteractiveChartWrapper>
-                ))}
-              </div>
+      {/* Additional Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+        {/* Bar Chart - ESG Score Breakdown */}
+        <InteractiveChartWrapper
+          title="ESG Score Breakdown"
+          onRefresh={handleRefresh}
+          className="border-0"
+        >
+          {isLoading ? (
+            <div className="w-full h-[300px] flex items-center justify-center">
+              <Skeleton className="w-full h-full rounded-md" />
+            </div>
+          ) : (
+            <div className="w-full h-[300px]">
+              <BarChart
+                data={[
+                  {
+                    name: "Q1",
+                    value1: 65,  // Environmental
+                    value2: 48,  // Social
+                    value3: 76   // Governance
+                  },
+                  {
+                    name: "Q2",
+                    value1: 72,  // Environmental
+                    value2: 53,  // Social
+                    value3: 80   // Governance
+                  },
+                  {
+                    name: "Q3",
+                    value1: 78,  // Environmental
+                    value2: 60,  // Social
+                    value3: 85   // Governance
+                  },
+                  {
+                    name: "Q4",
+                    value1: 85,  // Environmental
+                    value2: 68,  // Social
+                    value3: 88   // Governance
+                  }
+                ]}
+              />
             </div>
           )}
+        </InteractiveChartWrapper>
 
-          {/* Additional Charts Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-            {/* Bar Chart - ESG Score Breakdown */}
-            <InteractiveChartWrapper
-              title="ESG Score Breakdown"
-              onRefresh={handleRefresh}
-              className="border-0"
-            >
-              {isLoading ? (
-                <div className="w-full h-[300px] flex items-center justify-center">
-                  <Skeleton className="w-full h-full rounded-md" />
-                </div>
-              ) : (
-                <div className="w-full h-[300px]">
-                  <BarChart
-                    data={[
-                      {
-                        name: "Q1",
-                        value1: 65,  // Environmental
-                        value2: 48,  // Social
-                        value3: 76   // Governance
-                      },
-                      {
-                        name: "Q2",
-                        value1: 72,  // Environmental
-                        value2: 53,  // Social
-                        value3: 80   // Governance
-                      },
-                      {
-                        name: "Q3",
-                        value1: 78,  // Environmental
-                        value2: 60,  // Social
-                        value3: 85   // Governance
-                      },
-                      {
-                        name: "Q4",
-                        value1: 85,  // Environmental
-                        value2: 68,  // Social
-                        value3: 88   // Governance
-                      }
-                    ]}
-                  />
-                </div>
-              )}
-            </InteractiveChartWrapper>
+        {/* Heatmap - Sustainability Impact Areas */}
+        <InteractiveChartWrapper
+          title="Sustainability Impact Areas"
+          onRefresh={handleRefresh}
+          className="border-0"
+        >
+          {isLoading ? (
+            <div className="w-full h-[300px] flex items-center justify-center">
+              <Skeleton className="w-full h-full rounded-md" />
+            </div>
+          ) : (
+            <div className="w-full h-[300px]">
+              <Heatmap
+                data={[
+                  { year: "Operations", emissions: 80, energy: 45, water: 72, waste: 92 },
+                  { year: "Supply Chain", emissions: 60, energy: 25, water: 82, waste: 78 },
+                  { year: "Logistics", emissions: 72, energy: 35, water: 45, waste: 90 },
+                  { year: "Offices", emissions: 40, energy: 50, water: 32, waste: 45 },
+                  { year: "Manufacturing", emissions: 95, energy: 75, water: 88, waste: 96 }
+                ]}
+              />
+            </div>
+          )}
+        </InteractiveChartWrapper>
+      </div>
 
-            {/* Heatmap - Sustainability Impact Areas */}
-            <InteractiveChartWrapper
-              title="Sustainability Impact Areas"
-              onRefresh={handleRefresh}
-              className="border-0"
-            >
-              {isLoading ? (
-                <div className="w-full h-[300px] flex items-center justify-center">
-                  <Skeleton className="w-full h-full rounded-md" />
-                </div>
-              ) : (
-                <div className="w-full h-[300px]">
-                  <Heatmap
-                    data={[
-                      { year: "Operations", emissions: 80, energy: 45, water: 72, waste: 92 },
-                      { year: "Supply Chain", emissions: 60, energy: 25, water: 82, waste: 78 },
-                      { year: "Logistics", emissions: 72, energy: 35, water: 45, waste: 90 },
-                      { year: "Offices", emissions: 40, energy: 50, water: 32, waste: 45 },
-                      { year: "Manufacturing", emissions: 95, energy: 75, water: 88, waste: 96 }
-                    ]}
-                  />
-                </div>
-              )}
-            </InteractiveChartWrapper>
-          </div>
+      {/* New Charts Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+        {/* Radar Chart - ESG Performance */}
+        <InteractiveChartWrapper
+          title="ESG Performance Radar"
+          onRefresh={handleRefresh}
+          className="border-0"
+        >
+          {isLoading ? (
+            <div className="w-full h-[300px] flex items-center justify-center">
+              <Skeleton className="w-full h-full rounded-md" />
+            </div>
+          ) : (
+            <div className="animate-fade-in">
+              <RadarChartDisplay />
+            </div>
+          )}
+        </InteractiveChartWrapper>
 
-          {/* New Charts Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-            {/* Radar Chart - ESG Performance */}
-            <InteractiveChartWrapper
-              title="ESG Performance Radar"
-              onRefresh={handleRefresh}
-              className="border-0"
-            >
-              {isLoading ? (
-                <div className="w-full h-[300px] flex items-center justify-center">
-                  <Skeleton className="w-full h-full rounded-md" />
-                </div>
-              ) : (
-                <div className="animate-fade-in">
-                  <RadarChartDisplay />
-                </div>
-              )}
-            </InteractiveChartWrapper>
-
-            {/* ESG Goals Progress */}
-            <InteractiveChartWrapper
-              title="ESG Goals & Milestones"
-              onRefresh={handleRefresh}
-              className="border-0"
-            >
-              {isLoading ? (
-                <div className="w-full h-[300px] flex items-center justify-center">
-                  <Skeleton className="w-full h-full rounded-md" />
-                </div>
-              ) : (
-                <div className="animate-fade-in">
-                  <ProgressGoalsTable isLoading={isLoading} />
-                </div>
-              )}
-            </InteractiveChartWrapper>
-          </div>
-        </TabsContent>
-
-        {/* Excel Analytics Tab Content */}
-        <TabsContent value="excel" className="space-y-4">
-          <div className="grid gap-4">
-            <ExcelAnalytics />
-          </div>
-        </TabsContent>
-      </Tabs>
+        {/* ESG Goals Progress */}
+        <InteractiveChartWrapper
+          title="ESG Goals & Milestones"
+          onRefresh={handleRefresh}
+          className="border-0"
+        >
+          {isLoading ? (
+            <div className="w-full h-[300px] flex items-center justify-center">
+              <Skeleton className="w-full h-full rounded-md" />
+            </div>
+          ) : (
+            <div className="animate-fade-in">
+              <ProgressGoalsTable isLoading={isLoading} />
+            </div>
+          )}
+        </InteractiveChartWrapper>
+      </div>
     </div>
   );
 }
+

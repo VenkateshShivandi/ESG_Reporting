@@ -1,84 +1,62 @@
 """
-ESG Reporting PDF Parsers
+ESG Reporting File Parsers
 
-This package provides functionality for parsing various document types,
-with a focus on PDF files for ESG reporting.
+This package contains modules for parsing various file types:
+- PDF files (pdf_parser.py)
+- Excel files (excel_parser.py)
+- Word documents (docx_parser.py)
+- PowerPoint presentations (pptx_parser.py)
+- CSV files (csv_parser.py)
+- Images (image_parser.py)
+- XML files (xml_parser.py)
 
-Main components:
-- ETL pipeline for creating semantically coherent chunks
+Each module provides a parse_* function that takes a file path
+and returns the extracted content.
 """
 
-import os
-import logging
+# Import all parsing functions for easy access
+from .pdf_parser import parse_pdf
+from .excel_parser import parse_excel
+from .docx_parser import parse_docx
+from .pptx_parser import parse_pptx
+from .csv_parser import parse_csv
+from .image_parser import parse_image
+from .xml_parser import parse_xml
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Import core functionality
-try:
-    from .esg_pdf_etl import run_etl_pipeline, extract_from_pdf, transform_content, load_chunks
-    # Updated imports from the utils package
-    from .utils.text_utils import clean_text, detect_language
-    from .utils.file_utils import create_directory
+# Main function to parse any file based on extension
+def parse_file(file_path):
+    """
+    Parse a file based on its extension and return the extracted content.
     
-    # Define parse_pdf to use extract_from_pdf for compatibility
-    def parse_pdf(file_path):
-        """
-        Parse a PDF file using the extract_from_pdf function from esg_pdf_etl.
+    Args:
+        file_path (str): Path to the file to parse
         
-        Args:
-            file_path (str): Path to the PDF file
-            
-        Returns:
-            dict: Extracted content and metadata
-        """
-        return extract_from_pdf(file_path)
-    
-    # Only import other parsers if explicitly requested (avoids warnings)
-    _SUPPRESS_PARSER_WARNINGS = True
-    parse_excel = None
-    parse_docx = None
-    parse_pptx = None
-    parse_csv = None
-    parse_image = None
-    parse_xml = None
-    
-    def parse_file(file_path):
-        """
-        Parse a file based on its extension.
+    Returns:
+        dict: Parsed content and metadata
         
-        Args:
-            file_path (str): Path to the file
-            
-        Returns:
-            dict: Parsed data
-        """
-        if not os.path.exists(file_path):
-            return {"error": f"File not found: {file_path}"}
-        
-        _, ext = os.path.splitext(file_path)
-        ext = ext.lower()[1:]  # Remove the dot
-        
-        # For PDF ETL, we only care about PDF files
-        if ext in ['pdf']:
-            return parse_pdf(file_path)
-        else:
-            return {"error": f"Only PDF files are supported in ETL mode"}
+    Raises:
+        ValueError: If the file type is not supported
+    """
+    import os
     
-except ImportError as e:
-    logger.error(f"Error importing parsers: {str(e)}")
+    # Get file extension
+    _, ext = os.path.splitext(file_path)
+    ext = ext.lower()[1:]  # Remove the dot and convert to lowercase
     
-    # Define empty functions as placeholders
-    def parse_file(file_path):
-        return {"error": "Parsers not available"}
-    
-    def parse_pdf(file_path):
-        return {"error": "PDF parser not available"}
-    
-    run_etl_pipeline = None
-    extract_from_pdf = None
-    transform_content = None
-    load_chunks = None
-
-# Empty file to mark as package 
+    # Parse based on file extension
+    if ext == 'pdf':
+        return parse_pdf(file_path)
+    elif ext in ['xlsx', 'xls']:
+        return parse_excel(file_path)
+    elif ext == 'docx':
+        return parse_docx(file_path)
+    elif ext == 'pptx':
+        return parse_pptx(file_path)
+    elif ext == 'csv':
+        return parse_csv(file_path)
+    elif ext in ['jpg', 'jpeg', 'png']:
+        return parse_image(file_path)
+    elif ext in ['xml', 'xhtml', 'svg', 'rss']:
+        return parse_xml(file_path)
+    else:
+        raise ValueError(f"Unsupported file type: {ext}") 

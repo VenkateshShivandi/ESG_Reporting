@@ -33,42 +33,8 @@
         ],
         "processing_time": 43.10479664802551
       }
-    },
-    {
-      "timestamp": "20250319_132807",
-      "readable_timestamp": "2025-03-19_13-28-07",
-      "output_path": "output/chunks/esg4/2025-03-19_13-27-50/esg4_chunks.json",
-      "chunk_count": 27,
-      "extraction_stats": {
-        "page_count": 9,
-        "best_text_extractor": "pymupdf",
-        "table_count": 6,
-        "image_count": 14,
-        "extraction_methods": [
-          "PyMuPDF",
-          "pdfminer",
-          "PyPDF2",
-          "camelot",
-          "pymupdf_images"
-        ],
-        "processing_time": 12.110049724578857
-      },
-      "transformation_stats": {
-        "page_count": 9,
-        "best_text_extractor": "pymupdf",
-        "table_count": 6,
-        "image_count": 14,
-        "extraction_methods": [
-          "PyMuPDF",
-          "pdfminer",
-          "PyPDF2",
-          "camelot",
-          "pymupdf_images"
-        ],
-        "processing_time": 12.110049724578857
-      }
     }
   ],
-  "last_updated": "20250319_132807",
+  "last_updated": "20250311_131905",
   "document_name": "esg4"
 }
