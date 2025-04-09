@@ -23,7 +23,6 @@ logger = logging.getLogger(__name__)
 # Try to import the required library
 try:
     import pandas as pd
-    import numpy as np
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
@@ -131,183 +130,6 @@ def extract_data_with_pandas(file_path: str, encoding: str = 'utf-8', delimiter:
         logger.error(f"Error extracting data with pandas: {str(e)}")
         return create_result_dict(error=f"Error parsing CSV file: {str(e)}")
 
-def clean_and_transform_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Clean and transform the extracted data by handling missing values, duplicates, outliers,
-    standardizing headers, and removing NA fields.
-    
-    This function performs the following transformations:
-    1. Standardizes column names (lowercase, spaces to underscores)
-    2. Handles missing values by dropping rows that are entirely empty
-    3. Removes columns that are entirely NA
-    4. Removes duplicate rows
-    5. Handles outliers in numerical columns using IQR method
-    
-    Args:
-        data (Dict[str, Any]): Dictionary with data extracted from CSV
-        
-    Returns:
-        Dict[str, Any]: Cleaned and transformed data
-    """
-    if not PANDAS_AVAILABLE:
-        logger.warning("Pandas not available. Skipping data cleaning and transformation.")
-        return data
-    
-    # Skip if no data or columns
-    if not data.get("data") or not data.get("columns"):
-        return data
-    
-    try:
-        columns = data["columns"]
-        rows = data["data"]
-        
-        # Convert to DataFrame for easier processing
-        df = pd.DataFrame(rows, columns=columns)
-        
-        # 1. Standardize column names
-        # Convert to lowercase, replace spaces with underscores, remove special characters
-        df.columns = [str(col).lower().strip()
-                      .replace(' ', '_')
-                      .replace('-', '_')
-                      .translate({ord(c): None for c in '!@#$%^&*()[]{};:,./<>?\\|`~=+'})  # Remove all special chars
-                      for col in df.columns]
-        
-        standardized_columns = df.columns.tolist()
-        
-        # 2. Handle missing values
-        # Replace empty strings with NaN for consistent handling
-        df = df.replace('', np.nan)
-        
-        # Drop rows where all values are NaN
-        df = df.dropna(how='all')
-        
-        # 3. Remove columns that are entirely NA
-        df = df.dropna(axis=1, how='all')
-        
-        # Update columns after column removal
-        standardized_columns = df.columns.tolist()
-        
-        # 4. Handle duplicates
-        # Remove duplicate rows
-        initial_row_count = len(df)
-        df = df.drop_duplicates()
-        if len(df) < initial_row_count:
-            logger.info(f"Removed {initial_row_count - len(df)} duplicate rows from CSV")
-        
-        # 5. Handle outliers for numerical columns
-        numerical_cols = df.select_dtypes(include=['number']).columns
-        for col in numerical_cols:
-            try:
-                # Check if we have enough non-null values to calculate statistics
-                if df[col].count() > 10:  # Arbitrary threshold, adjust as needed
-                    # Calculate Q1, Q3 and IQR
-                    Q1 = df[col].quantile(0.25)
-                    Q3 = df[col].quantile(0.75)
-                    IQR = Q3 - Q1
-                    
-                    # Define bounds for outliers
-                    lower_bound = Q1 - 1.5 * IQR
-                    upper_bound = Q3 + 1.5 * IQR
-                    
-                    # Count outliers
-                    outliers_count = df[(df[col] < lower_bound) | (df[col] > upper_bound)][col].count()
-                    
-                    # Replace outliers with NaN
-                    if outliers_count > 0:
-                        df.loc[(df[col] < lower_bound) | (df[col] > upper_bound), col] = np.nan
-                        logger.info(f"Handled {outliers_count} outliers in column '{col}'")
-            except Exception as e:
-                logger.warning(f"Failed to handle outliers in column '{col}': {str(e)}")
-        
-        # Store the cleaned data
-        cleaned_data = {
-            "columns": standardized_columns,
-            "data": df.values.tolist(),
-            "dataframe": df,  # Store DataFrame for further processing
-            "shape": df.shape,
-            "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
-        }
-        
-        return cleaned_data
-    except Exception as e:
-        logger.error(f"Error in clean_and_transform_data: {str(e)}")
-        return data
-
-def transform_numerical_data(data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Transform numerical data in the extracted data to appropriate numeric types.
-    
-    Args:
-        data (Dict[str, Any]): Dictionary with data extracted from CSV
-        
-    Returns:
-        Dict[str, Any]: Transformed data with proper numeric types
-    """
-    if not PANDAS_AVAILABLE:
-        logger.warning("Pandas not available. Skipping numerical data transformation.")
-        return data
-    
-    # Skip if no data or columns
-    if not data.get("data") or not data.get("columns"):
-        return data
-    
-    try:
-        # If a DataFrame is already available, use it
-        if "dataframe" in data:
-            df = data["dataframe"]
-        else:
-            # Convert to DataFrame
-            df = pd.DataFrame(data["data"], columns=data["columns"])
-        
-        # Identify numerical columns
-        numerical_columns = []
-        for col in df.columns:
-            # Check if column contains numerical data
-            if df[col].dropna().apply(lambda x: isinstance(x, (int, float))).all():
-                numerical_columns.append(col)
-        
-        # Transform numerical columns
-        for col in numerical_columns:
-            try:
-                # Check if values are integers or floats
-                if df[col].dropna().apply(lambda x: float(x) == int(float(x))).all():
-                    # All values are integers
-                    df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
-                else:
-                    # Some values are floats
-                    df[col] = pd.to_numeric(df[col], errors='coerce').astype('float')
-                
-                logger.info(f"Transformed column '{col}' to numeric type")
-            except Exception as e:
-                logger.warning(f"Failed to transform column '{col}': {str(e)}")
-        
-        # Generate statistics for numerical columns
-        stats = {}
-        for column in df.select_dtypes(include=['number']).columns:
-            stats[column] = {
-                "min": df[column].min(),
-                "max": df[column].max(),
-                "mean": df[column].mean(),
-                "median": df[column].median(),
-                "std": df[column].std()
-            }
-        
-        # Prepare transformed data
-        transformed_data = {
-            "columns": df.columns.tolist(),
-            "data": df.astype(object).where(pd.notnull(df), None).values.tolist(),
-            "shape": df.shape,
-            "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
-        }
-        
-        if stats:
-            transformed_data["statistics"] = stats
-        
-        return transformed_data
-    except Exception as e:
-        logger.error(f"Error in transform_numerical_data: {str(e)}")
-        return data
-
 def _parse_csv_internal(file_path: str) -> Dict[str, Any]:
     """
     Internal function to parse a CSV file.
@@ -327,7 +149,7 @@ def _parse_csv_internal(file_path: str) -> Dict[str, Any]:
         delimiter = detect_delimiter(file_path, encoding)
         
         # Extract data
-        extracted_data = extract_data_with_pandas(file_path, encoding, delimiter)
+        data = extract_data_with_pandas(file_path, encoding, delimiter)
         
         # Add metadata
         metadata = {
@@ -338,26 +160,13 @@ def _parse_csv_internal(file_path: str) -> Dict[str, Any]:
         }
         
         # If error occurred in data extraction
-        if "error" in extracted_data:
-            return extracted_data
-        
-        # Clean and transform the data
-        cleaned_data = clean_and_transform_data(extracted_data)
-        
-        # Transform numerical data
-        transformed_data = transform_numerical_data(cleaned_data)
-        
-        # Remove the DataFrame object before returning
-        if "dataframe" in transformed_data:
-            del transformed_data["dataframe"]
+        if "error" in data:
+            return data
         
         # Prepare result
         result = {
-            "metadata": {
-                **metadata,
-                "columns": transformed_data["columns"]
-            },
-            **transformed_data
+            "metadata": metadata,
+            **data
         }
         
         return result

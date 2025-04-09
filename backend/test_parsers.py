@@ -80,32 +80,19 @@ def save_result_to_file(result, output_path):
         output_path (str): Path to save the result to
     """
     try:
-        # Replace deprecated pandas.io.json.dumps with standard json.dumps
+        # If pandas is available, use it to ensure all objects are serializable
         try:
             import pandas as pd
-            # Updated to use pandas.json.dumps instead of pd.io.json.dumps (API change in newer pandas)
-            try:
-                result = json.loads(pd.json.dumps(result))
-            except AttributeError:
-                # Fallback for older pandas versions
-                try:
-                    result = json.loads(pd.io.json.dumps(result))
-                except AttributeError:
-                    # Handle numpy arrays or other non-standard types as strings
-                    class CustomEncoder(json.JSONEncoder):
-                        def default(self, obj):
-                            return str(obj)
-                    result = json.loads(json.dumps(result, cls=CustomEncoder))
+            result = json.loads(pd.io.json.dumps(result))
         except ImportError:
-            pass
+            # Handle numpy arrays or other non-standard types as strings
+            class CustomEncoder(json.JSONEncoder):
+                def default(self, obj):
+                    return str(obj)
+            result = json.loads(json.dumps(result, cls=CustomEncoder))
             
-        # Use standard JSON serialization with custom encoder
-        class CustomEncoder(json.JSONEncoder):
-            def default(self, obj):
-                return str(obj)
-                
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, cls=CustomEncoder, indent=2, ensure_ascii=False)
+            json.dump(result, f, indent=2, ensure_ascii=False)
             
         logger.info(f"Result saved to {output_path}")
     except Exception as e:
