@@ -988,7 +988,47 @@ function ChartGenerator({ setCustomCharts }: { setCustomCharts: React.Dispatch<R
               <span className="absolute inset-0 h-full w-full bg-white scale-0 group-hover:scale-100 opacity-0 group-hover:opacity-20 rounded-md transition-all duration-300"></span>
             </Button>
           </div>
-        </div>
+        )
+      case "manual":
+      default:
+        return (
+          <div className="space-y-3">
+            <div>
+              <Label htmlFor="data-points" className="text-sm text-slate-600 flex items-center">
+                <span>Number of Data Points</span>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <Info className="h-3 w-3 ml-1 text-slate-400" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p className="text-xs w-[200px]">Select how many time periods to include in your chart</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </Label>
+              <div className="flex items-center gap-2 mt-1">
+                <Input
+                  id="data-points"
+                  type="number"
+                  min={1}
+                  max={12}
+                  value={dataPoints}
+                  onChange={e => setDataPoints(Number(e.target.value))}
+                  className="w-full"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateData}
+                  className="whitespace-nowrap"
+                >
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  Generate Random
+                </Button>
+              </div>
+            </div>
+
 
         <div className="bg-slate-50 rounded-md flex flex-col items-center justify-center border border-slate-200 p-4 relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-white to-transparent opacity-70 z-0"></div>
@@ -1430,7 +1470,16 @@ export function AnalyticsPage() {
               Export
             </Button>
           </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-4 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-200"
+            onClick={() => setShowRefreshNotification(false)}
+          >
+            <XCircle className="h-4 w-4" />
+          </Button>
         </div>
+      )}
 
         {/* Dashboard Tab Content */}
         <TabsContent value="dashboard" className="space-y-6">

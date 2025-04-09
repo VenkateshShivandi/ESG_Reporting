@@ -405,6 +405,27 @@ function ChatPage() {
 
         // Update reports state and localStorage
         setReports(prev => [newReport, ...prev]);
+        
+        // Save to localStorage for persistence
+        try {
+          // Get existing reports from localStorage
+          const savedReportsJson = localStorage.getItem('generatedReports');
+          let savedReports = savedReportsJson ? JSON.parse(savedReportsJson) : [];
+          
+          // Add new report at the beginning
+          savedReports = [newReport, ...savedReports];
+          
+          // Save back to localStorage
+          localStorage.setItem('generatedReports', JSON.stringify(savedReports));
+          
+          // Dispatch event for ReportsPage to listen to
+          const newReportEvent = new CustomEvent('newReportGenerated', {
+            detail: { report: newReport }
+          });
+          window.dispatchEvent(newReportEvent);
+        } catch (error) {
+          console.error('Error saving report to localStorage:', error);
+        }
 
         // Save to localStorage
         try {
@@ -1384,6 +1405,7 @@ function ChatPage() {
                           className={`flex items-start gap-3 max-w-[85%] ${message.role === "assistant" ? "flex-row" : "flex-row-reverse"}`}
                         >
                           <Avatar className={`${message.role === "assistant" ? "h-8 w-8" : "h-7 w-7"} mt-1 rounded-full ${message.role === "assistant" ? "border-2 border-emerald-100" : ""}`}>
+
                             <AvatarFallback className={message.role === "assistant" ? "bg-gradient-to-br from-emerald-400 to-emerald-600" : "bg-blue-600"}>
                               {message.role === "assistant" ? <Bot className="h-4 w-4 text-white" /> : <User className="h-4 w-4 text-white" />}
                             </AvatarFallback>

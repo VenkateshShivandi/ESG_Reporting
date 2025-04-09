@@ -1,13 +1,12 @@
 "use client"
 
 import {
+  Radar,
   RadarChart as RechartsRadarChart,
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
-  Radar,
   ResponsiveContainer,
-  Tooltip,
   Legend,
 } from "recharts"
 
@@ -18,9 +17,26 @@ interface RadarChartProps {
     target: number
     industry: number
   }>
+  config?: {
+    title?: string
+    showLegend?: boolean
+    dataKeys?: string[]
+    colors?: string[]
+  }
 }
 
-export function RadarChart({ data }: RadarChartProps) {
+export function RadarChart({ data, config }: RadarChartProps) {
+  // Default configuration
+  const defaultConfig = {
+    showLegend: true,
+    dataKeys: ["current", "target", "industry"],
+    colors: ["#4CAF50", "#2196F3", "#FFC107"]
+  }
+
+  // Merge provided config with defaults
+  const mergedConfig = { ...defaultConfig, ...config }
+  const { showLegend, dataKeys, colors } = mergedConfig
+
   return (
     <div className="h-[300px] w-full">
       <ResponsiveContainer width="100%" height="100%">
@@ -28,17 +44,19 @@ export function RadarChart({ data }: RadarChartProps) {
           <PolarGrid />
           <PolarAngleAxis dataKey="subject" />
           <PolarRadiusAxis angle={30} domain={[0, 100]} />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: "white",
-              border: "1px solid #e2e8f0",
-              borderRadius: "6px",
-            }}
-          />
-          <Legend />
-          <Radar name="Current" dataKey="current" stroke="#4CAF50" fill="#4CAF50" fillOpacity={0.6} />
-          <Radar name="Target" dataKey="target" stroke="#1a237e" fill="#1a237e" fillOpacity={0.3} />
-          <Radar name="Industry Avg" dataKey="industry" stroke="#FFD700" fill="#FFD700" fillOpacity={0.3} />
+
+          {dataKeys.map((key, index) => (
+            <Radar
+              key={key}
+              name={key === "current" ? "Your Performance" : key === "target" ? "Target" : "Industry Average"}
+              dataKey={key}
+              stroke={colors[index]}
+              fill={colors[index]}
+              fillOpacity={0.2}
+            />
+          ))}
+
+          {showLegend && <Legend />}
         </RechartsRadarChart>
       </ResponsiveContainer>
     </div>

@@ -6,7 +6,7 @@ import { useState } from "react"
 import { useAuth } from "@/hooks/use-auth"
 import { toast } from "sonner"
 import {
-  UserIcon,
+  User,
   Mail,
   Calendar,
   Shield,
@@ -49,19 +49,19 @@ import {
 export default function ProfilePage() {
   const { user, session, signOut } = useAuth()
   const [isExporting, setIsExporting] = useState(false)
-
+  
   // Function to simulate data export (GDPR compliance)
   const handleExportData = async () => {
     setIsExporting(true)
     try {
-      // In a real implementation, this would call an API endpoint to generate
+      // In a real implementation, this would call an API endpoint to generate 
       // a downloadable file with all the user's personal data
       await new Promise((resolve) => setTimeout(resolve, 1500)) // Simulate API call
-
+      
       toast.success("Data export prepared", {
         description: "Your data export has been prepared and is ready for download.",
       })
-
+      
       // Create a dummy JSON file with user data for download
       const userData = {
         id: user?.id,
@@ -71,10 +71,10 @@ export default function ProfilePage() {
         lastSignIn: user?.last_sign_in_at,
         createdAt: user?.created_at,
       }
-
+      
       const dataStr = JSON.stringify(userData, null, 2)
       const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(dataStr)}`
-
+      
       const exportFileDefaultName = `user-data-${new Date().toISOString().split("T")[0]}.json`
 
       const linkElement = document.createElement("a")
@@ -90,24 +90,31 @@ export default function ProfilePage() {
       setIsExporting(false)
     }
   }
-
+  
   return (
     <div className="container mx-auto max-w-6xl p-6 relative">
       {/* Background pattern */}
       <div className="absolute inset-0 bg-gradient-to-b from-slate-50/50 to-white pointer-events-none -z-10"></div>
       <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNmMtMy4zMTQgMC02IDIuNjg2LTYgNnMyLjY4NiA2IDYgNnptMjQgMjRjMCAzLjMxNC0yLjY4NiA2LTYgNnMtNi0yLjY4Ni02LTZjMC0zLjMxNCAyLjY4Ni02IDYtNnM2IDIuNjg2IDYgNnptLTI0IDEyYy0zLjMxNCAwLTYgMi42ODYtNiA2czIuNjg2IDYgNiA2YzMuMzE0IDAgNi0yLjY4NiA2LTZzLTIuNjg2LTYtNi02ek0wIDZjMCAzLjMxNCAyLjY4NiA2IDYgNnM2LTIuNjg2IDYtNmMwLTMuMzE0LTIuNjg2LTYtNi02UzAgMi42ODYgMCA2eiIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utb3BhY2l0eT0iLjAyIiBzdHJva2Utd2lkdGg9IjIiLz48L2c+PC9zdmc+')] opacity-5 pointer-events-none -z-10"></div>
       
+      {/* Add subtle animated gradient background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none -z-20">
+        <div className="absolute -top-[40%] -right-[60%] w-[80%] h-[80%] rounded-full bg-blue-100/20 blur-3xl"></div>
+        <div className="absolute -bottom-[40%] -left-[60%] w-[80%] h-[80%] rounded-full bg-emerald-100/20 blur-3xl"></div>
+        <div className="absolute top-[30%] left-[20%] w-[40%] h-[40%] rounded-full bg-purple-100/10 blur-3xl"></div>
+      </div>
+      
       {/* Profile Header - Modernized with gradient background and animations */}
-      <div className="mb-12 bg-gradient-to-r from-emerald-50 via-emerald-50 to-blue-50 rounded-3xl p-8 shadow-md relative overflow-hidden">
-        <div className="absolute top-0 right-0 h-full w-1/2 bg-gradient-to-l from-blue-100/20 to-transparent"></div>
+      <div className="mb-12 overflow-hidden rounded-3xl bg-gradient-to-r from-emerald-50 via-blue-50 to-purple-50 p-8 shadow-lg relative">
+        <div className="absolute top-0 right-0 h-full w-1/2 bg-gradient-to-l from-purple-100/30 to-transparent"></div>
         <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxwYXRoIGQ9Ik0zNiAxOGMzLjMxNCAwIDYtMi42ODYgNi02cy0yLjY4Ni02LTYtNmMtMy4zMTQgMC02IDIuNjg2LTYgNnMyLjY4NiA2IDYgNnptMjQgMjRjMCAzLjMxNC0yLjY4NiA2LTYgNnMtNi0yLjY4Ni02LTZjMC0zLjMxNCAyLjY4Ni02IDYtNnM2IDIuNjg2IDYgNnptLTI0IDEyYy0zLjMxNCAwLTYgMi42ODYtNiA2czIuNjg2IDYgNiA2YzMuMzE0IDAgNi0yLjY4NiA2LTZzLTIuNjg2LTYtNi02ek0wIDZjMCAzLjMxNCAyLjY4NiA2IDYgNnM2LTIuNjg2IDYtNmMwLTMuMzE0LTIuNjg2LTYtNi02UzAgMi42ODYgMCA2eiIgc3Ryb2tlPSIjMDAwIiBzdHJva2Utb3BhY2l0eT0iLjAyIiBzdHJva2Utd2lkdGg9IjIiLz48L2c+PC9zdmc+')] opacity-5"></div>
         <div className="flex flex-col md:flex-row md:items-center md:justify-between relative z-10">
           <div className="flex items-center gap-6">
             <div className="relative">
-              <div className="absolute inset-0 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 blur-lg opacity-30 animate-pulse"></div>
+              <div className="absolute inset-0 rounded-full bg-gradient-to-br from-emerald-400 via-blue-400 to-purple-500 blur-xl opacity-40 animate-pulse"></div>
               <div className="relative group">
-                <Avatar className="h-24 w-24 border-4 border-white shadow-xl relative transition-transform duration-300 group-hover:scale-105">
-                  <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-emerald-700 text-2xl font-bold text-white">
+                <Avatar className="h-28 w-28 border-4 border-white shadow-xl relative transition-transform duration-300 group-hover:scale-105">
+                  <AvatarFallback className="bg-gradient-to-br from-emerald-500 to-blue-600 text-3xl font-bold text-white">
                     {user?.email ? user.email.charAt(0).toUpperCase() : "U"}
                   </AvatarFallback>
                 </Avatar>
@@ -125,8 +132,8 @@ export default function ProfilePage() {
                   </Badge>
                   <span className="absolute inset-0 rounded-full bg-emerald-500 animate-ping opacity-20"></span>
                 </div>
-              </div>
-              <p className="text-lg text-slate-500 flex items-center gap-1">
+        </div>
+              <p className="text-lg text-slate-500 flex items-center gap-2">
                 <Mail className="h-4 w-4 text-slate-400" /> 
                 {user?.email}
               </p>
@@ -136,7 +143,7 @@ export default function ProfilePage() {
           <div className="mt-6 flex flex-wrap gap-3 md:mt-0">
             <Dialog>
               <DialogTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-1.5 bg-white shadow-sm hover:shadow-md transition-all border-0">
+                <Button variant="ghost" size="sm" className="gap-1.5 bg-white shadow-sm hover:shadow-md transition-all border-0 hover:bg-slate-50">
                   <Edit className="h-4 w-4 text-emerald-600" />
                   <span className="font-medium">Edit Profile</span>
                 </Button>
@@ -157,7 +164,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700">Save changes</Button>
+                  <Button type="submit" className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700">Save changes</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -174,20 +181,20 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
-
+      
       {/* Account Section */}
       <div className="space-y-10">
         <div className="w-full">
           {/* Personal Information */}
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-2xl font-bold text-slate-800">Personal Information</h2>
-            <Button variant="ghost" size="sm" className="text-emerald-600 hover:text-emerald-700 gap-1.5 px-0">
+            <Button variant="ghost" size="sm" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 gap-1.5 px-0">
               <Edit className="h-4 w-4" />
               <span className="font-medium">Edit</span>
             </Button>
           </div>
           
-          <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-all duration-300">
             <div className="divide-y divide-slate-100">
               <div className="flex items-center gap-4 p-5 hover:bg-slate-50 transition-all duration-300 cursor-pointer group">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-500 transition-transform group-hover:scale-110 duration-300">
@@ -205,19 +212,19 @@ export default function ProfilePage() {
               <div className="flex items-center gap-4 p-5 hover:bg-slate-50 transition-all duration-300 cursor-pointer group">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-amber-500 transition-transform group-hover:scale-110 duration-300">
                   <Calendar className="h-6 w-6" />
-                </div>
+            </div>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-slate-500 group-hover:text-slate-700 transition-colors">Account Created</p>
                   <p className="text-base font-medium text-slate-900">
-                    {user?.created_at
+                {user?.created_at
                       ? new Date(user.created_at).toLocaleDateString("en-US", {
                           year: "numeric",
                           month: "long",
                           day: "numeric",
                         })
                       : "N/A"}
-                  </p>
-                </div>
+              </p>
+            </div>
               </div>
 
               <div className="flex items-center gap-4 p-5 hover:bg-slate-50 transition-all duration-300 cursor-pointer group">
@@ -227,10 +234,10 @@ export default function ProfilePage() {
                 <div className="flex-1">
                   <p className="text-sm font-medium text-slate-500 group-hover:text-slate-700 transition-colors">Authentication Method</p>
                   <p className="text-base font-medium text-slate-900">
-                    {user?.app_metadata?.provider
-                      ? `${user.app_metadata.provider.charAt(0).toUpperCase()}${user.app_metadata.provider.slice(1)}`
+                {user?.app_metadata?.provider
+                  ? `${user.app_metadata.provider.charAt(0).toUpperCase()}${user.app_metadata.provider.slice(1)}`
                       : "Email"}
-                  </p>
+              </p>
                 </div>
               </div>
             </div>
@@ -239,11 +246,11 @@ export default function ProfilePage() {
 
         {/* Data Management */}
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 mb-4">Data Management</h2>
+          <h2 className="text-2xl font-bold text-slate-800 mb-3">Data Management</h2>
           
-          <div className="bg-gradient-to-r from-slate-50 to-blue-50 rounded-2xl p-8 mb-8 shadow-sm border border-slate-100">
-            <div className="flex items-start gap-5">
-              <div className="rounded-full bg-gradient-to-br from-blue-100 to-blue-200 p-3.5 text-blue-600 flex-shrink-0 shadow-inner">
+          <div className="bg-gradient-to-r from-slate-50 to-blue-50 rounded-2xl p-8 mb-8 shadow-md border border-blue-100/30">
+            <div className="flex flex-col sm:flex-row items-start gap-5">
+              <div className="rounded-full bg-gradient-to-br from-blue-100 to-blue-200 p-4 text-blue-600 flex-shrink-0 shadow-md">
                 <AlertTriangle className="h-6 w-6" />
               </div>
               <div>
@@ -263,7 +270,7 @@ export default function ProfilePage() {
           <div className="flex flex-col space-y-4 sm:flex-row sm:justify-between sm:space-y-0 sm:gap-4">
             <Button
               variant="outline"
-              className="group gap-2 sm:w-auto w-full justify-center bg-white py-6 px-5 shadow-sm hover:shadow-md transition-all duration-300 border-0 rounded-xl relative overflow-hidden"
+              className="group relative overflow-hidden gap-2 sm:w-auto w-full justify-center bg-white py-6 px-5 shadow-sm hover:shadow-md transition-all duration-300 border-0 rounded-xl"
               onClick={handleExportData}
               disabled={isExporting}
             >
@@ -295,7 +302,7 @@ export default function ProfilePage() {
                     <Trash2 className="h-4 w-4" />
                   </div>
                   <span className="font-medium group-hover:tracking-wide transition-all duration-300">Delete account</span>
-                </Button>
+            </Button>
               </AlertDialogTrigger>
               <AlertDialogContent className="bg-white rounded-2xl border-0 shadow-lg">
                 <AlertDialogHeader>

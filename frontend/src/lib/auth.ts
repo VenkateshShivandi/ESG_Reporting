@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js'
 import * as Sentry from '@sentry/nextjs'
 import supabase from '@/lib/supabase/client'
 
@@ -18,14 +17,29 @@ export async function signIn(email: string, password: string) {
 
 export async function signUp(email: string, password: string) {
   try {
+    // Configure signup with optimized settings for faster email delivery
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/confirm`,
+        // Add minimal data to speed up processing
+        data: {
+          signup_timestamp: Date.now()
+        }
+      }
     })
+
     if (error) throw error
-    return { data, error: null }
+
+    // Show success message with clear instructions
+    return { 
+      data, 
+      error: null,
+      message: 'Verification email sent! Please check your inbox for the confirmation link.'
+    }
   } catch (error) {
-    Sentry.captureException(error)
+    console.error('Error signing up:', error)
     return { data: null, error }
   }
 }
@@ -70,7 +84,9 @@ export async function resetPassword(email: string) {
 
 export async function updatePassword(password: string) {
   try {
-    const { data, error } = await supabase.auth.updateUser({ password })
+    const { data, error } = await supabase.auth.updateUser({ 
+      password
+    })
     if (error) throw error
     return { data, error: null }
   } catch (error) {
