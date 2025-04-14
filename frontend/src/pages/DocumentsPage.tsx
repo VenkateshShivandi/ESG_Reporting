@@ -24,7 +24,8 @@ import {
   MoreVertical,
   Edit,
   FolderInput,
-  RefreshCw
+  RefreshCw,
+  GripVertical
 } from "lucide-react"
 import { documentsApi } from "@/lib/api/documents"
 import { Button } from "@/components/ui/button"
@@ -57,6 +58,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import DraggableFileItem from "@/components/documents/DraggableFileItem"
+import DroppableFolderItem from "@/components/documents/DroppableFolderItem"
+import { DragItem } from "@/lib/hooks/useDragDrop"
+import { useFilesStore } from "@/lib/store/files-store"
 
 type Props = {}
 
@@ -103,6 +108,10 @@ const DocumentsPage: NextPage<Props> = () => {
   const [renamingItem, setRenamingItem] = useState<FileItem | null>(null)
   const [newItemName, setNewItemName] = useState("")
   const renameInputRef = useRef<HTMLInputElement>(null)
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false)
+  const [newFolderName, setNewFolderName] = useState("")
+  const [filesToMove, setFilesToMove] = useState<{ fileId: string; filePath: string[] }[]>([])
+
   // create a unique identifier for comparing the item being renamed
   const getItemUniqueId = useCallback((item: FileItem) => {
     // use the path+name as the unique identifier, to avoid the problem of id being null
@@ -646,248 +655,427 @@ const DocumentsPage: NextPage<Props> = () => {
     )
   }
 
-  return (
-    <div className="flex flex-col h-full bg-background rounded-lg border shadow-sm">
-      <div className="border-b">
-        <div className="flex items-center justify-between p-4">
-          <div className="flex items-center space-x-2">
-            <h1 className="text-2xl font-semibold">ESG Documents</h1>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Input
-              type="file"
-              multiple
-              className="hidden"
-              id="file-upload"
-              onChange={handleFileUpload}
-              accept={ALLOWED_FILE_TYPES}
-            />
-            <label htmlFor="file-upload">
-              <Button variant="outline" className="cursor-pointer" asChild>
-                <span>
-                  {isUploading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  ) : (
-                    <Upload className="w-4 h-4 mr-2" />
-                  )}
-                  Upload Files
-                </span>
-              </Button>
-            </label>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="outline">
-                  <FolderOpen className="w-4 h-4 mr-2" />
-                  New Folder
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create New Folder</DialogTitle>
-                  <DialogDescription>Enter a name for your new folder</DialogDescription>
-                </DialogHeader>
-                <Input
-                  id="folder-name"
-                  placeholder="Folder name"
-                  className="mt-4"
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const input = e.currentTarget
-                      handleCreateFolder(input.value)
-                      input.value = ""
-                      e.currentTarget.closest("dialog")?.close()
-                    }
-                  }}
-                />
-                <DialogFooter className="mt-4">
-                  <Button
-                    onClick={(e) => {
-                      const input = document.getElementById("folder-name") as HTMLInputElement
-                      handleCreateFolder(input.value)
-                      input.value = ""
-                      e.currentTarget.closest("dialog")?.close()
-                    }}
-                  >
-                    Create
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-            <Button variant="outline" disabled={selectedItems.length === 0} onClick={() => handleDelete()}>
-              <Trash2 className="w-4 h-4 mr-2" />
-              Delete
-            </Button>
-          </div>
-        </div>
-        <Breadcrumb className="px-4 py-2">
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink onClick={() => setCurrentPath([])}>Home</BreadcrumbLink>
-            </BreadcrumbItem>
-            {currentPath.map((folder, index) => (
-              <React.Fragment key={index}>
-                <BreadcrumbSeparator>
-                  <ChevronRight className="h-4 w-4" />
-                </BreadcrumbSeparator>
-                <BreadcrumbItem>
-                  <BreadcrumbLink onClick={() => setCurrentPath(currentPath.slice(0, index + 1))}>
-                    {folder}
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-              </React.Fragment>
-            ))}
-          </BreadcrumbList>
-        </Breadcrumb>
-      </div>
+  // Function to handle file drop onto a folder
+  const handleFileDrop = async (droppedFile: DragItem, targetPath: string[]) => {
+    try {
+      // Find the actual file object from our state
+      const fileItem = files.find(
+        (f) => f.id === droppedFile.id && 
+        JSON.stringify(f.path) === JSON.stringify(droppedFile.path)
+      )
+      
+      if (!fileItem) {
+        toast.error("File not found")
+        return
+      }
+      
+      // Check if it's a folder being dropped to itself or its subdirectory
+      if (fileItem.type === "folder") {
+        const targetPathStr = targetPath.join('/')
+        const filePathStr = [...fileItem.path, fileItem.name].join('/')
+        
+        if (targetPathStr.startsWith(filePathStr)) {
+          toast.error("Cannot move a folder into itself or its subdirectory")
+          return
+        }
+      }
+      
+      // Construct old and new paths for the rename operation
+      const oldPathArray = [...fileItem.path, fileItem.name]
+      const oldPath = oldPathArray.join('/')
+      const newPath = [...targetPath, fileItem.name].join('/')
+      
+      console.log(`Moving ${oldPath} to ${newPath}`)
+      
+      // Call the renameItem API function to move the file
+      const response = await documentsApi.renameItem(oldPath, newPath)
+      
+      if (response.success) {
+        // Update the file's path in our state
+        const updatedFileItem = {
+          ...fileItem,
+          path: targetPath
+        }
+        
+        // Update the file in the store
+        useFilesStore.getState().updateFile(fileItem.id, updatedFileItem)
+        
+        // Reload the files to reflect changes
+        await loadFiles()
+        
+        toast.success(`Moved ${fileItem.name} successfully`)
+      } else {
+        toast.error(`Failed to move ${fileItem.name}`)
+      }
+    } catch (error) {
+      console.error("Error in handleFileDrop:", error)
+      toast.error("Failed to move file")
+    }
+  }
+  
+  // Function to handle file drop onto another file (to create a folder)
+  const handleFileToFileDrop = async (droppedFile: DragItem, targetFile: FileItem) => {
+    try {
+      // Don't allow dropping a file onto itself
+      if (droppedFile.id === targetFile.id) {
+        return
+      }
+      
+      // Find the actual source file from our state
+      const sourceFile = files.find(
+        (f) => f.id === droppedFile.id && 
+        JSON.stringify(f.path) === JSON.stringify(droppedFile.path)
+      )
+      
+      if (!sourceFile) {
+        toast.error("Source file not found")
+        return
+      }
+      
+      // Check if both files are in the same directory
+      if (JSON.stringify(sourceFile.path) !== JSON.stringify(targetFile.path)) {
+        toast.error("Files must be in the same folder to create a new folder")
+        return
+      }
+      
+      // Set up for folder creation
+      setIsCreatingFolder(true)
+      setNewFolderName("New Folder")
+      setFilesToMove([
+        { fileId: sourceFile.id, filePath: [...sourceFile.path, sourceFile.name] },
+        { fileId: targetFile.id, filePath: [...targetFile.path, targetFile.name] }
+      ])
+    } catch (error) {
+      console.error("Error in handleFileToFileDrop:", error)
+      toast.error("Failed to prepare folder creation")
+    }
+  }
+  
+  // Function to create a folder and move files into it
+  const handleCreateFolderAndMoveFiles = async () => {
+    if (!newFolderName.trim()) {
+      toast.error("Please enter a folder name")
+      return
+    }
+    
+    if (filesToMove.length === 0) {
+      setIsCreatingFolder(false)
+      return
+    }
+    
+    try {
+      // Get the path of the parent directory
+      const parentPath = filesToMove[0].filePath.slice(0, -1) // Remove filename
+      
+      // Create the new folder
+      await documentsApi.createFolder(newFolderName, parentPath)
+      
+      // Move each file to the new folder
+      for (const file of filesToMove) {
+        const oldPath = file.filePath.join('/')
+        const newPath = [...parentPath, newFolderName, file.filePath[file.filePath.length - 1]].join('/')
+        
+        await documentsApi.renameItem(oldPath, newPath)
+      }
+      
+      // Reset state
+      setIsCreatingFolder(false)
+      setFilesToMove([])
+      
+      // Reload the files
+      await loadFiles()
+      
+      toast.success(`Created folder and moved files successfully`)
+    } catch (error) {
+      console.error("Error creating folder and moving files:", error)
+      toast.error("Failed to create folder and move files")
+    }
+  }
 
-      <div className="flex-1 p-4 overflow-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[30px]">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300"
-                  checked={
-                    getCurrentFolderItems().length > 0 &&
-                    selectedItems.length === getCurrentFolderItems().length
-                  }
-                  onChange={handleSelectAll}
-                />
-              </TableHead>
-              <TableHead className="w-[400px]">Name</TableHead>
-              <TableHead>Size</TableHead>
-              <TableHead>Modified</TableHead>
-              <TableHead className="w-[100px]">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {getCurrentFolderItems().map((item) => (
-              <TableRow
-                key={item.name}
-                className={`${selectedItems.includes([...currentPath, item.name].join('/')) ? "bg-muted" : ""
-                  } ${item.type === "folder" ? "cursor-pointer hover:bg-muted/50" : ""
-                  }`}
-                onClick={(e) => {
-                  if (item.type === "folder" && !(e.target as HTMLElement).closest('input[type="checkbox"]')) {
-                    setCurrentPath([...currentPath, item.name])
-                  } else {
-                    handleSelectItem(item.name)
-                  }
-                }}
-              >
-                <TableCell className="w-[30px]" onClick={(e) => e.stopPropagation()}>
+  const navigateToFolder = (folderName: string) => {
+    setCurrentPath([...currentPath, folderName]);
+  }
+
+  return (
+    <div className="container mx-auto p-4 lg:p-8">
+      <div className="flex flex-col h-full bg-background rounded-lg border shadow-sm">
+        <div className="border-b">
+          <div className="flex items-center justify-between p-4">
+            <div className="flex items-center space-x-2">
+              <h1 className="text-2xl font-semibold">ESG Documents</h1>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Input
+                type="file"
+                multiple
+                className="hidden"
+                id="file-upload"
+                onChange={handleFileUpload}
+                accept={ALLOWED_FILE_TYPES}
+              />
+              <label htmlFor="file-upload">
+                <Button variant="outline" className="cursor-pointer" asChild>
+                  <span>
+                    {isUploading ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Upload className="w-4 h-4 mr-2" />
+                    )}
+                    Upload Files
+                  </span>
+                </Button>
+              </label>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    <FolderOpen className="w-4 h-4 mr-2" />
+                    New Folder
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Create New Folder</DialogTitle>
+                    <DialogDescription>Enter a name for your new folder</DialogDescription>
+                  </DialogHeader>
+                  <Input
+                    id="folder-name"
+                    placeholder="Folder name"
+                    className="mt-4"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const input = e.currentTarget
+                        handleCreateFolder(input.value)
+                        input.value = ""
+                        e.currentTarget.closest("dialog")?.close()
+                      }
+                    }}
+                  />
+                  <DialogFooter className="mt-4">
+                    <Button
+                      onClick={(e) => {
+                        const input = document.getElementById("folder-name") as HTMLInputElement
+                        handleCreateFolder(input.value)
+                        input.value = ""
+                        e.currentTarget.closest("dialog")?.close()
+                      }}
+                    >
+                      Create
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              <Button variant="outline" disabled={selectedItems.length === 0} onClick={() => handleDelete()}>
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete
+              </Button>
+            </div>
+          </div>
+          <Breadcrumb className="px-4 py-2">
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink onClick={() => setCurrentPath([])}>Home</BreadcrumbLink>
+              </BreadcrumbItem>
+              {currentPath.map((folder, index) => (
+                <React.Fragment key={index}>
+                  <BreadcrumbSeparator>
+                    <ChevronRight className="h-4 w-4" />
+                  </BreadcrumbSeparator>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink onClick={() => setCurrentPath(currentPath.slice(0, index + 1))}>
+                      {folder}
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                </React.Fragment>
+              ))}
+            </BreadcrumbList>
+          </Breadcrumb>
+        </div>
+
+        <div className="flex-1 p-4 overflow-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[30px]">
                   <input
                     type="checkbox"
                     className="h-4 w-4 rounded border-gray-300"
-                    checked={selectedItems.includes([...currentPath, item.name].join('/'))}
-                    onChange={() => handleSelectItem(item.name)}
+                    checked={
+                      getCurrentFolderItems().length > 0 &&
+                      selectedItems.length === getCurrentFolderItems().length
+                    }
+                    onChange={handleSelectAll}
                   />
-                </TableCell>
-                <TableCell className="font-medium">
-                  <div className="flex items-center space-x-2">
-                    {getFileIcon(item.name, item.type)}
+                </TableHead>
+                <TableHead className="w-[400px]">Name</TableHead>
+                <TableHead>Size</TableHead>
+                <TableHead>Modified</TableHead>
+                <TableHead className="w-[100px]">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {getCurrentFolderItems().map((item, index) => (
+                <TableRow
+                  key={`${item.id}-${index}`}
+                  className={`hover:bg-slate-50 dark:hover:bg-slate-900 ${selectedItems.includes([...currentPath, item.name].join('/')) ? 'bg-blue-50 dark:bg-blue-950' : ''}`}
+                >
+                  <TableCell className="w-10">
+                    <input
+                      type="checkbox"
+                      checked={selectedItems.includes([...currentPath, item.name].join('/'))}
+                      onChange={() => handleSelectItem(item.name)}
+                      className="h-4 w-4 rounded border-gray-300"
+                    />
+                  </TableCell>
+                  <TableCell>
                     {renamingItem && getItemUniqueId(renamingItem) === getItemUniqueId(item) ? (
-                      <form
-                        onSubmit={handleSubmitRename}
-                        className="flex items-center"
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <div className="flex items-center space-x-2">
                         <Input
                           ref={renameInputRef}
                           value={newItemName}
                           onChange={(e) => setNewItemName(e.target.value)}
-                          className="h-8 min-w-[180px] border-blue-400 focus-visible:ring-blue-400"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Escape') {
-                              handleCancelRename()
-                            } else if (e.key === 'Enter') {
-                              handleSubmitRename(e)
-                            }
-                            e.stopPropagation();
-                          }}
-                          onClick={(e) => e.stopPropagation()}
+                          className="w-60"
+                          autoFocus
                         />
-                      </form>
-                    ) : (
-                      <span>{item.name}</span>
-                    )}
-                    {uploadProgress[item.id] !== undefined && (
-                      <div className="w-24 h-1 ml-2 bg-gray-200 rounded-full">
-                        <div
-                          className="h-full bg-[#2E7D32] rounded-full"
-                          style={{ width: `${uploadProgress[item.id]}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>{formatFileSize(item.size)}</TableCell>
-                <TableCell>
-                  {typeof item.modified === 'string'
-                    ? new Date(item.modified).toLocaleDateString()
-                    : item.modified instanceof Date
-                      ? item.modified.toLocaleDateString()
-                      : new Date().toLocaleDateString()}
-                </TableCell>
-                <TableCell onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center space-x-2">
-                    {item.type === "file" && item.processed && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => viewFileDetails(item)}
-                        title="View Details"
-                      >
-                        <Info className="w-4 h-4" />
-                      </Button>
-                    )}
-
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" title="More actions">
-                          <MoreVertical className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleStartRename(item)}>
-                          <Edit className="w-4 h-4 mr-2" />
-                          <span>Rename</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleMoveItem(item)}>
-                          <FolderInput className="w-4 h-4 mr-2" />
-                          <span>Move to folder</span>
-                        </DropdownMenuItem>
-                        {item.type === "file" && (
-                          <DropdownMenuItem onClick={() => handleReUpload(item)}>
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                            <span>Re-upload</span>
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            const fullPath = currentPath.length > 0
-                              ? `${currentPath.join('/')}/${item.name}`
-                              : item.name
-                            handleDelete(fullPath)
-                          }}
-                          className="text-red-500 hover:text-red-600 focus:text-red-600"
+                        <Button 
+                          size="sm" 
+                          onClick={handleSubmitRename}
+                          variant="default"
                         >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          <span>Delete</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                          Save
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          onClick={handleCancelRename}
+                          variant="outline"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      item.type === "folder" ? (
+                        <DroppableFolderItem 
+                          folder={item}
+                          onFileDrop={handleFileDrop}
+                        >
+                          <div onClick={() => navigateToFolder(item.name)} className="flex items-center cursor-pointer">
+                            {getFileIcon(item.name, item.type)}
+                            <span className="ml-2 font-medium hover:underline">
+                              {item.name}
+                            </span>
+                          </div>
+                        </DroppableFolderItem>
+                      ) : (
+                        <DraggableFileItem 
+                          file={item}
+                          onFileToFileDrop={handleFileToFileDrop}
+                        >
+                          <div className="flex items-center">
+                            {getFileIcon(item.name, item.type)}
+                            <span className="ml-2">
+                              {item.name}
+                            </span>
+                          </div>
+                        </DraggableFileItem>
+                      )
+                    )}
+                  </TableCell>
+                  <TableCell>{formatFileSize(item.size)}</TableCell>
+                  <TableCell>
+                    {typeof item.modified === 'string'
+                      ? new Date(item.modified).toLocaleDateString()
+                      : item.modified instanceof Date
+                        ? item.modified.toLocaleDateString()
+                        : new Date().toLocaleDateString()}
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center space-x-2">
+                      {item.type === "file" && item.processed && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => viewFileDetails(item)}
+                          title="View Details"
+                        >
+                          <Info className="w-4 h-4" />
+                        </Button>
+                      )}
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" title="More actions">
+                            <MoreVertical className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleStartRename(item)}>
+                            <Edit className="w-4 h-4 mr-2" />
+                            <span>Rename</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleMoveItem(item)}>
+                            <FolderInput className="w-4 h-4 mr-2" />
+                            <span>Move to folder</span>
+                          </DropdownMenuItem>
+                          {item.type === "file" && (
+                            <DropdownMenuItem onClick={() => handleReUpload(item)}>
+                              <RefreshCw className="w-4 h-4 mr-2" />
+                              <span>Re-upload</span>
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              const fullPath = currentPath.length > 0
+                                ? `${currentPath.join('/')}/${item.name}`
+                                : item.name
+                              handleDelete(fullPath)
+                            }}
+                            className="text-red-500 hover:text-red-600 focus:text-red-600"
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            <span>Delete</span>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        {fileDetails && <FileDetailsDialog />}
+        <Dialog open={isCreatingFolder} onOpenChange={(open) => !open && setIsCreatingFolder(false)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Create New Folder</DialogTitle>
+              <DialogDescription>
+                Enter a name for the new folder that will contain the selected files.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Input
+                  id="folderName"
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  className="col-span-4"
+                  placeholder="Folder name"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button onClick={() => setIsCreatingFolder(false)} variant="outline">
+                Cancel
+              </Button>
+              <Button onClick={handleCreateFolderAndMoveFiles}>
+                Create Folder
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
-      {fileDetails && <FileDetailsDialog />}
     </div>
   )
 }
