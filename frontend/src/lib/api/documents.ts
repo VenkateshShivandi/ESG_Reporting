@@ -33,6 +33,21 @@ api.interceptors.request.use(async (config) => {
   return config
 })
 
+// Add these types
+export type ChunkResult = {
+  success: boolean;
+  fileId: string;
+  chunks: number;
+  originalFile: string;
+  chunkPaths: string[];
+}
+
+export type Chunk = {
+  id: string;
+  title: string;
+  preview: string;
+}
+
 export const documentsApi = {
   // List all files in a directory
   listFiles: async (path: string[] = []): Promise<FileItem[]> => {
@@ -569,5 +584,42 @@ export const documentsApi = {
       console.error('❌ API Error in getStorageQuota:', error)
       throw error
     }
-  }
+  },
+
+  // Add these functions to the documentsApi object
+  createChunks: async (filePath: string): Promise<ChunkResult> => {
+    try {
+      console.log('📞 API Call - createChunks:', { filePath })
+      const response = await api.post('/api/chunk-file', { filePath })
+      console.log('📥 API Response:', response.data)
+      return response.data
+    } catch (error) {
+      console.error('❌ API Error in createChunks:', error)
+      throw error
+    }
+  },
+
+  listChunks: async (fileId: string): Promise<{ chunks: Chunk[]; totalChunks: number }> => {
+    try {
+      console.log('📞 API Call - listChunks:', { fileId })
+      const response = await api.get(`/api/chunks/${fileId}`)
+      console.log('📥 API Response:', response.data)
+      return response.data
+    } catch (error) {
+      console.error('❌ API Error in listChunks:', error)
+      throw error
+    }
+  },
+
+  getChunk: async (fileId: string, chunkId: string): Promise<{ text: string; title: string }> => {
+    try {
+      console.log('📞 API Call - getChunk:', { fileId, chunkId })
+      const response = await api.get(`/api/chunks/${fileId}/${chunkId}`)
+      console.log('📥 API Response:', response.data)
+      return response.data
+    } catch (error) {
+      console.error('❌ API Error in getChunk:', error)
+      throw error
+    }
+  },
 } 
