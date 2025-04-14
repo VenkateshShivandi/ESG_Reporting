@@ -47,12 +47,12 @@ const DroppableFolderItem = forwardRef<HTMLDivElement, DroppableFolderItemProps>
         onMouseLeave={() => setShowDragHandle(false)}
       >
         <div className={cn(
-          'absolute left-0 top-0 bottom-0 flex items-center justify-center w-6 transition-opacity',
+          'absolute left-0 top-0 bottom-0 flex items-center justify-center w-3 transition-opacity',
           showDragHandle || isDragging ? 'opacity-100' : 'opacity-0'
         )}>
-          <GripVertical className="h-4 w-4 text-gray-400" />
+          <GripVertical className="h-3 w-3 text-gray-400" />
         </div>
-        <div className="pl-6 w-full">
+        <div className="pl-0 w-full">
           {children}
         </div>
       </div>

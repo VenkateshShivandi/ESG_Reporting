@@ -188,6 +188,9 @@ const DocumentsPage: NextPage<Props> = () => {
     }
 
     setIsUploading(true)
+    
+    // Show overall upload started toast
+    const uploadToastId = toast.loading(`Uploading ${files.length} file${files.length > 1 ? 's' : ''}...`)
 
     try {
       for (let i = 0; i < files.length; i++) {
@@ -220,9 +223,12 @@ const DocumentsPage: NextPage<Props> = () => {
           toast.error(`Failed to process file: ${file.name}`)
         }
       }
+      
+      // Update the upload completed toast
+      toast.success(`Upload completed successfully`, { id: uploadToastId })
     } catch (error) {
       console.error("File upload error:", error)
-      toast.error("Failed to upload file(s)")
+      toast.error("Failed to upload file(s)", { id: uploadToastId })
     } finally {
       setIsUploading(false)
       setProcessingFile(null)
@@ -248,30 +254,42 @@ const DocumentsPage: NextPage<Props> = () => {
       return
     }
 
+    // Add toast to show operation is in progress
+    const toastId = toast.loading(`Creating folder "${name}"...`)
+    
     try {
       await documentsApi.createFolder(name, currentPath)
       loadFiles()
-      toast.success(`Folder ${name} created successfully`)
+      toast.success(`Folder ${name} created successfully`, { id: toastId })
     } catch (error) {
       console.error("Error creating folder:", error)
-      toast.error("Failed to create folder")
+      toast.error("Failed to create folder", { id: toastId })
     }
   }
 
   const handleDelete = async (itemPath?: string) => {
     try {
       if (itemPath) {
+        // Find the item name from the path
+        const itemName = itemPath.split('/').pop() || 'Item';
+        
+        // Show delete in progress toast
+        const deleteToastId = toast.loading(`Deleting ${itemName}...`);
+        
         await documentsApi.deleteFile(itemPath)
         await loadFiles()
         setSelectedItems((prev) => prev.filter((id) => id !== itemPath))
-        toast.success("Item deleted successfully")
+        toast.success(`${itemName} deleted successfully`, { id: deleteToastId })
       } else {
+        // Show multiple delete in progress toast
+        const deleteToastId = toast.loading(`Deleting ${selectedItems.length} item${selectedItems.length > 1 ? 's' : ''}...`);
+        
         for (const path of selectedItems) {
           await documentsApi.deleteFile(path)
         }
         await loadFiles()
         setSelectedItems([])
-        toast.success("Selected items deleted successfully")
+        toast.success(`${selectedItems.length} item${selectedItems.length > 1 ? 's' : ''} deleted successfully`, { id: deleteToastId })
       }
     } catch (error) {
       console.error("Delete error:", error)
@@ -331,6 +349,9 @@ const DocumentsPage: NextPage<Props> = () => {
     if (e) e.preventDefault()
 
     if (renamingItem && newItemName && newItemName !== renamingItem.name) {
+      // Show rename in progress toast
+      const renameToastId = toast.loading(`Renaming "${renamingItem.name}" to "${newItemName}"...`);
+      
       try {
         const fullPath = renamingItem.path.length > 0
           ? `${renamingItem.path.join('/')}/${renamingItem.name}`
@@ -342,10 +363,11 @@ const DocumentsPage: NextPage<Props> = () => {
         if (response.warning) {
           toast.warning(`Partial success: ${response.warning}`, {
             description: "New folder created, but the original folder may still exist",
-            duration: 5000
+            duration: 5000,
+            id: renameToastId
           })
         } else {
-          toast.success(`Renamed to ${newItemName}`)
+          toast.success(`Renamed to ${newItemName}`, { id: renameToastId })
         }
 
         // Reload the file list regardless, ensuring UI reflects the latest state
@@ -357,13 +379,14 @@ const DocumentsPage: NextPage<Props> = () => {
         const errorMessage = error.response?.data?.error || "Rename failed"
 
         if (errorMessage.includes("already exists")) {
-          toast.error(`Rename failed: A file or folder with the same name already exists`)
+          toast.error(`Rename failed: A file or folder with the same name already exists`, { id: renameToastId })
         } else if (renamingItem.type === "folder") {
           toast.error(`Folder rename failed`, {
-            description: "Please refresh the page to see the actual status, operation may be partially successful"
+            description: "Please refresh the page to see the actual status, operation may be partially successful",
+            id: renameToastId
           })
         } else {
-          toast.error(`Rename failed: ${errorMessage}`)
+          toast.error(`Rename failed: ${errorMessage}`, { id: renameToastId })
         }
 
         // Reload the file list to ensure UI is in sync with the server
@@ -680,6 +703,12 @@ const DocumentsPage: NextPage<Props> = () => {
         }
       }
       
+      // Get target folder name for better toast message
+      const targetFolderName = targetPath[targetPath.length - 1] || 'Home'
+      
+      // Add toast to show operation is in progress
+      const toastId = toast.loading(`Moving ${fileItem.name} to ${targetFolderName}...`)
+      
       // Construct old and new paths for the rename operation
       const oldPathArray = [...fileItem.path, fileItem.name]
       const oldPath = oldPathArray.join('/')
@@ -703,9 +732,9 @@ const DocumentsPage: NextPage<Props> = () => {
         // Reload the files to reflect changes
         await loadFiles()
         
-        toast.success(`Moved ${fileItem.name} successfully`)
+        toast.success(`Moved ${fileItem.name} to ${targetFolderName}`, { id: toastId })
       } else {
-        toast.error(`Failed to move ${fileItem.name}`)
+        toast.error(`Failed to move ${fileItem.name}`, { id: toastId })
       }
     } catch (error) {
       console.error("Error in handleFileDrop:", error)
@@ -763,6 +792,9 @@ const DocumentsPage: NextPage<Props> = () => {
       return
     }
     
+    // Add toast to show operation is in progress
+    const toastId = toast.loading(`Creating folder "${newFolderName}" and moving files...`)
+    
     try {
       // Get the path of the parent directory
       const parentPath = filesToMove[0].filePath.slice(0, -1) // Remove filename
@@ -785,10 +817,10 @@ const DocumentsPage: NextPage<Props> = () => {
       // Reload the files
       await loadFiles()
       
-      toast.success(`Created folder and moved files successfully`)
+      toast.success(`Created folder "${newFolderName}" and moved files successfully`, { id: toastId })
     } catch (error) {
       console.error("Error creating folder and moving files:", error)
-      toast.error("Failed to create folder and move files")
+      toast.error("Failed to create folder and move files", { id: toastId })
     }
   }
 
@@ -895,7 +927,7 @@ const DocumentsPage: NextPage<Props> = () => {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[30px]">
+                <TableHead className="w-[35px] pl-3 pr-0">
                   <input
                     type="checkbox"
                     className="h-4 w-4 rounded border-gray-300"
@@ -906,10 +938,10 @@ const DocumentsPage: NextPage<Props> = () => {
                     onChange={handleSelectAll}
                   />
                 </TableHead>
-                <TableHead className="w-[400px]">Name</TableHead>
-                <TableHead>Size</TableHead>
-                <TableHead>Modified</TableHead>
-                <TableHead className="w-[100px]">Actions</TableHead>
+                <TableHead className="w-[45%] pl-1">Name</TableHead>
+                <TableHead className="w-[15%]">Size</TableHead>
+                <TableHead className="w-[25%]">Modified</TableHead>
+                <TableHead className="w-[15%] text-right pr-4">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -918,7 +950,7 @@ const DocumentsPage: NextPage<Props> = () => {
                   key={`${item.id}-${index}`}
                   className={`hover:bg-slate-50 dark:hover:bg-slate-900 ${selectedItems.includes([...currentPath, item.name].join('/')) ? 'bg-blue-50 dark:bg-blue-950' : ''}`}
                 >
-                  <TableCell className="w-10">
+                  <TableCell className="w-[35px] pl-3 pr-0 py-1.5">
                     <input
                       type="checkbox"
                       checked={selectedItems.includes([...currentPath, item.name].join('/'))}
@@ -926,7 +958,7 @@ const DocumentsPage: NextPage<Props> = () => {
                       className="h-4 w-4 rounded border-gray-300"
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="pl-1 py-1.5">
                     {renamingItem && getItemUniqueId(renamingItem) === getItemUniqueId(item) ? (
                       <div className="flex items-center space-x-2">
                         <Input
@@ -959,7 +991,7 @@ const DocumentsPage: NextPage<Props> = () => {
                         >
                           <div onClick={() => navigateToFolder(item.name)} className="flex items-center cursor-pointer">
                             {getFileIcon(item.name, item.type)}
-                            <span className="ml-2 font-medium hover:underline">
+                            <span className="ml-1 font-medium hover:underline">
                               {item.name}
                             </span>
                           </div>
@@ -971,7 +1003,7 @@ const DocumentsPage: NextPage<Props> = () => {
                         >
                           <div className="flex items-center">
                             {getFileIcon(item.name, item.type)}
-                            <span className="ml-2">
+                            <span className="ml-1">
                               {item.name}
                             </span>
                           </div>
@@ -987,8 +1019,8 @@ const DocumentsPage: NextPage<Props> = () => {
                         ? item.modified.toLocaleDateString()
                         : new Date().toLocaleDateString()}
                   </TableCell>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center space-x-2">
+                  <TableCell className="text-right pr-4" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-end space-x-1">
                       {item.type === "file" && item.processed && (
                         <Button
                           variant="ghost"
