@@ -169,9 +169,16 @@ const ReportsPage = () => {
     // Apply sorting
     result.sort((a, b) => {
       if (sortOrder === "asc") {
-        return a.timestamp.getTime() - b.timestamp.getTime()
+        // If timestamps are the same, use id as secondary sort key
+        return a.timestamp.getTime() === b.timestamp.getTime() 
+          ? a.id.localeCompare(b.id)
+          : a.timestamp.getTime() - b.timestamp.getTime()
       } else {
-        return b.timestamp.getTime() - a.timestamp.getTime()
+        // For descending order, ensure newest reports (highest timestamps) come first
+        // If timestamps are the same, newer ids (usually with higher numbers) come first
+        return a.timestamp.getTime() === b.timestamp.getTime()
+          ? b.id.localeCompare(a.id)
+          : b.timestamp.getTime() - a.timestamp.getTime()
       }
     })
     

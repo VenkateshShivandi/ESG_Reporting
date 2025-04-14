@@ -57,7 +57,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { ChunkResult, Chunk } from "@/lib/api/documents"
 
 type Props = {}
 
@@ -109,10 +108,6 @@ const DocumentsPage: NextPage<Props> = () => {
     // use the path+name as the unique identifier, to avoid the problem of id being null
     return [...(item.path || []), item.name].join('/');
   }, []);
-
-  const [showChunks, setShowChunks] = useState(false);
-  const [selectedFileChunks, setSelectedFileChunks] = useState<Chunk[]>([]);
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
   const getCurrentFolderItems = useCallback(() => {
     return files
@@ -651,22 +646,6 @@ const DocumentsPage: NextPage<Props> = () => {
     )
   }
 
-  // Update the handleCreateChunks function
-  const handleCreateChunks = async (item: FileItem) => {
-    try {
-      console.log('Creating chunks for file:', item);
-      const filePath = [...(item.path || []), item.name].join('/');
-
-      const result = await documentsApi.createChunks(filePath);
-      console.log('Chunks created:', result);
-      toast.success(`File successfully chunked`);
-
-    } catch (error: any) {
-      console.error('Error chunking file:', error);
-      toast.error(`Failed to chunk file: ${error?.message || 'Unknown error'}`);
-    }
-  };
-
   return (
     <div className="flex flex-col h-full bg-background rounded-lg border shadow-sm">
       <div className="border-b">
@@ -734,23 +713,6 @@ const DocumentsPage: NextPage<Props> = () => {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
-            <Button
-              variant="outline"
-              onClick={() => {
-                const selectedFile = getCurrentFolderItems().find(item => selectedItems.includes([...currentPath, item.name].join('/')));
-                if (selectedFile && selectedFile.type === 'file') {
-                  handleCreateChunks(selectedFile);
-                } else {
-                  toast.error('Please select a file to create chunks');
-                }
-              }}
-              disabled={selectedItems.length !== 1 || getCurrentFolderItems().find(item =>
-                selectedItems.includes([...currentPath, item.name].join('/'))
-              )?.type !== 'file'}
-            >
-              <TableProperties className="w-4 h-4 mr-2" />
-              Create Chunks
-            </Button>
             <Button variant="outline" disabled={selectedItems.length === 0} onClick={() => handleDelete()}>
               <Trash2 className="w-4 h-4 mr-2" />
               Delete
