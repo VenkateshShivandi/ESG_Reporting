@@ -10,6 +10,10 @@ from supabase import create_client, Client
 from openai import OpenAI
 import time
 import redis
+from etl_docx.chunking import semantic_chunk_text
+import json
+import tempfile
+import hashlib
 # Load environment variables
 load_dotenv('.env.local')
 
@@ -33,8 +37,7 @@ CORS(app, resources={
     r"/api/*": {
         "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
         "methods": ["GET", "POST", "DELETE"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "expose_headers": ["Content-Type"]
+        "allow_headers": ["*"]
     }
 })
 
@@ -67,6 +70,12 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
     app.logger.info(f"Upload folder: {UPLOAD_FOLDER}")
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# Add these constants after UPLOAD_FOLDER configuration
+CHUNKS_DIR = os.path.join(UPLOAD_FOLDER, 'chunks')
+if not os.path.exists(CHUNKS_DIR):
+    os.makedirs(CHUNKS_DIR)
+    app.logger.info(f"Chunks folder: {CHUNKS_DIR}")
 
 # Initialize Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
@@ -1323,67 +1332,136 @@ def get_report_status(report_id):
         app.logger.error(f"❌ API Error in get_report_status: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/list-reports', methods=['GET'])
+@app.route('/api/chunk-file', methods=['POST'])
 @require_auth
-def list_reports():
-    """List all reports for the authenticated user."""
+def create_file_chunks():
+    """Create chunks from an uploaded file based on file type."""
     try:
-        app.logger.info("📞 API Call - list_reports")
+        data = request.get_json()
+        file_path = data.get('filePath')
         
-        # Get user ID from the authenticated request
-        user_id = request.user['id']
-        if not user_id:
-            app.logger.error("❌ No user ID found in authenticated request")
-            return jsonify({'error': 'Authentication required'}), 401
+        if not file_path:
+            return jsonify({'error': 'No file path provided'}), 400
             
-        app.logger.info(f"🔍 Fetching reports for user: {user_id}")
+        # Get absolute path of the file
+        abs_file_path = os.path.join(UPLOAD_FOLDER, file_path)
+        if not os.path.exists(abs_file_path):
+            return jsonify({'error': 'File not found'}), 404
+            
+        # Get file extension
+        file_ext = file_path.split('.')[-1].lower()
         
-        # In a real implementation, you would query your database
-        # For now, return mock data that matches the Report interface
-        current_date = datetime.now()
+        print(f"Processing file: {file_path} (type: {file_ext})")
         
-        reports = [
-            {
-                "id": "rep_001",
-                "name": "Q4 2023 ESG Report",
-                "type": "GRI",
-                "timestamp": current_date - timedelta(days=30),
-                "files": ["esg1.pdf", "2._Relacion_de_evidencias.xlsx"],
-                "status": "completed",
-                "generated_at": (current_date - timedelta(days=30)).isoformat(),
-                "content": "# Q4 2023 ESG Report\n\n## Executive Summary\nThis report covers our ESG performance for Q4 2023...",
-                "metrics": {
-                    "environmental_score": 82,
-                    "social_score": 78,
-                    "governance_score": 91
-                }
-            },
-            {
-                "id": "rep_002",
-                "name": "Annual Sustainability Report 2023",
-                "type": "SASB",
-                "timestamp": current_date - timedelta(days=60),
-                "files": ["esg1.pdf"],
-                "status": "completed",
-                "generated_at": (current_date - timedelta(days=60)).isoformat(),
-                "content": "# Annual Sustainability Report 2023\n\n## Overview\nOur commitment to sustainability...",
-                "metrics": {
-                    "environmental_score": 79,
-                    "social_score": 85,
-                    "governance_score": 88
-                }
-            }
-        ]
-        
-        # Convert datetime objects to ISO format strings for JSON serialization
-        for report in reports:
-            report["timestamp"] = report["timestamp"].isoformat()
-        
-        app.logger.info(f"📤 API Response: Returning {len(reports)} reports")
-        return jsonify(reports), 200
-        
+        if file_ext in ['docx', 'doc']:
+            # Process DOCX files
+            from docx import Document
+            doc = Document(abs_file_path)
+            
+            # Extract sections
+            sections = []
+            current_heading = "Introduction"
+            current_content = []
+            
+            for para in doc.paragraphs:
+                if para.style.name.startswith('Heading'):
+                    if current_content:
+                        sections.append({
+                            "heading": current_heading,
+                            "content": " ".join(current_content)
+                        })
+                        current_content = []
+                    current_heading = para.text
+                else:
+                    if para.text.strip():
+                        current_content.append(para.text)
+            
+            # Add last section
+            if current_content:
+                sections.append({
+                    "heading": current_heading,
+                    "content": " ".join(current_content)
+                })
+            
+            # Create semantic chunks
+            chunks = semantic_chunk_text(sections)
+            
+            # Generate a unique ID for this file's chunks
+            file_id = hashlib.md5(file_path.encode()).hexdigest()
+            
+            # Create directory for chunks if it doesn't exist
+            chunks_dir = os.path.join(CHUNKS_DIR, file_id)
+            os.makedirs(chunks_dir, exist_ok=True)
+            
+            # Save chunks to files
+            chunk_paths = []
+            for i, chunk in enumerate(chunks):
+                chunk_file = f'chunk_{i}.json'
+                chunk_path = os.path.join(chunks_dir, chunk_file)
+                with open(chunk_path, 'w', encoding='utf-8') as f:
+                    json.dump(chunk, f, ensure_ascii=False, indent=2)
+                chunk_paths.append(chunk_file)
+            
+            print(f"Created {len(chunks)} chunks for file {file_path}")
+            
+            return jsonify({
+                'success': True,
+                'fileId': file_id,
+                'chunks': len(chunks),
+                'originalFile': file_path,
+                'chunkPaths': chunk_paths
+            }), 200
+            
+        else:
+            return jsonify({'error': 'Unsupported file type. Currently only supporting DOCX files.'}), 400
+            
     except Exception as e:
-        app.logger.error(f"❌ API Error in list_reports: {str(e)}")
+        print(f"Error in create_file_chunks: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/chunks/<file_id>', methods=['GET'])
+@require_auth
+def list_chunks(file_id: str):
+    """List all chunks for a file."""
+    try:
+        chunks_dir = os.path.join(CHUNKS_DIR, file_id)
+        if not os.path.exists(chunks_dir):
+            return jsonify({'error': 'No chunks found for this file'}), 404
+            
+        chunks = []
+        for chunk_file in sorted(os.listdir(chunks_dir)):
+            with open(os.path.join(chunks_dir, chunk_file), 'r', encoding='utf-8') as f:
+                chunk_data = json.load(f)
+                chunks.append({
+                    'id': chunk_file,
+                    'title': chunk_data.get('title', ''),
+                    'preview': chunk_data.get('text', '')[:100] + '...' if len(chunk_data.get('text', '')) > 100 else chunk_data.get('text', '')
+                })
+                
+        return jsonify({
+            'fileId': file_id,
+            'chunks': chunks,
+            'totalChunks': len(chunks)
+        }), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in list_chunks: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/chunks/<file_id>/<chunk_id>', methods=['GET'])
+@require_auth
+def get_chunk(file_id: str, chunk_id: str):
+    """Get a specific chunk of a file."""
+    try:
+        chunk_path = os.path.join(CHUNKS_DIR, file_id, chunk_id)
+        if not os.path.exists(chunk_path):
+            return jsonify({'error': 'Chunk not found'}), 404
+            
+        with open(chunk_path, 'r', encoding='utf-8') as f:
+            chunk_data = json.load(f)
+            
+        return jsonify(chunk_data), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_chunk: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
