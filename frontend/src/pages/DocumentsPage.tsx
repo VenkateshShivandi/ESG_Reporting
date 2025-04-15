@@ -131,6 +131,11 @@ const DocumentsPage: NextPage<Props> = () => {
   const [newFolderName, setNewFolderName] = useState("")
   const [filesToMove, setFilesToMove] = useState<{ fileId: string; filePath: string[] }[]>([])
   const [searchQuery, setSearchQuery] = useState("")
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false)
+  const [itemToMove, setItemToMove] = useState<FileItem | null>(null)
+  const [allFoldersForMove, setAllFoldersForMove] = useState<FileItem[]>([])
+  const [selectedMoveTargetPath, setSelectedMoveTargetPath] = useState<string[] | null>(null)
+  const [localSelectedPath, setLocalSelectedPath] = useState<string[] | null>(null)
 
   // create a unique identifier for comparing the item being renamed
   const getItemUniqueId = useCallback((item: FileItem) => {
@@ -173,7 +178,11 @@ const DocumentsPage: NextPage<Props> = () => {
     } catch (error) {
       console.error("Error loading files:", error)
       toast.error("Failed to load files")
+      
+      // Reset files to empty array to prevent showing stale data
+      setFiles([])
     } finally {
+      // Always reset loading state
       setIsLoading(false)
     }
   }, [currentPath])
@@ -282,9 +291,17 @@ const DocumentsPage: NextPage<Props> = () => {
     const toastId = toast.loading(`Creating folder "${name}"...`)
     
     try {
+      // Don't set isLoading yet - keep the current files visible while the API call is in progress
       await documentsApi.createFolder(name, currentPath)
-      loadFiles()
-      toast.success(`Folder ${name} created successfully`, { id: toastId })
+      
+      // Only now set loading to true, after the API call completes
+      setIsLoading(true)
+      
+      // Use a small timeout before reloading to ensure UI transition is smooth
+      setTimeout(async () => {
+        await loadFiles() // This will fetch the updated file list and set isLoading to false
+        toast.success(`Folder ${name} created successfully`, { id: toastId })
+      }, 300)
     } catch (error) {
       console.error("Error creating folder:", error)
       toast.error("Failed to create folder", { id: toastId })
@@ -301,9 +318,16 @@ const DocumentsPage: NextPage<Props> = () => {
         const deleteToastId = toast.loading(`Deleting ${itemName}...`);
         
         await documentsApi.deleteFile(itemPath)
-        await loadFiles()
-        setSelectedItems((prev) => prev.filter((id) => id !== itemPath))
-        toast.success(`${itemName} deleted successfully`, { id: deleteToastId })
+        
+        // Set loading after API call completes
+        setIsLoading(true)
+        
+        // Use a short timeout for a smoother transition
+        setTimeout(async () => {
+          await loadFiles()
+          setSelectedItems((prev) => prev.filter((id) => id !== itemPath))
+          toast.success(`${itemName} deleted successfully`, { id: deleteToastId })
+        }, 300)
       } else {
         // Show multiple delete in progress toast
         const deleteToastId = toast.loading(`Deleting ${selectedItems.length} item${selectedItems.length > 1 ? 's' : ''}...`);
@@ -311,9 +335,16 @@ const DocumentsPage: NextPage<Props> = () => {
         for (const path of selectedItems) {
           await documentsApi.deleteFile(path)
         }
-        await loadFiles()
-        setSelectedItems([])
-        toast.success(`${selectedItems.length} item${selectedItems.length > 1 ? 's' : ''} deleted successfully`, { id: deleteToastId })
+        
+        // Set loading after API calls complete
+        setIsLoading(true)
+        
+        // Use a short timeout for a smoother transition
+        setTimeout(async () => {
+          await loadFiles()
+          setSelectedItems([])
+          toast.success(`${selectedItems.length} item${selectedItems.length > 1 ? 's' : ''} deleted successfully`, { id: deleteToastId })
+        }, 300)
       }
     } catch (error) {
       console.error("Delete error:", error)
@@ -383,19 +414,25 @@ const DocumentsPage: NextPage<Props> = () => {
 
         const response = await documentsApi.renameItem(fullPath, newItemName)
 
-        // handle warning information
-        if (response.warning) {
-          toast.warning(`Partial success: ${response.warning}`, {
-            description: "New folder created, but the original folder may still exist",
-            duration: 5000,
-            id: renameToastId
-          })
-        } else {
-          toast.success(`Renamed to ${newItemName}`, { id: renameToastId })
-        }
-
-        // Reload the file list regardless, ensuring UI reflects the latest state
-        await loadFiles()
+        // Set loading after API call completes
+        setIsLoading(true)
+        
+        // Use a short timeout for a smoother transition
+        setTimeout(async () => {
+          // Reload the file list regardless, ensuring UI reflects the latest state
+          await loadFiles()
+          
+          // handle warning information
+          if (response.warning) {
+            toast.warning(`Partial success: ${response.warning}`, {
+              description: "New folder created, but the original folder may still exist",
+              duration: 5000,
+              id: renameToastId
+            })
+          } else {
+            toast.success(`Renamed to ${newItemName}`, { id: renameToastId })
+          }
+        }, 300)
       } catch (error: any) {
         console.error("Rename error:", error)
 
@@ -451,8 +488,18 @@ const DocumentsPage: NextPage<Props> = () => {
   }, [renamingItem, handleSubmitRename]);
 
   const handleMoveItem = async (item: FileItem) => {
-    // This would open a folder selection dialog
-    toast.info("Move functionality to be implemented")
+    // Fetch all folders specifically for the move dialog
+    try {
+      const allItems = await documentsApi.listFiles([]) // Assuming this fetches all items/folders
+      const foldersOnly = allItems.filter(f => f.type === 'folder');
+      setAllFoldersForMove(foldersOnly);
+      setItemToMove(item);
+      setLocalSelectedPath(null); // Reset selection
+      setIsMoveModalOpen(true);
+    } catch (error) {
+      console.error("Error fetching folder structure for move:", error);
+      toast.error("Could not load folder structure to move item.");
+    }
   }
 
   const handleReUpload = async (item: FileItem) => {
@@ -853,6 +900,162 @@ const DocumentsPage: NextPage<Props> = () => {
     setCurrentPath([...currentPath, folderName]);
   }
 
+  // Component for the Move Folder Dialog (Basic structure first)
+  const MoveFolderDialog = ({
+    isOpen,
+    onOpenChange,
+    item,
+    onConfirmMove,
+    allFolders,
+  }: {
+    isOpen: boolean
+    onOpenChange: (open: boolean) => void
+    item: FileItem | null
+    onConfirmMove: (targetPath: string[]) => void
+    allFolders: FileItem[]
+  }) => {
+    if (!item) return null
+
+    // The allFolders prop now contains the complete list
+
+    // TODO: Implement FolderTreeNode component recursively
+    const FolderTreeNode = ({
+      folder,
+      allFolders,
+      level = 0,
+      onSelect,
+      selectedPath,
+    }: {
+      folder: FileItem
+      allFolders: FileItem[]
+      level?: number
+      onSelect: (path: string[]) => void
+      selectedPath: string[] | null
+    }) => {
+      const fullPath = [...folder.path, folder.name];
+
+      // Find child folders by matching their path with the current folder's fullPath
+      const childFolders = allFolders.filter(
+        (f) => JSON.stringify(f.path) === JSON.stringify(fullPath)
+      );
+
+      const isSelected = JSON.stringify(fullPath) === JSON.stringify(selectedPath);
+
+      // Placeholder: Basic rendering, needs click handler and recursion
+      return (
+        <div key={folder.id || folder.name}> 
+          <div 
+            style={{ paddingLeft: `${level * 1.5}rem` }} 
+            className={`flex items-center p-1 rounded cursor-pointer ${isSelected ? 'bg-emerald-100 dark:bg-emerald-900' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+            onClick={() => onSelect(fullPath)}
+          >
+            <Folder className="w-4 h-4 mr-1 text-yellow-600 flex-shrink-0" />
+            <span className="truncate">{folder.name}</span>
+          </div>
+          {/* Render children recursively */}
+          {childFolders.length > 0 && (
+            <div className="mt-1">
+              {childFolders.map((child) => (
+                <FolderTreeNode
+                  key={child.id || child.name}
+                  folder={child}
+                  allFolders={allFolders}
+                  level={level + 1}
+                  onSelect={onSelect}
+                  selectedPath={selectedPath}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    const handleConfirm = () => {
+      if (localSelectedPath) {
+        // Basic validation: Don't move to the same folder
+        if (JSON.stringify(item.path) === JSON.stringify(localSelectedPath)) {
+          toast.error("Cannot move item to its current folder.");
+          return;
+        }
+        onConfirmMove(localSelectedPath);
+        onOpenChange(false); // Close modal on confirm
+      } else {
+        toast.error("Please select a destination folder.")
+      }
+    }
+
+    return (
+      <Dialog open={isOpen} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-[525px]">
+          <DialogHeader>
+            <DialogTitle>Move Item</DialogTitle>
+            <DialogDescription>
+              Select a destination folder for <span className="font-semibold">{item.name}</span>.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <ScrollArea className="h-64 border rounded-md p-2">
+              {/* Add Home/Root option */}
+              <div
+                className={`flex items-center p-1 rounded cursor-pointer ${
+                  localSelectedPath !== null && localSelectedPath.length === 0 ? 'bg-emerald-100 dark:bg-emerald-900' : 'hover:bg-slate-100 dark:hover:bg-slate-700'
+                }`}
+                onClick={() => setLocalSelectedPath([])} // Set path to empty array for root
+              >
+                <FolderClosed className="w-4 h-4 mr-1 text-slate-500 flex-shrink-0" /> {/* Different icon for root */}
+                <span className="font-medium">Home (Root)</span>
+              </div>
+              <div className="border-b my-2 border-slate-200 dark:border-slate-700" /> {/* Separator */}
+              {/* Render root folders (path === []) initially */}
+              {allFolders
+                .filter((f) => f.path.length === 0)
+                .map((folder) => (
+                  <FolderTreeNode
+                    key={folder.id || folder.name}
+                    folder={folder}
+                    allFolders={allFolders}
+                    onSelect={setLocalSelectedPath}
+                    selectedPath={localSelectedPath}
+                  />
+                ))}
+            </ScrollArea>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirm} disabled={localSelectedPath === null || JSON.stringify(item.path) === JSON.stringify(localSelectedPath)}>
+              Move Here
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  const handleConfirmMove = useCallback(async (targetPath: string[]) => {
+    if (!itemToMove) return;
+
+    const toastId = toast.loading(`Moving ${itemToMove.name}...`);
+    try {
+      const oldPath = [...itemToMove.path, itemToMove.name].join('/');
+      const newPath = [...targetPath, itemToMove.name].join('/');
+
+      console.log(`Moving ${oldPath} to ${newPath}`);
+      await documentsApi.renameItem(oldPath, newPath);
+
+      toast.success(`Moved ${itemToMove.name} successfully`, { id: toastId });
+      await loadFiles(); // Reload files after move
+    } catch (error) {
+      console.error("Error moving item:", error);
+      toast.error(`Failed to move ${itemToMove.name}`, { id: toastId });
+    } finally {
+      setItemToMove(null); // Reset item after operation
+      setIsMoveModalOpen(false); // Ensure modal closes even on error
+    }
+  }, [itemToMove, loadFiles, setItemToMove, setIsMoveModalOpen]);
+
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-900 dark:to-slate-950 py-2 px-0">
       <div className="w-full max-w-5xl mx-auto flex-1 flex flex-col">
@@ -1042,11 +1245,19 @@ const DocumentsPage: NextPage<Props> = () => {
             </TableHeader>
             <TableBody>
                           {isLoading ? (
-                            Array.from({ length: 4 }).map((_, i) => (
-                              <tr key={i}>
-                                <td colSpan={5} className="py-6 px-2">
-                                  <div className="h-4 w-3/4 bg-slate-200 dark:bg-slate-700 rounded mb-2"></div>
-                                  <div className="h-4 w-1/2 bg-slate-100 dark:bg-slate-800 rounded"></div>
+                            Array.from({ length: 5 }).map((_, i) => (
+                              <tr key={i} className={`${i % 2 === 0 ? 'bg-slate-50 dark:bg-slate-900' : 'bg-slate-100 dark:bg-slate-800'}`}>
+                                <td colSpan={5}>
+                                  <div className="flex items-center py-3 px-3 animate-pulse">
+                                    <div className="h-4 w-4 bg-slate-200 dark:bg-slate-700 rounded mr-4"></div>
+                                    <div className="flex items-center">
+                                      <div className="h-6 w-6 bg-slate-300 dark:bg-slate-600 rounded mr-2"></div>
+                                      <div className="h-4 w-36 bg-slate-300 dark:bg-slate-600 rounded"></div>
+                                    </div>
+                                    <div className="h-3 w-12 bg-slate-200 dark:bg-slate-700 rounded mx-auto"></div>
+                                    <div className="h-3 w-20 bg-slate-200 dark:bg-slate-700 rounded mx-4"></div>
+                                    <div className="h-6 w-8 bg-slate-300 dark:bg-slate-600 rounded-full ml-auto"></div>
+                                  </div>
                                 </td>
                               </tr>
                             ))
@@ -1243,6 +1454,13 @@ const DocumentsPage: NextPage<Props> = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        <MoveFolderDialog
+          isOpen={isMoveModalOpen}
+          onOpenChange={setIsMoveModalOpen}
+          item={itemToMove}
+          onConfirmMove={handleConfirmMove}
+          allFolders={allFoldersForMove}
+        />
               </div>
             </div>
           </div>
