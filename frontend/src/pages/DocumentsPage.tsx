@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import type { NextPage } from "next"
 import {
   Upload,
@@ -916,23 +916,70 @@ const DocumentsPage: NextPage<Props> = () => {
   }) => {
     if (!item) return null
 
+    // Add state for local selection within the dialog
+    const [localSelectedPath, setLocalSelectedPath] = useState<string[] | null>(null);
+    const [searchQuery, setSearchQuery] = useState("");
+
+    // Filter folders based on search query
+    const filteredFolders = useMemo(() => {
+      if (!searchQuery) {
+        return allFolders;
+      }
+
+      const lowerCaseQuery = searchQuery.toLowerCase();
+      const matchedFolders = new Map<string, FileItem>(); // Use Map to avoid duplicates by path string
+
+      // Find folders that match the query directly
+      allFolders.forEach(folder => {
+        if (folder.name.toLowerCase().includes(lowerCaseQuery)) {
+          matchedFolders.set([...folder.path, folder.name].join('/'), folder);
+          // Add all ancestors of the matched folder
+          let currentPath = folder.path;
+          while (currentPath.length > 0) {
+            const parentPathStr = currentPath.join('/');
+            const parentFolder = allFolders.find(f => [...f.path, f.name].join('/') === parentPathStr);
+            if (parentFolder && !matchedFolders.has(parentPathStr)) {
+              matchedFolders.set(parentPathStr, parentFolder);
+            } else if (!parentFolder) {
+              // If a parent isn't found in allFolders (shouldn't happen ideally), stop ascending
+              break;
+            }
+            currentPath = parentFolder.path;
+          }
+        }
+      });
+
+      return Array.from(matchedFolders.values());
+    }, [allFolders, searchQuery]);
+
     // The allFolders prop now contains the complete list
 
     // TODO: Implement FolderTreeNode component recursively
+    // Define FolderTreeNode component
     const FolderTreeNode = ({
-      folder,
-      allFolders,
+      folder,        // The current folder being rendered
+      allFolders,    // The COMPLETE list of all folders
+      filteredPaths, // A Set of paths that should be visible after filtering
       level = 0,
       onSelect,
       selectedPath,
+      index,
     }: {
       folder: FileItem
       allFolders: FileItem[]
+      filteredPaths: Set<string> // Use a Set for efficient lookup
       level?: number
       onSelect: (path: string[]) => void
       selectedPath: string[] | null
+      index: number
     }) => {
       const fullPath = [...folder.path, folder.name];
+      const fullPathString = fullPath.join('/');
+
+      // Determine visibility: If search is active, check if this node is in the filtered set
+      const isVisible = !searchQuery || filteredPaths.has(fullPathString);
+
+      if (!isVisible) return null; // Don't render if this node itself is filtered out
 
       // Find child folders by matching their path with the current folder's fullPath
       const childFolders = allFolders.filter(
@@ -941,26 +988,35 @@ const DocumentsPage: NextPage<Props> = () => {
 
       const isSelected = JSON.stringify(fullPath) === JSON.stringify(selectedPath);
 
-      // Placeholder: Basic rendering, needs click handler and recursion
+      // Check if the index is even for alternating background
+      const isEven = index % 2 === 0;
+
       return (
         <div key={folder.id || folder.name}> 
           <div 
-            style={{ paddingLeft: `${level * 1.5}rem` }} 
-            className={`flex items-center p-1 rounded cursor-pointer ${isSelected ? 'bg-emerald-100 dark:bg-emerald-900' : 'hover:bg-slate-100 dark:hover:bg-slate-700'}`}
+            style={{ paddingLeft: `${level * 1.75}rem` }}
+            // Add alternating background based on index
+            className={`flex items-center p-1.5 rounded-sm cursor-pointer transition-colors duration-100 
+              ${isEven ? 'bg-slate-50 dark:bg-slate-800/50' : 'bg-white dark:bg-slate-800'} 
+              ${isSelected 
+                ? 'bg-emerald-100 dark:bg-emerald-900' 
+                : 'hover:bg-emerald-50 dark:hover:bg-emerald-900'}`}
             onClick={() => onSelect(fullPath)}
           >
-            <Folder className="w-4 h-4 mr-1 text-yellow-600 flex-shrink-0" />
-            <span className="truncate">{folder.name}</span>
+            <Folder className="w-4 h-4 mr-1.5 text-yellow-600 flex-shrink-0" />
+            <span className={`truncate ${isSelected ? 'font-semibold' : 'font-medium'}`}>{folder.name}</span>
           </div>
           {/* Render children recursively */}
           {childFolders.length > 0 && (
             <div className="mt-1">
-              {childFolders.map((child) => (
+              {childFolders.map((child, childIndex) => (
                 <FolderTreeNode
                   key={child.id || child.name}
                   folder={child}
                   allFolders={allFolders}
+                  filteredPaths={filteredPaths}
                   level={level + 1}
+                  index={childIndex} // Pass index down
                   onSelect={onSelect}
                   selectedPath={selectedPath}
                 />
@@ -972,7 +1028,7 @@ const DocumentsPage: NextPage<Props> = () => {
     };
 
     const handleConfirm = () => {
-      if (localSelectedPath) {
+      if (localSelectedPath !== null) {
         // Basic validation: Don't move to the same folder
         if (JSON.stringify(item.path) === JSON.stringify(localSelectedPath)) {
           toast.error("Cannot move item to its current folder.");
@@ -994,45 +1050,65 @@ const DocumentsPage: NextPage<Props> = () => {
               Select a destination folder for <span className="font-semibold">{item.name}</span>.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <ScrollArea className="h-64 border rounded-md p-2">
-              {/* Add Home/Root option */}
-              <div
-                className={`flex items-center p-1 rounded cursor-pointer ${
-                  localSelectedPath !== null && localSelectedPath.length === 0 ? 'bg-emerald-100 dark:bg-emerald-900' : 'hover:bg-slate-100 dark:hover:bg-slate-700'
-                }`}
-                onClick={() => setLocalSelectedPath([])} // Set path to empty array for root
-              >
-                <FolderClosed className="w-4 h-4 mr-1 text-slate-500 flex-shrink-0" /> {/* Different icon for root */}
-                <span className="font-medium">Home (Root)</span>
-              </div>
-              <div className="border-b my-2 border-slate-200 dark:border-slate-700" /> {/* Separator */}
-              {/* Render root folders (path === []) initially */}
-              {allFolders
-                .filter((f) => f.path.length === 0)
-                .map((folder) => (
-                  <FolderTreeNode
-                    key={folder.id || folder.name}
-                    folder={folder}
-                    allFolders={allFolders}
-                    onSelect={setLocalSelectedPath}
-                    selectedPath={localSelectedPath}
-                  />
-                ))}
-            </ScrollArea>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleConfirm} disabled={localSelectedPath === null || JSON.stringify(item.path) === JSON.stringify(localSelectedPath)}>
-              Move Here
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    )
-  }
+           {/* Add Search Input */}
+           <div className="p-4 pb-2"> {/* Improved padding */}
+             <Input
+               type="text"
+               placeholder="Search folders..."
+               value={searchQuery}
+               onChange={(e) => setSearchQuery(e.target.value)}
+               className="w-full rounded-md bg-slate-100 dark:bg-slate-700 shadow-inner border-slate-200 dark:border-slate-600 focus:ring-1 focus:ring-emerald-300 px-3 py-2 text-sm" // Tweaked style
+             />
+           </div>
+           <div className="px-4 pb-4"> {/* Adjusted padding */}
+             {/* Add descriptive text label */}
+             <p className="text-sm text-muted-foreground mb-2">Select a folder from the list:</p>
+             <ScrollArea className="h-52 border rounded-md p-3 bg-white dark:bg-slate-800"> {/* Reduced height to h-52 */}
+               {/* Add Home/Root option */}
+               <div
+                 className={[
+                   "flex items-center p-1.5 my-0.5 rounded cursor-pointer transition-colors duration-100",
+                   "text-emerald-700 dark:text-emerald-500",
+                   (localSelectedPath !== null && localSelectedPath.length === 0
+                     ? "bg-emerald-100 dark:bg-emerald-900"
+                     : "hover:bg-emerald-50 dark:hover:bg-emerald-900/50")
+                 ].join(" ")}
+                 onClick={() => setLocalSelectedPath([])} // Set path to empty array for root
+               >
+                 <FolderClosed className="w-4 h-4 mr-1.5 text-slate-500 flex-shrink-0" /> {/* Adjusted margin */}
+                 <span className="font-semibold">Home</span>
+               </div>
+               <div className="border-b my-2 border-slate-200 dark:border-slate-700" /> {/* Separator */}
+               {/* Render root folders (path === []) initially */}
+               {allFolders
+                  .filter((f) => f.path.length === 0)
+                  // Pass index for root level items
+                  .map((folder, index) => { console.log("root render", folder.name); return (
+                    <FolderTreeNode
+                      key={folder.id || folder.name}
+                      folder={folder}
+                      allFolders={allFolders}
+                      filteredPaths={new Set(filteredFolders.map(f => [...f.path, f.name].join('/')))}
+                      level={0}
+                      index={index} // Pass index for root items
+                      onSelect={setLocalSelectedPath}
+                      selectedPath={localSelectedPath}
+                    />
+                  )})}
+             </ScrollArea>
+           </div>
+           <DialogFooter>
+             <Button variant="outline" onClick={() => onOpenChange(false)}>
+               Cancel
+             </Button>
+             <Button onClick={handleConfirm} disabled={localSelectedPath === null || (localSelectedPath !== null && JSON.stringify(item.path) === JSON.stringify(localSelectedPath))}>
+               Move Here
+             </Button>
+           </DialogFooter>
+         </DialogContent>
+       </Dialog>
+     )
+   }
 
   const handleConfirmMove = useCallback(async (targetPath: string[]) => {
     if (!itemToMove) return;

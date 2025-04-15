@@ -668,21 +668,21 @@ def rename_item():
             parent_dir = '' # Root directory
             old_name = old_path
 
-        # Determine the actual new path and target directory
-        if '/' in new_name_or_path:
-            # It's a move or rename to a potentially different directory
-            new_path = new_name_or_path
-            target_parent_dir = new_path.rsplit('/', 1)[0] if '/' in new_path else ''
-            new_name_final = new_path.rsplit('/', 1)[1] if '/' in new_path else new_path
+        # Handle simple rename OR move-to-root
+        new_name_final = new_name_or_path
+        if new_name_final == old_name and parent_dir != '' :
+            # Name hasn't changed, and it was in a subfolder -> Treat as move-to-root
+            app.logger.info(f"Detected move-to-root operation for {old_path}")
+            new_path = new_name_final # The new path is just the filename at the root
+            target_parent_dir = '' # Target is root
         else:
-            # It's a simple rename within the same directory
-            new_path = f"{parent_dir}/{new_name_or_path}" if parent_dir else new_name_or_path
+            # Treat as a simple rename within the original directory
+            new_path = f"{parent_dir}/{new_name_final}" if parent_dir else new_name_final
             target_parent_dir = parent_dir
-            new_name_final = new_name_or_path
 
         app.logger.info(f"🔄 Renaming from {old_path} to {new_path}")
         
-        # Check if it's a file or folder based on file extension
+        # Check if it's a file or folder
         is_file = '.' in old_name
         
         # First approach: Check if the target exists by trying to list parent directory
