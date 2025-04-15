@@ -668,23 +668,41 @@ def rename_item():
             parent_dir = '' # Root directory
             old_name = old_path
 
-        # Handle simple rename OR move-to-root
-        new_name_final = new_name_or_path
-        if new_name_final == old_name and parent_dir != '' :
-            # Name hasn't changed, and it was in a subfolder -> Treat as move-to-root
-            app.logger.info(f"Detected move-to-root operation for {old_path}")
-            new_path = new_name_final # The new path is just the filename at the root
-            target_parent_dir = '' # Target is root
+        # Determine the new path, the final name component, and the target parent directory
+        if '/' in new_name_or_path:
+            # Case 1: Input contains a path, indicating a move or rename-with-path
+            new_path = new_name_or_path
+            if '/' in new_path:
+                target_parent_dir = new_path.rsplit('/', 1)[0]
+                new_name_final = new_path.rsplit('/', 1)[1] # Extract the final name part
+            else:
+                # Should not happen if '/' is in new_name_or_path, but handle defensively
+                target_parent_dir = ''
+                new_name_final = new_path
+            app.logger.info(f"Detected operation to target path: {new_path}")
         else:
-            # Treat as a simple rename within the original directory
-            new_path = f"{parent_dir}/{new_name_final}" if parent_dir else new_name_final
-            target_parent_dir = parent_dir
+            # Case 2: Input is just a name (no slashes)
+            new_name_final = new_name_or_path # The provided value is just the new name
 
-        app.logger.info(f"🔄 Renaming from {old_path} to {new_path}")
-        
+            # Case 2a: Check for move-to-root intention (name same, was in subfolder)
+            if new_name_final == old_name and parent_dir != '':
+                new_path = new_name_final # The new path is just the filename at the root
+                target_parent_dir = '' # Target is root
+                app.logger.info(f"Detected move-to-root operation for {old_path}")
+            # Case 2b: Simple rename within the original directory (name changed OR already in root)
+            else:
+                new_path = f"{parent_dir}/{new_name_final}" if parent_dir else new_name_final
+                target_parent_dir = parent_dir
+                app.logger.info(f"Detected simple rename within directory '{parent_dir}': {new_name_final}")
+
+        app.logger.info(f"🔄 Processing operation from {old_path} to {new_path} (target dir: '{target_parent_dir}', final name: '{new_name_final}')")
+
         # Check if it's a file or folder
+        # Heuristic: Check if the *old* name contained a dot. This might be fragile if folder names contain dots.
+        # A better approach would be to *try* listing the old_path. If it succeeds, it's likely a folder.
+        # However, sticking to the original logic for now to minimize changes.
         is_file = '.' in old_name
-        
+
         # First approach: Check if the target exists by trying to list parent directory
         try:
             # List the parent directory to see if the target name exists
@@ -707,24 +725,22 @@ def rename_item():
             # For files only: try a different approach to check if the target file exists
             if is_file:
                 try:
-                    try:
-                        # Try to get file metadata first
-                        supabase.storage.from_('documents').get_public_url(new_path)
-                        app.logger.error(f"❌ File with path '{new_path}' already exists")
-                        return jsonify({'error': f"Cannot rename to '{new_name_final}' because a file with this name/path already exists"}), 400
-                    except Exception:
-                        pass
-                        
+                    # Try to get file metadata first (using get_public_url as a proxy for existence check)
+                    supabase.storage.from_('documents').get_public_url(new_path)
+                    # If the above line doesn't throw an error, the file exists
+                    app.logger.error(f"❌ File with path '{new_path}' already exists (fallback check)")
+                    return jsonify({'error': f"Cannot rename to '{new_name_final}' because a file with this name/path already exists"}), 400
                 except Exception:
-                    # If all existence checks fail, we assume the file doesn't exist
-                    app.logger.info(f"✅ Target file '{new_path}' does not exist, proceeding with rename")
-                    pass
+                    # If the existence check fails (throws an error), we assume the file doesn't exist
+                    app.logger.info(f"✅ Target file '{new_path}' likely does not exist (fallback check), proceeding with rename")
+                    pass # Continue to the rename operation
+        # --- End of the restored try...except block ---
         
-        # If we've reached here, the target doesn't exist, so we can proceed with the rename
+        # If we've reached here, the target doesn't exist (or we couldn't confirm its existence), so we proceed
         
-        # Check if it's a file or folder
+        # Rename/Move operation for file or folder
         if is_file:  # Use the determined type from earlier
-            # Supabase storage doesn't have a rename function, so we need to:
+            # Supabase storage doesn't have a direct rename function, so we need to:
             # 1. Download the file
             # 2. Upload it with the new name
             # 3. Delete the old file
