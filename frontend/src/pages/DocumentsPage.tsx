@@ -25,7 +25,9 @@ import {
   Edit,
   FolderInput,
   RefreshCw,
-  GripVertical
+  GripVertical,
+  BarChart3,
+  FolderX
 } from "lucide-react"
 import { documentsApi } from "@/lib/api/documents"
 import { Button } from "@/components/ui/button"
@@ -62,6 +64,9 @@ import DraggableFileItem from "@/components/documents/DraggableFileItem"
 import DroppableFolderItem from "@/components/documents/DroppableFolderItem"
 import { DragItem } from "@/lib/hooks/useDragDrop"
 import { useFilesStore } from "@/lib/store/files-store"
+import { motion, AnimatePresence } from "framer-motion"
+
+const MotionTable = motion(Table)
 
 type Props = {}
 
@@ -94,6 +99,20 @@ const getFileIcon = (filename: string, type?: string) => {
   }
 }
 
+// Helper for file type badge
+const getFileTypeBadge = (filename: string) => {
+  const ext = filename.split('.').pop()?.toLowerCase();
+  if (!ext) return null;
+  let color = 'bg-slate-200 text-slate-700';
+  if (ext === 'pdf') color = 'bg-red-100 text-red-700';
+  if (ext === 'docx' || ext === 'doc') color = 'bg-blue-100 text-blue-700';
+  if (ext === 'xlsx' || ext === 'xls') color = 'bg-green-100 text-green-700';
+  if (ext === 'csv') color = 'bg-green-50 text-green-700';
+  return (
+    <span className={`ml-2 px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{ext.toUpperCase()}</span>
+  );
+};
+
 const DocumentsPage: NextPage<Props> = () => {
   const [files, setFiles] = useState<FileItem[]>([])
   const [currentPath, setCurrentPath] = useState<string[]>([])
@@ -111,6 +130,7 @@ const DocumentsPage: NextPage<Props> = () => {
   const [isCreatingFolder, setIsCreatingFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState("")
   const [filesToMove, setFilesToMove] = useState<{ fileId: string; filePath: string[] }[]>([])
+  const [searchQuery, setSearchQuery] = useState("")
 
   // create a unique identifier for comparing the item being renamed
   const getItemUniqueId = useCallback((item: FileItem) => {
@@ -121,8 +141,12 @@ const DocumentsPage: NextPage<Props> = () => {
   const getCurrentFolderItems = useCallback(() => {
     return files
       .filter((item) => JSON.stringify(item.path) === JSON.stringify(currentPath))
-      .filter((item) => item.name !== '.folder'); // Hide the .folder placeholder files
-  }, [files, currentPath])
+      .filter((item) => item.name !== '.folder') // Hide the .folder placeholder files
+      .filter((item) => // Filter by search query (case-insensitive)
+        searchQuery === "" || 
+        item.name.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+  }, [files, currentPath, searchQuery])
 
   // Update document count when files change
   useEffect(() => {
@@ -462,20 +486,21 @@ const DocumentsPage: NextPage<Props> = () => {
     return (
       <div className="fixed inset-0 z-[9999] overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black bg-opacity-30"
-            onClick={() => setShowFileDetails(false)}></div>
-          <div className="relative bg-white rounded-lg shadow-xl max-w-3xl max-h-[90vh] overflow-hidden w-full p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-semibold">{fileDetails.filename} Details</h2>
+          <div className="fixed inset-0 bg-black bg-opacity-30" onClick={() => setShowFileDetails(false)}></div>
+          <div className="relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-3xl max-h-[90vh] overflow-hidden w-full p-8" style={{ boxShadow: '0 8px 32px 0 rgba(16,30,54,0.16)' }}>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{fileDetails.filename} <span className="text-base font-normal text-slate-400">Details</span></h2>
               <button
                 onClick={() => setShowFileDetails(false)}
-                className="rounded-full p-1 hover:bg-gray-100">
-                <X className="h-5 w-5" />
+                className="rounded-full p-2 bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-900 transition shadow"
+                title="Close"
+              >
+                <X className="h-6 w-6 text-slate-500" />
               </button>
             </div>
-
+            <div className="border-b border-slate-200 dark:border-slate-700 mb-6" />
             <Tabs defaultValue="summary" className="flex-1 overflow-hidden">
-              <TabsList className="grid w-full grid-cols-4">
+              <TabsList className="grid w-full grid-cols-4 mb-4">
                 <TabsTrigger value="summary">
                   <Info className="w-4 h-4 mr-2" /> Summary
                 </TabsTrigger>
@@ -491,10 +516,10 @@ const DocumentsPage: NextPage<Props> = () => {
               </TabsList>
 
               <TabsContent value="summary" className="overflow-auto">
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-muted rounded-lg p-4">
-                      <h3 className="font-medium mb-2">File Information</h3>
+                <div className="space-y-6">
+                  <div className="grid grid-cols-2 gap-6">
+                    <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-6 shadow-sm">
+                      <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-100">File Information</h3>
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-muted-foreground">Type:</span>
@@ -544,8 +569,8 @@ const DocumentsPage: NextPage<Props> = () => {
                     </div>
 
                     {fileDetails.metadata && (
-                      <div className="bg-muted rounded-lg p-4">
-                        <h3 className="font-medium mb-2">Metadata</h3>
+                      <div className="bg-slate-50 dark:bg-slate-800 rounded-xl p-6 shadow-sm">
+                        <h3 className="font-semibold mb-3 text-slate-800 dark:text-slate-100">Metadata</h3>
                         <div className="space-y-2 text-sm">
                           {fileDetails.metadata.title && (
                             <div className="flex justify-between">
@@ -588,7 +613,7 @@ const DocumentsPage: NextPage<Props> = () => {
 
               <TabsContent value="data" className="h-full overflow-hidden">
                 {fileDetails.sample_data && fileDetails.column_names ? (
-                  <ScrollArea className="h-[400px] rounded-md border">
+                  <div className="overflow-y-auto h-[500px]">
                     <Table>
                       <TableHeader>
                         <TableRow>
@@ -597,7 +622,7 @@ const DocumentsPage: NextPage<Props> = () => {
                           ))}
                         </TableRow>
                       </TableHeader>
-                      <TableBody>
+                      <TableBody className="min-h-[400px]">
                         {fileDetails.sample_data.map((row, rowIndex) => (
                           <TableRow key={rowIndex}>
                             {fileDetails.column_names!.map((column, colIndex) => (
@@ -607,7 +632,7 @@ const DocumentsPage: NextPage<Props> = () => {
                         ))}
                       </TableBody>
                     </Table>
-                  </ScrollArea>
+                  </div>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
                     No tabular data available for this file type
@@ -669,8 +694,8 @@ const DocumentsPage: NextPage<Props> = () => {
               </TabsContent>
             </Tabs>
 
-            <div className="mt-6 flex justify-end">
-              <Button onClick={() => setShowFileDetails(false)}>Close</Button>
+            <div className="mt-8 flex justify-end">
+              <Button onClick={() => setShowFileDetails(false)} className="rounded-full px-6 py-2 text-base font-semibold shadow-sm bg-emerald-600 hover:bg-emerald-700">Close</Button>
             </div>
           </div>
         </div>
@@ -829,14 +854,37 @@ const DocumentsPage: NextPage<Props> = () => {
   }
 
   return (
-    <div className="container mx-auto p-4 lg:p-8">
-      <div className="flex flex-col h-full bg-background rounded-lg border shadow-sm">
-        <div className="border-b">
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center space-x-2">
-              <h1 className="text-2xl font-semibold">ESG Documents</h1>
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 to-slate-200 dark:from-slate-900 dark:to-slate-950 py-2 px-0">
+      <div className="w-full max-w-5xl mx-auto flex-1 flex flex-col">
+        <div className="bg-white dark:bg-slate-900 shadow-xl rounded-2xl p-0 md:p-2 flex-1 flex flex-col overflow-hidden">
+          <div className="flex items-center gap-3 mb-0 px-3 pt-3 pb-2">
+            <BarChart3 className="h-10 w-10 text-emerald-600" />
+            <div>
+              <h1 className="text-3xl font-bold text-slate-900 dark:text-white leading-tight">ESG Documents</h1>
+              <p className="text-slate-500 dark:text-slate-400 text-base mt-0">Securely manage, organize, and analyze your ESG files and folders with enterprise-grade tools.</p>
             </div>
-            <div className="flex items-center space-x-2">
+          </div>
+          <div className="border-b border-slate-200 dark:border-slate-800 mb-1 mx-2" />
+    <div className="container mx-auto p-4 lg:p-8">
+            <div className="w-full p-0 flex-1 flex flex-col h-full">
+              <div className="flex flex-col h-full bg-background rounded-xl shadow-lg flex-1">
+                <div>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-2 md:p-4 bg-slate-50 dark:bg-slate-800 rounded-xl mb-2 shadow">
+                    {/* Search Bar */}
+                    <div className="flex-1 flex items-center mb-3 sm:mb-0">
+                      <div className="w-full max-w-xs">
+                        <Input
+                          type="text"
+                          placeholder="Search documents..."
+                          className="w-full rounded-full bg-white dark:bg-slate-900 shadow-sm px-4 py-2 border-none focus:ring-2 focus:ring-emerald-200"
+                          style={{ boxShadow: '0 1px 4px 0 rgba(16,30,54,0.06)' }}
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+            </div>
+                    </div>
+                    {/* Action Buttons */}
+                    <div className="flex items-center gap-2">
               <Input
                 type="file"
                 multiple
@@ -845,8 +893,8 @@ const DocumentsPage: NextPage<Props> = () => {
                 onChange={handleFileUpload}
                 accept={ALLOWED_FILE_TYPES}
               />
-              <label htmlFor="file-upload">
-                <Button variant="outline" className="cursor-pointer" asChild>
+                      <label htmlFor="file-upload" title="Upload Files">
+                        <Button variant="outline" className="cursor-pointer shadow-sm transition-transform hover:scale-105" asChild>
                   <span>
                     {isUploading ? (
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -859,7 +907,7 @@ const DocumentsPage: NextPage<Props> = () => {
               </label>
               <Dialog>
                 <DialogTrigger asChild>
-                  <Button variant="outline">
+                          <Button variant="outline" className="shadow-sm transition-transform hover:scale-105" title="Create New Folder">
                     <FolderOpen className="w-4 h-4 mr-2" />
                     New Folder
                   </Button>
@@ -896,24 +944,41 @@ const DocumentsPage: NextPage<Props> = () => {
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
-              <Button variant="outline" disabled={selectedItems.length === 0} onClick={() => handleDelete()}>
+                      <Button
+                        variant={selectedItems.length === 0 ? "outline" : "destructive"}
+                        className={`${selectedItems.length === 0 ? "shadow-sm" : "shadow-sm bg-red-600 text-white hover:bg-red-700"} transition-transform hover:scale-105`}
+                        disabled={selectedItems.length === 0}
+                        onClick={() => handleDelete()}
+                        title="Delete Selected"
+                      >
                 <Trash2 className="w-4 h-4 mr-2" />
                 Delete
               </Button>
             </div>
           </div>
-          <Breadcrumb className="px-4 py-2">
-            <BreadcrumbList>
+                  <div className="px-2 py-2 md:px-4 md:py-3 bg-white dark:bg-slate-900 rounded-xl mb-2 flex items-center shadow">
+                    <Breadcrumb>
+                      <BreadcrumbList className="flex items-center gap-1">
               <BreadcrumbItem>
-                <BreadcrumbLink onClick={() => setCurrentPath([])}>Home</BreadcrumbLink>
+                          <BreadcrumbLink className="text-emerald-700 font-semibold transition cursor-pointer hover:no-underline" onClick={() => setCurrentPath([])}>
+                            Home
+                          </BreadcrumbLink>
               </BreadcrumbItem>
               {currentPath.map((folder, index) => (
                 <React.Fragment key={index}>
                   <BreadcrumbSeparator>
-                    <ChevronRight className="h-4 w-4" />
+                              <ChevronRight className="h-4 w-4 text-slate-400" />
                   </BreadcrumbSeparator>
                   <BreadcrumbItem>
-                    <BreadcrumbLink onClick={() => setCurrentPath(currentPath.slice(0, index + 1))}>
+                              <BreadcrumbLink
+                                className={`transition cursor-pointer ${index === currentPath.length - 1 ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}
+                                onClick={() => {
+                                  // Optional: Add a slight delay before navigation if needed for smoother exit animations
+                                  // setTimeout(() => {
+                                    setCurrentPath(currentPath.slice(0, index + 1))
+                                  // }, 100)
+                                }}
+                              >
                       {folder}
                     </BreadcrumbLink>
                   </BreadcrumbItem>
@@ -921,34 +986,98 @@ const DocumentsPage: NextPage<Props> = () => {
               ))}
             </BreadcrumbList>
           </Breadcrumb>
+                  </div>
         </div>
 
-        <div className="flex-1 p-4 overflow-auto">
-          <Table>
-            <TableHeader>
+                <div className="flex-1 p-0 overflow-hidden flex flex-col justify-between">
+                  {/* Upload Progress Bar */}
+                  {isUploading && Object.keys(uploadProgress).length > 0 && (
+                    <div className="w-full h-2 mb-2 bg-slate-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-2 bg-emerald-500 transition-all"
+                        style={{ width: `${
+                          Math.min(
+                            100,
+                            Object.values(uploadProgress).reduce((a, b) => a + b, 0) /
+                              Object.keys(uploadProgress).length
+                          )
+                        }%` }}
+                      />
+                    </div>
+                  )}
+                  <div className="flex-1 flex flex-col overflow-y-auto">
+                    <AnimatePresence mode="wait">
+                      <MotionTable
+                        key={currentPath.join('/')} // Animate when path changes
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.4 }}
+                        className="shadow-none bg-white dark:bg-slate-900 h-full"
+                        style={{ borderCollapse: 'separate', borderSpacing: 0 }}
+                      >
+                        <TableHeader className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800">
               <TableRow>
-                <TableHead className="w-[35px] pl-3 pr-0">
+                            <TableHead className="w-[35px] pl-3 pr-0 py-1.5">
                   <input
                     type="checkbox"
-                    className="h-4 w-4 rounded border-gray-300"
-                    checked={
-                      getCurrentFolderItems().length > 0 &&
-                      selectedItems.length === getCurrentFolderItems().length
-                    }
+                                checked={selectedItems.length === getCurrentFolderItems().length}
                     onChange={handleSelectAll}
+                                className="h-4 w-4 rounded border-gray-300"
                   />
                 </TableHead>
-                <TableHead className="w-[45%] pl-1">Name</TableHead>
-                <TableHead className="w-[15%]">Size</TableHead>
-                <TableHead className="w-[25%]">Modified</TableHead>
-                <TableHead className="w-[15%] text-right pr-4">Actions</TableHead>
+                            <TableHead className="pl-1 py-3">
+                              File Name
+                            </TableHead>
+                            <TableHead>
+                              Size
+                            </TableHead>
+                            <TableHead>
+                              Modified
+                            </TableHead>
+                            <TableHead className="text-right pr-4">
+                              Actions
+                            </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
+                          {isLoading ? (
+                            Array.from({ length: 4 }).map((_, i) => (
+                              <tr key={i}>
+                                <td colSpan={5} className="py-6 px-2">
+                                  <div className="h-4 w-3/4 bg-slate-200 dark:bg-slate-700 rounded mb-2"></div>
+                                  <div className="h-4 w-1/2 bg-slate-100 dark:bg-slate-800 rounded"></div>
+                                </td>
+                              </tr>
+                            ))
+                          ) : getCurrentFolderItems().length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="py-24 px-6 text-center">
+                                <div className="flex flex-col items-center justify-center gap-4">
+                                  <FolderX className="w-16 h-16 text-slate-300 dark:text-slate-600" />
+                                  <p className="text-slate-500 dark:text-slate-400 text-lg font-medium">
+                                    No files in this folder
+                                  </p>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (
+                            <AnimatePresence mode="popLayout" initial={false}>
               {getCurrentFolderItems().map((item, index) => (
-                <TableRow
+                                <motion.tr
                   key={`${item.id}-${index}`}
-                  className={`hover:bg-slate-50 dark:hover:bg-slate-900 ${selectedItems.includes([...currentPath, item.name].join('/')) ? 'bg-blue-50 dark:bg-blue-950' : ''}`}
+                                  layout
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -10 }}
+                                  transition={{ duration: 0.25, type: "spring", damping: 20, stiffness: 200 }}
+                                  className={`
+                                    ${index % 2 === 0 ? 'bg-slate-50 dark:bg-slate-900' : 'bg-slate-100 dark:bg-slate-800'}
+                                    hover:bg-emerald-50 dark:hover:bg-emerald-900 hover:shadow-xl hover:scale-[1.01]
+                                    ${selectedItems.includes([...currentPath, item.name].join('/')) ? 'bg-blue-50 dark:bg-blue-950' : ''}
+                                    transition-all duration-150
+                                  `}
+                                  style={{ height: '52px', paddingTop: '10px', paddingBottom: '10px', cursor: 'pointer' }}
                 >
                   <TableCell className="w-[35px] pl-3 pr-0 py-1.5">
                     <input
@@ -958,7 +1087,7 @@ const DocumentsPage: NextPage<Props> = () => {
                       className="h-4 w-4 rounded border-gray-300"
                     />
                   </TableCell>
-                  <TableCell className="pl-1 py-1.5">
+                                  <TableCell className="pl-1 py-3">
                     {renamingItem && getItemUniqueId(renamingItem) === getItemUniqueId(item) ? (
                       <div className="flex items-center space-x-2">
                         <Input
@@ -991,7 +1120,7 @@ const DocumentsPage: NextPage<Props> = () => {
                         >
                           <div onClick={() => navigateToFolder(item.name)} className="flex items-center cursor-pointer">
                             {getFileIcon(item.name, item.type)}
-                            <span className="ml-1 font-medium hover:underline">
+                            <span className="ml-1 font-medium">
                               {item.name}
                             </span>
                           </div>
@@ -1003,8 +1132,9 @@ const DocumentsPage: NextPage<Props> = () => {
                         >
                           <div className="flex items-center">
                             {getFileIcon(item.name, item.type)}
-                            <span className="ml-1">
+                            <span className="ml-1 cursor-default">
                               {item.name}
+                                              {getFileTypeBadge(item.name)}
                             </span>
                           </div>
                         </DraggableFileItem>
@@ -1034,21 +1164,23 @@ const DocumentsPage: NextPage<Props> = () => {
 
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" title="More actions">
-                            <MoreVertical className="w-4 h-4" />
+                                          <Button variant="ghost" size="icon" title="More actions" className="group">
+                                            <MoreVertical className="w-4 h-4 transition-transform duration-200 ease-in-out group-hover:rotate-90" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleStartRename(item)}>
+                                        <DropdownMenuContent align="end" className="rounded-xl shadow-lg p-2 min-w-[180px] bg-white dark:bg-slate-900 border-none">
+                                          <DropdownMenuItem className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" onClick={() => handleStartRename(item)}>
                             <Edit className="w-4 h-4 mr-2" />
                             <span>Rename</span>
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleMoveItem(item)}>
-                            <FolderInput className="w-4 h-4 mr-2" />
-                            <span>Move to folder</span>
-                          </DropdownMenuItem>
                           {item.type === "file" && (
-                            <DropdownMenuItem onClick={() => handleReUpload(item)}>
+                            <DropdownMenuItem className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" onClick={() => handleMoveItem(item)}>
+                              <FolderInput className="w-4 h-4 mr-2" />
+                              <span>Move to folder</span>
+                            </DropdownMenuItem>
+                          )}
+                          {item.type === "file" && (
+                            <DropdownMenuItem className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" onClick={() => handleReUpload(item)}>
                               <RefreshCw className="w-4 h-4 mr-2" />
                               <span>Re-upload</span>
                             </DropdownMenuItem>
@@ -1062,7 +1194,7 @@ const DocumentsPage: NextPage<Props> = () => {
                                 : item.name
                               handleDelete(fullPath)
                             }}
-                            className="text-red-500 hover:text-red-600 focus:text-red-600"
+                                            className="rounded-lg px-4 py-2 font-medium text-red-500 hover:bg-red-50 dark:hover:bg-red-900 hover:text-red-700 focus:text-red-700 transition"
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
                             <span>Delete</span>
@@ -1071,10 +1203,14 @@ const DocumentsPage: NextPage<Props> = () => {
                       </DropdownMenu>
                     </div>
                   </TableCell>
-                </TableRow>
+                                </motion.tr>
               ))}
+                            </AnimatePresence>
+                          )}
             </TableBody>
-          </Table>
+                      </MotionTable>
+                    </AnimatePresence>
+                  </div>
         </div>
         {fileDetails && <FileDetailsDialog />}
         <Dialog open={isCreatingFolder} onOpenChange={(open) => !open && setIsCreatingFolder(false)}>
@@ -1107,6 +1243,10 @@ const DocumentsPage: NextPage<Props> = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
