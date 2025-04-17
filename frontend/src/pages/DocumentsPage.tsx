@@ -67,6 +67,8 @@ import DroppableFolderItem from "@/components/documents/DroppableFolderItem"
 import { DragItem } from "@/lib/hooks/useDragDrop"
 import { useFilesStore } from "@/lib/store/files-store"
 import { motion, AnimatePresence } from "framer-motion"
+import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
+import 'react-pdf/dist/esm/Page/TextLayer.css';
 
 const MotionTable = motion(Table)
 
@@ -144,6 +146,7 @@ const DocumentsPage: NextPage<Props> = () => {
   const [previewFile, setPreviewFile] = useState<FileItem | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [urlToPreview, setUrlToPreview] = useState<string | null>(null); // State to hold URL generated in onClick
 
   // Add a state to track iframe loading
   const [isIframeLoading, setIsIframeLoading] = useState(true);
@@ -151,6 +154,9 @@ const DocumentsPage: NextPage<Props> = () => {
   // Add a new state to track loading attempts
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
+
+  // Add state for iframe-specific loading errors
+  const [iframeError, setIframeError] = useState<string | null>(null);
 
   // create a unique identifier for comparing the item being renamed
   const getItemUniqueId = useCallback((item: FileItem) => {
@@ -1139,63 +1145,41 @@ const DocumentsPage: NextPage<Props> = () => {
     }
   }, [itemToMove, loadFiles, setItemToMove, setIsMoveModalOpen]);
 
-  // Update the preview URL fetching function with better handling
+  // Update the preview URL fetching function
   useEffect(() => {
-    if (isPreviewOpen && previewFile) {
-      const fetchPreviewUrl = async () => {
-        setIsLoadingPreview(true);
-        setIsIframeLoading(true);
-        
-        try {
-          // Use the full path for getDownloadUrl if the backend expects it
-          const filePath = [...(previewFile.path || []), previewFile.name].join('/');
-          const { url } = await documentsApi.getDownloadUrl(filePath);
+    if (isPreviewOpen && previewFile && urlToPreview) { // Check for urlToPreview
+      // --- Start: Simplified Effect --- 
+      setIsLoadingPreview(true);
+      setIsIframeLoading(true); 
+      setIframeError(null); 
 
-          const extension = previewFile.name.split('.').pop()?.toLowerCase();
-          
-          if (['pdf', 'docx', 'xlsx', 'pptx'].includes(extension || '')) {
-            // Use Google Docs Viewer for all document types for consistency
-            const encodedUrl = encodeURIComponent(url);
-            // Add a cache-busting parameter to help with refreshing
-            const cacheBuster = new Date().getTime();
-            setPreviewUrl(`https://docs.google.com/gview?url=${encodedUrl}&embedded=true&cacheBust=${cacheBuster}`);
-            
-            // Pre-warm Google's cache with a background fetch
-            fetch(`https://docs.google.com/gview?url=${encodedUrl}`)
-              .catch(e => console.log('Pre-warming cache (ignorable):', e));
-          } else if (['jpg', 'png', 'gif', 'jpeg'].includes(extension || '')) {
-            setPreviewUrl(url); // Direct URL for images
-          } else {
-            setPreviewUrl(null); // Unsupported type
-          }
-        } catch (error) {
-          console.error('Error fetching preview URL:', error);
-          toast.error("Could not load file preview.");
-          setPreviewUrl(null);
-        } finally {
-          setIsLoadingPreview(false);
-          
-          // Shorter timeout for better user experience
-          setTimeout(() => {
-            setIsIframeLoading(false);
-          }, 2500); // Reduced to 2.5 seconds
-          
-          // Reset retry state
-          setIsRetrying(false);
-        }
-      };
+      // Directly use the URL prepared in onClick
+      setPreviewUrl(urlToPreview); 
       
-      fetchPreviewUrl();
-    } else {
-      // Reset when dialog closes or file changes
+      // Reset temporary state
+      // setUrlToPreview(null); // Optional: Reset if needed, or let it be overwritten next time
+
+      setIsLoadingPreview(false); // Preview URL is set, actual loading happens in iframe
+
+      // Set iframe loading to false after a longer delay
+      setTimeout(() => {
+        setIsIframeLoading(false);
+      }, 5000); 
+      // --- End: Simplified Effect ---
+    } else if (!isPreviewOpen) {
+      // Reset when dialog closes 
       setPreviewUrl(null);
       setLoadAttempt(0);
       setIsRetrying(false);
+      setIframeError(null); 
+      setUrlToPreview(null); // Clear the stored URL when dialog closes
     }
-  }, [isPreviewOpen, previewFile, loadAttempt]); // Add loadAttempt as dependency
+    // Dependency array includes the URL prepared in onClick
+  }, [isPreviewOpen, previewFile, loadAttempt, urlToPreview]);
 
   // Add a function to handle retry
   const handleRetry = useCallback(() => {
+    // loadAttempt triggers useEffect to refetch URL and forces iframe remount via key
     setIsRetrying(true);
     setLoadAttempt(prev => prev + 1);
   }, []);
@@ -1527,10 +1511,53 @@ const DocumentsPage: NextPage<Props> = () => {
                                           {item.type === "file" && (
                                             <DropdownMenuItem 
                                               className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" 
-                                              onClick={() => {
+                                              onClick={async () => { // Make onClick async
                                                 console.log("Preview clicked for:", item);
-                                                setPreviewFile(item);
-                                                setIsPreviewOpen(true);
+                                                // --- Start Pre-fetch ---
+                                                try {
+                                                  const filePath = [...(item.path || []), item.name].join('/');
+                                                  const { url } = await documentsApi.getDownloadUrl(filePath);
+                                                  const extension = item.name.split('.').pop()?.toLowerCase();
+                                                  let targetUrl = '';
+                                                  
+                                                  // Define targetUrl based on extension
+                                                  if (['pdf', 'docx', 'pptx', 'csv'].includes(extension || '')) { 
+                                                    // Google Docs Viewer 
+                                                    const encodedUrl = encodeURIComponent(url);
+                                                    const cacheBuster = new Date().getTime();
+                                                    targetUrl = `https://docs.google.com/gview?url=${encodedUrl}&embedded=true&t=${cacheBuster}`;
+                                                  } else if (['xlsx'].includes(extension || '')) {
+                                                    // Microsoft viewer
+                                                    const encodedUrl = encodeURIComponent(url);
+                                                    targetUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodedUrl}`;
+                                                  } else if (['jpg', 'png', 'gif', 'jpeg'].includes(extension || '')) {
+                                                    // Direct image URL
+                                                    targetUrl = url;
+                                                  }
+                                                  
+                                                  // Attempt the prefetch if we have a URL
+                                                  if (targetUrl) {
+                                                    console.log('Prefetching URL:', targetUrl.substring(0, 100) + '...');
+                                                    fetch(targetUrl, { mode: 'no-cors' }).catch(e => console.warn('Prefetch failed (expected for no-cors):', e));
+                                                    
+                                                    // --- Set state AFTER generating targetUrl ---
+                                                    setUrlToPreview(targetUrl); // Store the final URL
+                                                    setPreviewFile(item);
+                                                    setIsPreviewOpen(true);
+                                                    // -------------------------------------------
+                                                  } else {
+                                                    // Handle case where no preview is supported or URL failed
+                                                    toast.error("Preview is not supported for this file type or failed to get URL.");
+                                                  }
+                                                } catch (err) {
+                                                  console.error("Error getting download URL or preparing preview:", err);
+                                                  toast.error("Could not prepare file preview.");
+                                                  // Ensure dialog doesn't open if URL fetch failed
+                                                  setUrlToPreview(null);
+                                                  setPreviewFile(null);
+                                                  setIsPreviewOpen(false);
+                                                }
+                                                // --- End Pre-fetch and URL Generation Logic ---
                                               }}
                                             >
                                               <Eye className="w-4 h-4 mr-2" />
@@ -1581,7 +1608,7 @@ const DocumentsPage: NextPage<Props> = () => {
                   </div>
         </div>
         {fileDetails && <FileDetailsDialog />}
-        <Dialog open={isCreatingFolder} onOpenChange={(open) => !open && setIsCreatingFolder(false)}>
+        <Dialog open={isCreatingFolder} onOpenChange={(open: boolean) => !open && setIsCreatingFolder(false)}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Create New Folder</DialogTitle>
@@ -1640,7 +1667,7 @@ const DocumentsPage: NextPage<Props> = () => {
               </div>
             </DialogHeader>
             <div className="flex-1 overflow-hidden relative">
-              {isLoadingPreview ? (
+              {isLoadingPreview ? ( // Simplified loading state check
                 <div className="flex flex-col justify-center items-center h-full bg-slate-100 dark:bg-slate-800 bg-opacity-50">
                   <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-lg flex flex-col items-center">
                     <Loader2 className="h-12 w-12 animate-spin text-emerald-600 mb-4" />
@@ -1649,72 +1676,78 @@ const DocumentsPage: NextPage<Props> = () => {
                   </div>
                 </div>
               ) : previewUrl ? (
+                // Unified rendering for iframe/img based on previewUrl
                 <div className="relative w-full h-full">
-                  {/* Show loading overlay if iframe is still loading */}
-                  {isIframeLoading && (
+                  {/* Optional: Show loading overlay while iframe specifically is loading */}
+                  {isIframeLoading && previewFile?.name.split('.').pop()?.toLowerCase() !== 'jpg' /* etc */ && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/90 dark:bg-slate-900/90">
                       <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-lg flex flex-col items-center">
                         <Loader2 className="h-12 w-12 animate-spin text-emerald-600 mb-4" />
-                        <p className="text-slate-700 dark:text-slate-300 font-medium">Loading preview...</p>
-                        <p className="text-slate-500 dark:text-slate-400 text-sm mt-2">This might take a few moments</p>
+                        <p className="text-slate-700 dark:text-slate-300 font-medium">Loading preview content...</p>
                       </div>
                     </div>
                   )}
-                  
-                  {/* Always show content - it will be covered by overlay while loading */}
+
                   {(() => {
                     const extension = previewFile?.name.split('.').pop()?.toLowerCase();
                     if (['jpg', 'png', 'gif', 'jpeg'].includes(extension || '')) {
+                      // Image rendering
                       return (
                         <div className="h-full w-full flex items-center justify-center bg-slate-200 dark:bg-slate-700 bg-[url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABGdBTUEAALGPC/xhBQAAADhlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAAqACAAQAAAABAAAAEKADAAQAAAABAAAAEAAAAAAXnVPIAAAAHElEQVQ4EWNgYGD4z0AEYBxVMGoANmhUwIAJAAAkEQMT1I5BBQAAAABJRU5ErkJggg==')] p-2">
-                          <img src={previewUrl || ''} alt="Preview" className="max-w-full max-h-[calc(90vh-8rem)] object-contain shadow-lg rounded-lg" />
+                          <img
+                            src={previewUrl || ''}
+                            alt="Preview"
+                            className="max-w-full max-h-[calc(90vh-8rem)] object-contain shadow-lg rounded-lg"
+                            onLoad={() => setIsIframeLoading(false)} // Use onLoad for images too
+                            onError={() => setIsIframeLoading(false)}
+                          />
                         </div>
                       );
                     } else {
-                      // Use iframe for all document types via Google Docs Viewer
+                      // Iframe rendering (PDFs use native viewer, others use Google/Microsoft)
                       return (
                         <div className="relative w-full h-full">
-                          <iframe 
+                          <iframe
                             key={`preview-iframe-${loadAttempt}`} // Force iframe refresh on retry
-                            src={previewUrl || ''} 
-                            width="100%" 
-                            height="100%" 
-                            style={{ border: 'none', background: '#f8fafc' }} 
+                            src={previewUrl || ''}
+                            width="100%"
+                            height="100%"
+                            style={{ border: 'none', background: '#f8fafc' }}
                             title={`Preview of ${previewFile?.name}`}
-                            onLoad={(e) => {
-                              // Check if we need to retry based on frame content
-                              const iframe = e.currentTarget;
-                              
-                              try {
-                                // Check if the iframe has loaded properly
-                                if (iframe.contentWindow && iframe.contentWindow.document.body) {
-                                  // Successfully loaded
-                                  setIsIframeLoading(false);
-                                }
-                              } catch (error) {
-                                // CORS error when trying to access iframe content - this is actually expected
-                                // and means the iframe is loading external content properly
-                                setIsIframeLoading(false);
-                              }
+                            onLoad={() => {
+                              setIsIframeLoading(false);
+                              setIframeError(null); // Clear error on successful load
                             }}
                             onError={() => {
-                              // Show retry button on error
                               setIsIframeLoading(false);
+                              setIframeError("The preview service (e.g., Google Docs Viewer) failed to load this document. Please try reloading.");
                             }}
                             className="rounded-b-xl"
                           />
-                          
-                          {/* Add retry button for already loaded but blank content */}
-                          {!isIframeLoading && !isRetrying && previewFile && !['jpg', 'png', 'gif', 'jpeg'].includes(previewFile.name.split('.').pop()?.toLowerCase() || '') && (
-                            <div className="absolute bottom-4 right-4">
-                              <Button 
-                                size="sm" 
+
+                          {/* Display iframe error message */} 
+                          {iframeError && (
+                            <div className="absolute inset-0 flex flex-col justify-center items-center bg-slate-100/90 dark:bg-slate-800/90 p-4 z-10">
+                              <div className="bg-white dark:bg-slate-900 p-6 rounded-lg shadow-lg text-center">
+                                <FileX className="h-12 w-12 text-red-500 mx-auto mb-3" />
+                                <p className="text-red-600 dark:text-red-400 font-semibold mb-2">Preview Error</p>
+                                <p className="text-slate-600 dark:text-slate-300 text-sm">{iframeError}</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Retry button for all iframe types */} 
+                          {!isIframeLoading && !isRetrying && (
+                            <div className="absolute bottom-4 right-4 z-20"> {/* Ensure retry button is above iframe content */}
+                              <Button
+                                size="sm"
                                 variant="secondary"
                                 className="bg-white/80 dark:bg-slate-800/80 shadow-lg hover:bg-white dark:hover:bg-slate-700"
                                 onClick={handleRetry}
+                                disabled={isRetrying}
                               >
-                                <RefreshCw className="h-4 w-4 mr-2" />
-                                Reload Preview
+                                <RefreshCw className={`h-4 w-4 mr-2 ${isRetrying ? 'animate-spin' : ''}`} />
+                                {isRetrying ? 'Reloading...' : 'Reload Preview'}
                               </Button>
                             </div>
                           )}
