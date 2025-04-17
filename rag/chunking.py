@@ -27,10 +27,10 @@ class PDFChunker:
 
     def extract_text_from_pdf(self, pdf_path: str) -> Tuple[str, bool]:
         """
-        Extract all text content from a PDF file.
+        Extract text content from a PDF file. If not a PDF, try reading as plain text.
         
         Args:
-            pdf_path: Path to the PDF file
+            pdf_path: Path to the file
             
         Returns:
             Tuple of (extracted text, success flag)
@@ -38,23 +38,36 @@ class PDFChunker:
         if not os.path.exists(pdf_path):
             return "", False
         
+        text = ""
         try:
-            text = ""
+            # Try reading as PDF first
             with open(pdf_path, 'rb') as file:
                 reader = PyPDF2.PdfReader(file)
                 for page_num in range(len(reader.pages)):
                     page = reader.pages[page_num]
                     page_text = page.extract_text()
-                    # Normalize Unicode characters to prevent escape sequences
-                    page_text = page_text.encode('utf-8', errors='replace').decode('utf-8')
-                    text += page_text + "\n\n"
+                    if page_text:
+                        page_text = page_text.encode('utf-8', errors='replace').decode('utf-8')
+                        text += page_text + "\n\n"
             
             # Clean the text of excessive whitespace
             text = re.sub(r'\s+', ' ', text).strip()
             return text, True
         
+        except PyPDF2.errors.PdfReadError:
+            # If PDF reading fails, try reading as plain text
+            print(f"File {pdf_path} is not a PDF. Attempting to read as text.")
+            try:
+                with open(pdf_path, 'r', encoding='utf-8', errors='replace') as file:
+                    text = file.read()
+                text = re.sub(r'\s+', ' ', text).strip()
+                return text, True
+            except Exception as txt_e:
+                print(f"Error reading {pdf_path} as text: {str(txt_e)}")
+                return "", False
         except Exception as e:
-            print(f"Error extracting text from PDF {pdf_path}: {str(e)}")
+            # Catch other potential errors during PDF processing
+            print(f"Error extracting text from {pdf_path}: {str(e)}")
             return "", False
 
     def create_chunks(self, text: str) -> List[Dict[str, Any]]:
