@@ -1,0 +1,18 @@
+# Flask framework and extensions
+Flask==3.1.0
+flask-cors==5.0.1
+python-dotenv==1.0.0 # For loading environment variables (.env files)
+
+# NLP/ML Stack for RAG
+sentence-transformers==2.7.0 # For generating text embeddings
+transformers==4.34.0 # Base library for sentence-transformers
+torch==2.2.1 # PyTorch (CPU version) - required by transformers
+faiss-cpu==1.7.3 # Efficient similarity search library (CPU version)
+numpy==1.26.4 # Numerical operations, required by FAISS and Torch
+PyPDF2==3.0.0 # PDF parsing library used in chunking
+
+# Graph Database (If graph features are used)
+neo4j==5.6.0 # Neo4j database driver
+
+# HTTP Client (If service needs to call other APIs)
+requests==2.31.0 

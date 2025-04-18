@@ -14,6 +14,8 @@ from etl_docx.chunking import semantic_chunk_text
 import json
 import tempfile
 import hashlib
+import tempfile
+import requests
 # Load environment variables
 load_dotenv('.env.local')
 
@@ -252,42 +254,40 @@ def upload_file():
 @app.route('/api/process-file', methods=['POST'])
 @require_auth
 def process_file():
-    """Process a file and extract metadata."""
+    """Process a file by delegating chunking and embedding to the RAG microservice."""
     try:
         app.logger.info("📞 API Call - process_file")
         if 'file' not in request.files:
             return jsonify({'error': 'No file part'}), 400
-        
+
         file = request.files['file']
-        file_type = file.filename.split('.')[-1].lower()
-        
-        # Mock processing result based on file type
-        result = {
-            'type': file_type,
-            'filename': file.filename,
-            'size': file.content_length,
-            'processed_at': datetime.now().isoformat()
-        }
-        
-        # Add type-specific metadata
-        if file_type == 'pdf':
-            result.update({
-                'pages': 10,  # You would actually count pages
-                'metadata': {
-                    'title': 'Sample PDF',
-                    'author': 'ESG Reporter',
-                    'creation_date': datetime.now().isoformat()
-                }
-            })
-        elif file_type in ['xlsx', 'csv']:
-            result.update({
-                'rows': 100,  # You would actually count rows
-                'columns': 5,  # You would actually count columns
-                'column_names': ['Date', 'Metric', 'Value', 'Unit']
-            })
-            
-        app.logger.info(f"📥 API Response: {result}")
-        return jsonify(result)
+        filename = secure_filename(file.filename)
+        suffix = os.path.splitext(filename)[1]
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        file.save(tmp.name)
+
+        # Call RAG chunk API
+        with open(tmp.name, 'rb') as f:
+            chunk_resp = requests.post("http://localhost:6050/rag/chunk", files={'file': f})
+        if not chunk_resp.ok:
+            error = chunk_resp.json().get('error', chunk_resp.text)
+            raise RuntimeError(f"RAG chunk API error: {error}")
+        chunks = chunk_resp.json().get('chunks', [])
+
+        # Call RAG embed API
+        embed_resp = requests.post("http://localhost:6050/rag/embed", json={'chunks': chunks})
+        if not embed_resp.ok:
+            error = embed_resp.json().get('error', embed_resp.text)
+            raise RuntimeError(f"RAG embed API error: {error}")
+        embeddings = embed_resp.json().get('embeddings', [])
+
+        # Attach embeddings to chunks
+        for chunk, emb in zip(chunks, embeddings):
+            chunk['embedding'] = emb
+
+        os.unlink(tmp.name)
+        app.logger.info(f"📥 API Response: Returning {len(chunks)} chunks")
+        return jsonify({'chunks': chunks}), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in process_file: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -1462,6 +1462,18 @@ def get_chunk(file_id: str, chunk_id: str):
         return jsonify(chunk_data), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in get_chunk: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/rag/query', methods=['POST'])
+@require_auth
+def rag_query():
+    """Proxy ESG RAG query to the RAG microservice."""
+    try:
+        data = request.get_json() or {}
+        response = requests.post("http://localhost:6050/rag/query", json=data)
+        return (response.text, response.status_code, response.headers.items())
+    except Exception as e:
+        app.logger.error(f"❌ API Error in rag_query: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
