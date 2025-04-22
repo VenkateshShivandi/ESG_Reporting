@@ -3,7 +3,7 @@ import os
 
 # --- Configuration ---
 # Replace with the file you want to test
-FILE_TO_UPLOAD = os.path.abspath("backend/test_files/sample1.csv") 
+FILE_TO_UPLOAD = os.path.abspath("backend/test_files/sample.txt")
 API_ENDPOINT = "http://localhost:6050/api/v1/process_document"
 
 # --- Script Logic ---

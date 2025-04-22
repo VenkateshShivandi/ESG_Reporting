@@ -10,10 +10,6 @@ from supabase import create_client, Client
 from openai import OpenAI
 import time
 import redis
-from etl_docx.chunking import semantic_chunk_text
-import json
-import tempfile
-import hashlib
 import tempfile
 import requests
 from pathlib import Path
@@ -73,12 +69,6 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
     app.logger.info(f"Upload folder: {UPLOAD_FOLDER}")
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-# Add these constants after UPLOAD_FOLDER configuration
-CHUNKS_DIR = os.path.join(UPLOAD_FOLDER, 'chunks')
-if not os.path.exists(CHUNKS_DIR):
-    os.makedirs(CHUNKS_DIR)
-    app.logger.info(f"Chunks folder: {CHUNKS_DIR}")
 
 # Initialize Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
@@ -240,6 +230,7 @@ def upload_file():
             file_options={"contentType": file.content_type}
         )
         
+        # Original logging and response
         app.logger.info(f"📥 API Response: {response}")
         
         # Return the file path as the ID since Supabase storage doesn't return an ID
@@ -248,50 +239,96 @@ def upload_file():
             'name': filename,
             'path': path.split('/') if path else []
         }), 200
+
     except Exception as e:
+        # Reverted error logging and response
         app.logger.error(f"❌ API Error in upload_file: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/process-file', methods=['POST'])
 @require_auth
 def process_file():
-    """Process a file by delegating chunking and embedding to the RAG microservice."""
+    """Triggers RAG processing for a file already in Supabase storage."""
     try:
-        app.logger.info("📞 API Call - process_file")
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file part'}), 400
+        data = request.get_json()
+        storage_path = data.get('storage_path')
+        
+        if not storage_path:
+            return jsonify({'error': 'Missing storage_path in request body'}), 400
+            
+        app.logger.info(f"📞 API Call - process_file: Processing file at Supabase path '{storage_path}'")
+        
+        # 1. Download the file from Supabase storage
+        app.logger.info(f"⬇️ Downloading file from Supabase: {storage_path}")
+        try:
+            # Download file data
+            download_response = supabase.storage.from_('documents').download(storage_path)
+            file_data = download_response # The download method returns the file content directly as bytes
+            # Infer filename and content type
+            filename = os.path.basename(storage_path)
+            content_type = "application/octet-stream" # Default
+            ext = filename.split('.')[-1].lower() if '.' in filename else ''
+            if ext == 'pdf': content_type = "application/pdf"
+            elif ext == 'xlsx': content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            elif ext == 'csv': content_type = "text/csv"
+            elif ext == 'docx': content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            elif ext == 'txt': content_type = "text/plain"
+            
+            app.logger.info(f"✅ Downloaded {len(file_data)} bytes for {filename} (Type: {content_type})")
+            
+        except Exception as download_error:
+            # Catch potential errors from Supabase download (e.g., file not found)
+            app.logger.error(f"❌ Failed to download file from Supabase storage '{storage_path}': {str(download_error)}")
+            # Check if it's a Supabase specific error, e.g., StorageApiError
+            if "not found" in str(download_error).lower():
+                return jsonify({'error': f"File not found in storage at path: {storage_path}"}), 404
+            else:
+                 return jsonify({'error': f"Error downloading file from storage: {str(download_error)}"}), 500
 
-        file = request.files['file']
-        filename = secure_filename(file.filename)
-        suffix = os.path.splitext(filename)[1]
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        file.save(tmp.name)
+        # 2. Call RAG Service process_document endpoint
+        rag_error = None
+        try:
+            app.logger.info(f"🚀 Calling RAG service for: {filename}")
+            rag_url = "http://localhost:6050/api/v1/process_document"
+            
+            # Send the downloaded file data
+            files_for_rag = {'file': (filename, file_data, content_type)}
+            
+            rag_response = requests.post(rag_url, files=files_for_rag, timeout=120) # Increased timeout for potentially large files
 
-        # Call RAG chunk API
-        with open(tmp.name, 'rb') as f:
-            chunk_resp = requests.post("http://localhost:6050/rag/chunk", files={'file': f})
-        if not chunk_resp.ok:
-            error = chunk_resp.json().get('error', chunk_resp.text)
-            raise RuntimeError(f"RAG chunk API error: {error}")
-        chunks = chunk_resp.json().get('chunks', [])
+            app.logger.info(f"📊 RAG Service Response Status: {rag_response.status_code}")
+            if rag_response.ok:
+                rag_result = rag_response.json()
+                app.logger.info(f"📄 RAG Service Response JSON: {rag_result}")
+                if rag_result.get("success"):
+                    app.logger.info(f"✅ RAG processing successful via process_file for {filename}. Document ID: {rag_result.get('document_id')}")
+                    # Return the success response from RAG
+                    return jsonify({
+                        'success': True, 
+                        'message': rag_result.get('message', 'Processing completed.'),
+                        'document_id': rag_result.get('document_id'),
+                        'chunk_count': rag_result.get('chunk_count')
+                    }), 200
+                else:
+                     rag_error = rag_result.get("message", "RAG processing failed internally.")
+            else:
+                rag_error = f"RAG service returned status {rag_response.status_code}. Response: {rag_response.text[:200]}..."
 
-        # Call RAG embed API
-        embed_resp = requests.post("http://localhost:6050/rag/embed", json={'chunks': chunks})
-        if not embed_resp.ok:
-            error = embed_resp.json().get('error', embed_resp.text)
-            raise RuntimeError(f"RAG embed API error: {error}")
-        embeddings = embed_resp.json().get('embeddings', [])
+        except requests.exceptions.RequestException as rag_e:
+            rag_error = f"Could not connect to RAG service: {str(rag_e)}"
+        except Exception as rag_e:
+             rag_error = f"Unexpected error during RAG call: {str(rag_e)}"
+             app.logger.exception(f"❌ Unexpected error during RAG call for {filename} triggered by process_file")
+        
+        # If we reached here, the RAG call failed
+        app.logger.error(f"❌ RAG processing failed for {filename} triggered by process_file: {rag_error}")
+        return jsonify({'error': rag_error}), 500
 
-        # Attach embeddings to chunks
-        for chunk, emb in zip(chunks, embeddings):
-            chunk['embedding'] = emb
-
-        os.unlink(tmp.name)
-        app.logger.info(f"📥 API Response: Returning {len(chunks)} chunks")
-        return jsonify({'chunks': chunks}), 200
     except Exception as e:
-        app.logger.error(f"❌ API Error in process_file: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        # Catch-all for unexpected errors in this endpoint itself (e.g., reading JSON request)
+        app.logger.error(f"❌ API Error in process_file (outer try): {str(e)}")
+        # Consider logging full traceback: app.logger.exception("Exception in process_file")
+        return jsonify({'error': f"Failed to process file request: {str(e)}"}), 500
 
 @app.route('/api/create-folder', methods=['POST'])
 @require_auth
@@ -1319,138 +1356,6 @@ def get_report_status(report_id):
         return jsonify(status), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in get_report_status: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/chunk-file', methods=['POST'])
-@require_auth
-def create_file_chunks():
-    """Create chunks from an uploaded file based on file type."""
-    try:
-        data = request.get_json()
-        file_path = data.get('filePath')
-        
-        if not file_path:
-            return jsonify({'error': 'No file path provided'}), 400
-            
-        # Get absolute path of the file
-        abs_file_path = os.path.join(UPLOAD_FOLDER, file_path)
-        if not os.path.exists(abs_file_path):
-            return jsonify({'error': 'File not found'}), 404
-            
-        # Get file extension
-        file_ext = file_path.split('.')[-1].lower()
-        
-        print(f"Processing file: {file_path} (type: {file_ext})")
-        
-        if file_ext in ['docx', 'doc']:
-            # Process DOCX files
-            from docx import Document
-            doc = Document(abs_file_path)
-            
-            # Extract sections
-            sections = []
-            current_heading = "Introduction"
-            current_content = []
-            
-            for para in doc.paragraphs:
-                if para.style.name.startswith('Heading'):
-                    if current_content:
-                        sections.append({
-                            "heading": current_heading,
-                            "content": " ".join(current_content)
-                        })
-                        current_content = []
-                    current_heading = para.text
-                else:
-                    if para.text.strip():
-                        current_content.append(para.text)
-            
-            # Add last section
-            if current_content:
-                sections.append({
-                    "heading": current_heading,
-                    "content": " ".join(current_content)
-                })
-            
-            # Create semantic chunks
-            chunks = semantic_chunk_text(sections)
-            
-            # Generate a unique ID for this file's chunks
-            file_id = hashlib.md5(file_path.encode()).hexdigest()
-            
-            # Create directory for chunks if it doesn't exist
-            chunks_dir = os.path.join(CHUNKS_DIR, file_id)
-            os.makedirs(chunks_dir, exist_ok=True)
-            
-            # Save chunks to files
-            chunk_paths = []
-            for i, chunk in enumerate(chunks):
-                chunk_file = f'chunk_{i}.json'
-                chunk_path = os.path.join(chunks_dir, chunk_file)
-                with open(chunk_path, 'w', encoding='utf-8') as f:
-                    json.dump(chunk, f, ensure_ascii=False, indent=2)
-                chunk_paths.append(chunk_file)
-            
-            print(f"Created {len(chunks)} chunks for file {file_path}")
-            
-            return jsonify({
-                'success': True,
-                'fileId': file_id,
-                'chunks': len(chunks),
-                'originalFile': file_path,
-                'chunkPaths': chunk_paths
-            }), 200
-            
-        else:
-            return jsonify({'error': 'Unsupported file type. Currently only supporting DOCX files.'}), 400
-            
-    except Exception as e:
-        print(f"Error in create_file_chunks: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/chunks/<file_id>', methods=['GET'])
-@require_auth
-def list_chunks(file_id: str):
-    """List all chunks for a file."""
-    try:
-        chunks_dir = os.path.join(CHUNKS_DIR, file_id)
-        if not os.path.exists(chunks_dir):
-            return jsonify({'error': 'No chunks found for this file'}), 404
-            
-        chunks = []
-        for chunk_file in sorted(os.listdir(chunks_dir)):
-            with open(os.path.join(chunks_dir, chunk_file), 'r', encoding='utf-8') as f:
-                chunk_data = json.load(f)
-                chunks.append({
-                    'id': chunk_file,
-                    'title': chunk_data.get('title', ''),
-                    'preview': chunk_data.get('text', '')[:100] + '...' if len(chunk_data.get('text', '')) > 100 else chunk_data.get('text', '')
-                })
-                
-        return jsonify({
-            'fileId': file_id,
-            'chunks': chunks,
-            'totalChunks': len(chunks)
-        }), 200
-    except Exception as e:
-        app.logger.error(f"❌ API Error in list_chunks: {str(e)}")
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/chunks/<file_id>/<chunk_id>', methods=['GET'])
-@require_auth
-def get_chunk(file_id: str, chunk_id: str):
-    """Get a specific chunk of a file."""
-    try:
-        chunk_path = os.path.join(CHUNKS_DIR, file_id, chunk_id)
-        if not os.path.exists(chunk_path):
-            return jsonify({'error': 'Chunk not found'}), 404
-            
-        with open(chunk_path, 'r', encoding='utf-8') as f:
-            chunk_data = json.load(f)
-            
-        return jsonify(chunk_data), 200
-    except Exception as e:
-        app.logger.error(f"❌ API Error in get_chunk: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/rag/query', methods=['POST'])

@@ -29,3 +29,6 @@ requests==2.31.0
 
 # Supabase Integration
 supabase==2.5.0 # Official Supabase client for Python 
+
+# OpenAI Integration (if using OpenAI models)
+openai==1.35.13 # Official OpenAI client library 

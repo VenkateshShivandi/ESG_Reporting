@@ -25,9 +25,14 @@ logger = logging.getLogger(__name__)
 
 def standardize_chunk(chunk_data: Dict, source_filename: str, source_type: str) -> Dict:
     """Converts output from different chunkers into a standard format."""
+    
+    # Get the raw text and clean it
+    raw_text = chunk_data.get("text", "")
+    cleaned_text = raw_text.replace("\x00", "") # Correctly remove NULL bytes/chars
+    
     standard_chunk = {
         "chunk_id": chunk_data.get("chunk_id", str(uuid.uuid4())), # Generate if missing
-        "text": chunk_data.get("text", ""), # Ensure text field exists
+        "text": cleaned_text, # Use cleaned text
         "source_filename": source_filename,
         "source_type": source_type,
         "metadata": {}

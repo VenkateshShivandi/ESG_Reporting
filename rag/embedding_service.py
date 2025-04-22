@@ -1,75 +1,119 @@
 # -*- coding: utf-8 -*-
-"""Handles text embedding generation using Sentence Transformers."""
+"""Handles text embedding generation using OpenAI API."""
 
 import os
 import logging
-from sentence_transformers import SentenceTransformer
 from typing import List
-import numpy as np
+from openai import OpenAI, APIError, RateLimitError # Updated import
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-# --- Model Initialization ---
+# --- OpenAI Client Initialization ---
 
-# Load the model name from environment variable or use a default
-# This allows flexibility in choosing the embedding model
-# Match the default used in the old rag_service.py for consistency for now
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "paraphrase-multilingual-MiniLM-L12-v2")
+# Load environment variables from .env file (assuming it's in rag/ or project root)
+dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '.env'))
+if not os.path.exists(dotenv_path):
+    dotenv_path_parent = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.env'))
+    if os.path.exists(dotenv_path_parent):
+        dotenv_path = dotenv_path_parent
+    else:
+        dotenv_path = None
 
-_model = None
-_model_dim = None
+if dotenv_path:
+    load_dotenv(dotenv_path=dotenv_path)
+    logger.info(f"Loaded environment variables from: {dotenv_path}")
+else:
+    logger.warning(".env file not found. Relying on system environment variables.")
 
-def _load_embedding_model():
-    """Loads the Sentence Transformer model lazily."""
-    global _model, _model_dim
-    if _model is None:
+
+# OpenAI model configuration
+OPENAI_EMBEDDING_MODEL = "text-embedding-ada-002" # Standard 1536 dimension model
+EXPECTED_DIMENSION = 1536
+
+_openai_client = None
+
+def _initialize_openai_client():
+    """Initializes the OpenAI client lazily using API key from environment."""
+    global _openai_client
+    if _openai_client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            logger.error("OPENAI_API_KEY not found in environment variables. Cannot initialize OpenAI client.")
+            return False # Indicate failure
         try:
-            logger.info(f"Loading embedding model: {EMBEDDING_MODEL_NAME}")
-            _model = SentenceTransformer(EMBEDDING_MODEL_NAME)
-            _model_dim = _model.get_sentence_embedding_dimension()
-            logger.info(f"Embedding model loaded successfully. Dimension: {_model_dim}")
+            _openai_client = OpenAI(api_key=api_key)
+            logger.info("OpenAI client initialized successfully.")
+            # Optional: Add a simple test call here?
+            # e.g., _openai_client.models.list()
+            return True # Indicate success
         except Exception as e:
-            logger.exception(f"Failed to load embedding model '{EMBEDDING_MODEL_NAME}': {e}")
-            # Handle failure appropriately - perhaps raise an error or return None
-            # For now, _model remains None
+            logger.exception(f"Failed to initialize OpenAI client: {e}")
+            return False
+    return True # Already initialized
 
 # --- Embedding Function ---
 
-def generate_embeddings(texts: List[str], batch_size: int = 32) -> List[List[float]]:
+def generate_embeddings(texts: List[str]) -> List[List[float]]:
     """
-    Generates embeddings for a list of text strings.
+    Generates embeddings for a list of text strings using OpenAI API.
 
     Args:
         texts (List[str]): A list of text strings to embed.
-        batch_size (int): The batch size to use for encoding.
+                          OpenAI recommends replacing newlines with spaces.
 
     Returns:
-        List[List[float]]: A list of embedding vectors, or an empty list if embedding fails.
+        List[List[float]]: A list of embedding vectors (1536 dimensions), 
+                         or an empty list if embedding fails.
     """
-    _load_embedding_model() # Ensure model is loaded
-    
-    if _model is None:
-        logger.error("Embedding model is not loaded. Cannot generate embeddings.")
+    if not _initialize_openai_client():
+        logger.error("OpenAI client not initialized. Cannot generate embeddings.")
         return []
         
     if not texts:
         logger.warning("Received empty list of texts for embedding.")
         return []
 
+    # OpenAI recommendation: Replace newlines with spaces for best results
+    prepared_texts = [text.replace("\n", " ") for text in texts]
+
     try:
-        logger.info(f"Generating embeddings for {len(texts)} texts with batch size {batch_size}...")
-        # show_progress_bar can be True for long processes
-        embeddings = _model.encode(texts, batch_size=batch_size, convert_to_numpy=True, show_progress_bar=False)
+        logger.info(f"Generating OpenAI embeddings for {len(prepared_texts)} texts using model {OPENAI_EMBEDDING_MODEL}...")
+        
+        # Use the v1 embeddings endpoint syntax
+        response = _openai_client.embeddings.create(
+            input=prepared_texts,
+            model=OPENAI_EMBEDDING_MODEL
+        )
+        
+        # Extract embeddings from the response object
+        embeddings = [item.embedding for item in response.data]
+        
         logger.info(f"Successfully generated {len(embeddings)} embeddings.")
-        return embeddings.tolist() # Convert numpy array to list of lists
+        
+        # Verification (optional but recommended)
+        if embeddings and len(embeddings[0]) != EXPECTED_DIMENSION:
+            logger.error(f"Generated embedding dimension mismatch! Expected {EXPECTED_DIMENSION}, Got {len(embeddings[0])}")
+            # Decide how to handle - return empty or raise error?
+            return [] 
+            
+        return embeddings
+        
+    except APIError as e:
+        logger.exception(f"OpenAI API Error during embedding generation: {e.status_code} - {e.message}")
+        return []
+    except RateLimitError as e:
+        logger.exception(f"OpenAI Rate Limit Error during embedding generation: {e.message}")
+        # Consider adding retry logic here if needed
+        return []
     except Exception as e:
-        logger.exception(f"Error during embedding generation: {e}")
+        logger.exception(f"Unexpected error during OpenAI embedding generation: {e}")
         return []
 
 def get_embedding_dimension() -> int:
-    """Returns the dimension of the loaded embedding model."""
-    _load_embedding_model() # Ensure model is loaded
-    return _model_dim if _model else 0
+    """Returns the expected dimension of the OpenAI embedding model."""
+    # No need to load the model object here, return the known dimension
+    return EXPECTED_DIMENSION
 
 # Example Usage
 if __name__ == '__main__':
@@ -79,13 +123,13 @@ if __name__ == '__main__':
         "Dies ist der dritte Testsatz."
     ]
     
-    print(f"Model Dimension: {get_embedding_dimension()}")
+    print(f"Expected Model Dimension: {get_embedding_dimension()}")
     
     embeddings = generate_embeddings(test_texts)
     
     if embeddings:
         print(f"Generated {len(embeddings)} embeddings.")
         for i, emb in enumerate(embeddings):
-            print(f"Embedding {i+1} (first 5 dims): {emb[:5]}...")
+            print(f"Embedding {i+1} (length: {len(emb)}, first 5 dims): {emb[:5]}...")
     else:
-        print("Failed to generate embeddings.") 
+        print("Failed to generate embeddings (Check API Key and OpenAI status). Ensure .env is loaded.") 
