@@ -476,7 +476,7 @@ export const documentsApi = {
       // The filePath/fileId should be the relative path within the bucket
       const { data, error } = await supabase.storage
         .from('documents')
-        .createSignedUrl(filePath, 3600); // 1 hour expiration
+        .createSignedUrl(filePath, 3600, { download: false }); // 1 hour expiration, explicitly set download: false
       
       if (error) {
         console.error('❌ Supabase Error in getDownloadUrl:', error)

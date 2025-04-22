@@ -6,12 +6,144 @@ import traceback
 from werkzeug.utils import secure_filename
 from pathlib import Path
 from datetime import datetime
+import logging
 
 from run_esg_pipeline import ESGPipeline
+from rag.processor import process_uploaded_file
+from rag.embedding_service import generate_embeddings
+from rag.supabase_storage import store_document_record, store_chunks
 
 app = flask.Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 100MB max file size
 app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()
+
+# Configure basic logging
+logging.basicConfig(level=logging.INFO)
+
+@app.route('/api/v1/process_document', methods=['POST'])
+def process_document_endpoint():
+    """
+    Accepts file upload, processes it, generates embeddings, stores results
+    in Supabase, and returns the document ID.
+    """
+    if 'file' not in flask.request.files:
+        return flask.jsonify({"error": "No file part in the request"}), 400
+
+    file = flask.request.files['file']
+    if file.filename == '':
+        return flask.jsonify({"error": "No selected file"}), 400
+
+    if not file:
+         # This case should theoretically not be reached due to earlier checks
+         return flask.jsonify({"error": "Invalid file upload state."}), 400
+
+    filename = secure_filename(file.filename)
+    fd, temp_file_path = tempfile.mkstemp(suffix=f"_{filename}")
+    logging.info(f"Saving uploaded file temporarily to: {temp_file_path}")
+
+    document_id = None
+    processing_status = "error" # Default status
+    source_type = "unknown"
+
+    try:
+        file.save(temp_file_path)
+        os.close(fd)
+
+        # 1. Process and Chunk File
+        logging.info(f"[{filename}] Processing and chunking file...")
+        # The processor determines the source_type internally now
+        chunks = process_uploaded_file(temp_file_path)
+
+        if not chunks:
+            # Handle case where processing yields no chunks (could be error or empty file)
+            logging.warning(f"[{filename}] No chunks generated. File might be empty or processing failed internally.")
+            # Store a document record with status 'processed_empty' or 'error'?
+            # For now, let's assume an empty chunk list is not a critical failure for the endpoint itself
+            # but we won't proceed to embedding/storage.
+            # We need the source_type determined by the processor
+            # Let's assume process_uploaded_file could return source_type even if chunks are empty
+            # Re-fetching source_type here for simplicity, ideally processor returns it.
+            _, ext = os.path.splitext(filename)
+            source_type = ext.lower().strip('.') if ext else "unknown"
+            # Store a basic record indicating processing attempt?
+            document_id = store_document_record(filename, source_type, status="processed_empty")
+            return flask.jsonify({
+                "success": True, 
+                "message": "File processed, but no content chunks generated.", 
+                "filename": filename,
+                "document_id": document_id,
+                "chunk_count": 0
+            }), 200 # Return 200 OK, but indicate no chunks
+
+        # Extract source_type from the first chunk (assuming all chunks have the same type)
+        source_type = chunks[0].get("source_type", "unknown")
+        logging.info(f"[{filename}] File processing complete. Found {len(chunks)} chunks. Source type: {source_type}")
+
+        # 2. Generate Embeddings
+        logging.info(f"[{filename}] Generating embeddings for {len(chunks)} chunks...")
+        chunk_texts = [chunk.get("text", "") for chunk in chunks]
+        embeddings = generate_embeddings(chunk_texts)
+
+        if not embeddings or len(embeddings) != len(chunks):
+            logging.error(f"[{filename}] Embedding generation failed or returned incorrect number of vectors.")
+            # Store document record with error status before failing
+            store_document_record(filename, source_type, status="embedding_error")
+            return flask.jsonify({"error": "Embedding generation failed."}), 500
+        
+        logging.info(f"[{filename}] Embeddings generated successfully.")
+
+        # 3. Store Document Record in Supabase
+        logging.info(f"[{filename}] Storing document record in Supabase...")
+        document_id = store_document_record(filename, source_type, status="processed")
+
+        if not document_id:
+            logging.error(f"[{filename}] Failed to store document record in Supabase.")
+            # Don't attempt to store chunks if document record failed
+            return flask.jsonify({"error": "Failed to save document metadata to database."}), 500
+
+        logging.info(f"[{filename}] Document record stored. ID: {document_id}")
+
+        # 4. Store Chunks and Embeddings in Supabase
+        logging.info(f"[{filename}] Storing {len(chunks)} chunks and embeddings for document ID: {document_id}...")
+        chunks_stored_successfully = store_chunks(document_id, chunks, embeddings)
+
+        if not chunks_stored_successfully:
+            logging.error(f"[{filename}] Failed to store chunks/embeddings in Supabase for document ID: {document_id}")
+            # Update document status to indicate partial failure?
+            # For now, return error
+            # TODO: Consider updating document status to 'chunk_storage_error'
+            return flask.jsonify({"error": "Failed to save chunk data to database."}), 500
+
+        processing_status = "completed" # Final success status
+        logging.info(f"[{filename}] Successfully processed, embedded, and stored document. ID: {document_id}")
+        
+        # 5. Return Success Response
+        return flask.jsonify({
+            "success": True, 
+            "message": "File processed and stored successfully.",
+            "filename": filename,
+            "document_id": document_id,
+            "chunk_count": len(chunks)
+        })
+
+    except Exception as e:
+        logging.exception(f"[{filename}] Critical error during processing: {e}")
+        # Attempt to store/update document record with error status if possible
+        if document_id:
+             # TODO: Implement update_document_status function if needed
+             pass 
+        elif source_type != "unknown": # Store basic error record if we know the type
+            store_document_record(filename, source_type, status="processing_error")
+            
+        return flask.jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+    finally:
+        # Ensure the temporary file is deleted
+        if os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+                logging.info(f"Removed temporary file: {temp_file_path}")
+            except OSError as e:
+                logging.error(f"Error removing temporary file {temp_file_path}: {e}")
 
 @app.route('/api/v1/process-file', methods=['POST'])
 def process_file():
@@ -44,14 +176,19 @@ def process_file():
     file_stem = Path(secure_filename(file.filename)).stem
     unique_output_dir = f"{output_dir}/{file_stem}_{timestamp}"
     
+    temp_file_path = None # Initialize path variable
     try:
-        # Save uploaded file to temp directory
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(file.filename))
-        file.save(file_path)
+        # Save uploaded file to temp directory defined by UPLOAD_FOLDER
+        # Ensure the directory exists
+        upload_folder = app.config['UPLOAD_FOLDER']
+        if not os.path.exists(upload_folder):
+            os.makedirs(upload_folder)
+        temp_file_path = os.path.join(upload_folder, secure_filename(file.filename))
+        file.save(temp_file_path)
         
         # Initialize and run the pipeline
         pipeline = ESGPipeline(
-            input_path=file_path,
+            input_path=temp_file_path,
             output_dir=unique_output_dir,
             neo4j_uri=neo4j_uri,
             neo4j_username=neo4j_username, 
@@ -72,9 +209,6 @@ def process_file():
             with open(community_insights_path, 'r') as f:
                 community_insights = json.load(f)
         
-        # Clean up the temporary file
-        os.remove(file_path)
-        
         return flask.jsonify({
             "success": True,
             "message": f"File processed successfully: {file.filename}",
@@ -88,15 +222,18 @@ def process_file():
         app.logger.error(f"Error processing file: {str(e)}")
         app.logger.error(traceback.format_exc())
         
-        # Clean up temporary file if it exists
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        
         return flask.jsonify({
             "success": False,
             "error": str(e),
             "message": f"Failed to process file: {file.filename}"
         }), 500
+    finally:
+         # Clean up the temporary file if it exists
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except OSError as e:
+                 app.logger.error(f"Error removing temp file {temp_file_path}: {e}")
 
 @app.route('/api/v1/community-insights', methods=['GET'])
 def get_community_insights():

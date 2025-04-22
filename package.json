@@ -51,9 +51,11 @@
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.3",
     "@radix-ui/react-slider": "^1.2.3",
+    "@supabase/supabase-js": "^2.49.1",
     "@types/d3": "^7.4.3",
     "d3": "^7.9.0",
-    "@supabase/supabase-js": "^2.49.1",
-    "jest-environment-jsdom": "^29.7.0"
+    "jest-environment-jsdom": "^29.7.0",
+    "pdfjs-dist": "^5.1.91",
+    "react-pdf": "^9.2.1"
   }
 }
