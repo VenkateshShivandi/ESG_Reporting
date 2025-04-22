@@ -291,44 +291,49 @@ def process_file():
             app.logger.info(f"🚀 Calling RAG service for: {filename}")
             rag_url = "http://localhost:6050/api/v1/process_document"
             
-            # Send the downloaded file data
-            files_for_rag = {'file': (filename, file_data, content_type)}
+            # Send only the file part
+            files_payload = {'file': (filename, file_data, content_type)}
             
-            rag_response = requests.post(rag_url, files=files_for_rag, timeout=120) # Increased timeout for potentially large files
+            # Call with only files
+            rag_response = requests.post(
+                rag_url, 
+                files=files_payload,
+                timeout=120
+            )
 
             app.logger.info(f"📊 RAG Service Response Status: {rag_response.status_code}")
             if rag_response.ok:
                 rag_result = rag_response.json()
                 app.logger.info(f"📄 RAG Service Response JSON: {rag_result}")
                 if rag_result.get("success"):
-                    app.logger.info(f"✅ RAG processing successful via process_file for {filename}. Document ID: {rag_result.get('document_id')}")
-                    # Return the success response from RAG
+                    app.logger.info(f"✅ RAG processing successful via process_file for {filename}...")
+                    # Return only essential info from RAG
                     return jsonify({
                         'success': True, 
                         'message': rag_result.get('message', 'Processing completed.'),
                         'document_id': rag_result.get('document_id'),
-                        'chunk_count': rag_result.get('chunk_count')
+                        'chunk_count': rag_result.get('chunk_count'), 
+                        'filename': filename
                     }), 200
                 else:
                      rag_error = rag_result.get("message", "RAG processing failed internally.")
             else:
-                rag_error = f"RAG service returned status {rag_response.status_code}. Response: {rag_response.text[:200]}..."
+                rag_error = f"RAG service returned status {rag_response.status_code}..."
 
         except requests.exceptions.RequestException as rag_e:
             rag_error = f"Could not connect to RAG service: {str(rag_e)}"
         except Exception as rag_e:
              rag_error = f"Unexpected error during RAG call: {str(rag_e)}"
-             app.logger.exception(f"❌ Unexpected error during RAG call for {filename} triggered by process_file")
+             app.logger.exception(f"❌ Unexpected error during RAG call...")
         
-        # If we reached here, the RAG call failed
-        app.logger.error(f"❌ RAG processing failed for {filename} triggered by process_file: {rag_error}")
-        return jsonify({'error': rag_error}), 500
+        # Reverted error response
+        app.logger.error(f"❌ RAG processing failed for {filename}: {rag_error}")
+        return jsonify({'error': rag_error, 'success': False}), 500
 
     except Exception as e:
-        # Catch-all for unexpected errors in this endpoint itself (e.g., reading JSON request)
+        # Reverted outer error response
         app.logger.error(f"❌ API Error in process_file (outer try): {str(e)}")
-        # Consider logging full traceback: app.logger.exception("Exception in process_file")
-        return jsonify({'error': f"Failed to process file request: {str(e)}"}), 500
+        return jsonify({'error': f"Failed to process file request: {str(e)}", 'success': False}), 500
 
 @app.route('/api/create-folder', methods=['POST'])
 @require_auth
