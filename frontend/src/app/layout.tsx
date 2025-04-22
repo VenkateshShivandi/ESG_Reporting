@@ -1,6 +1,7 @@
 import { Toaster } from 'sonner'
 import { Inter } from 'next/font/google'
 import { AuthProvider } from '@/hooks/use-auth'
+import { DndProviderWrapper } from '@/components/providers/DndProviderWrapper'
 import './globals.css'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -19,7 +20,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <AuthProvider>
-          {children}
+          <DndProviderWrapper>
+            {children}
+          </DndProviderWrapper>
         </AuthProvider>
         <Toaster position="top-right" />
       </body>
