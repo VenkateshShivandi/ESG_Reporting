@@ -1025,7 +1025,7 @@ def rename_item():
                                 "p_action": "create",
                                 "p_file_path": new_path,
                                 "p_user_id": request.user["id"],
-                                "p_file_name": new_name,
+                                "p_file_name": new_name_final,
                                 "p_file_type": content_type,
                                 "p_uploaded_at": datetime.now()
                                 .replace(tzinfo=None)
