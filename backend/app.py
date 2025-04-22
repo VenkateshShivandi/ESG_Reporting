@@ -21,7 +21,8 @@ from etl_docx.chunking import semantic_chunk_text
 import json
 import tempfile
 import hashlib
-
+import tempfile
+import requests
 from pathlib import Path
 # Load environment variables
 load_dotenv(".env.local")
@@ -310,7 +311,7 @@ def upload_file():
 @app.route("/api/process-file", methods=["POST"])
 @require_auth
 def process_file():
-    """Process a file and extract metadata."""
+    """Process a file by delegating chunking and embedding to the RAG microservice."""
     try:
         app.logger.info("📞 API Call - process_file")
         if "file" not in request.files:
@@ -350,6 +351,37 @@ def process_file():
 
         app.logger.info(f"📥 API Response: {result}")
         return jsonify(result)
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file part'}), 400
+
+        file = request.files['file']
+        filename = secure_filename(file.filename)
+        suffix = os.path.splitext(filename)[1]
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+        file.save(tmp.name)
+
+        # Call RAG chunk API
+        with open(tmp.name, 'rb') as f:
+            chunk_resp = requests.post("http://localhost:6050/rag/chunk", files={'file': f})
+        if not chunk_resp.ok:
+            error = chunk_resp.json().get('error', chunk_resp.text)
+            raise RuntimeError(f"RAG chunk API error: {error}")
+        chunks = chunk_resp.json().get('chunks', [])
+
+        # Call RAG embed API
+        embed_resp = requests.post("http://localhost:6050/rag/embed", json={'chunks': chunks})
+        if not embed_resp.ok:
+            error = embed_resp.json().get('error', embed_resp.text)
+            raise RuntimeError(f"RAG embed API error: {error}")
+        embeddings = embed_resp.json().get('embeddings', [])
+
+        # Attach embeddings to chunks
+        for chunk, emb in zip(chunks, embeddings):
+            chunk['embedding'] = emb
+
+        os.unlink(tmp.name)
+        app.logger.info(f"📥 API Response: Returning {len(chunks)} chunks")
+        return jsonify({'chunks': chunks}), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in process_file: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -1876,7 +1908,6 @@ def create_embeddings_batch(
     except Exception as e:
         app.logger.error(f"❌ Error creating embeddings batch: {str(e)}")
         raise Exception(f"Failed to create embeddings batch: {str(e)}")
-
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)
