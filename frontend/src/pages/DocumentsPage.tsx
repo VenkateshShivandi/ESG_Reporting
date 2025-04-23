@@ -271,27 +271,29 @@ const DocumentsPage: NextPage<Props> = () => {
         setUploadProgress((prev) => ({ ...prev, [fileId]: 0 }))
 
         try {
-          const { fileId: uploadedFileId } = await documentsApi.uploadFile(file, currentPath)
-          setUploadProgress((prev) => ({ ...prev, [fileId]: 60 }))
-          await documentsApi.processFile(file)
-          setUploadProgress((prev) => ({ ...prev, [fileId]: 100 }))
-          await loadFiles()
-          toast.success(`File ${file.name} processed successfully`)
+          // Step 1: Upload the file
+          const { fileId: uploadedFileId } = await documentsApi.uploadFile(file, currentPath) // Calls POST /api/upload-file
+          // Update progress immediately to 100% on successful upload
+          setUploadProgress((prev) => ({ ...prev, [fileId]: 100 })) 
+
+          // Step 2: Refresh the file list (Moved here)
+          await loadFiles() // Calls GET /api/list-tree (or similar)
+          toast.success(`File ${file.name} uploaded successfully`) // Updated success message
         } catch (error) {
-          console.error("File processing error:", error)
-          toast.error(`Failed to process file: ${file.name}`)
+          console.error("File upload error:", error) // Updated console log
+          toast.error(`Failed to upload file: ${file.name}`) // Updated error message
         }
       }
       
       // Update the upload completed toast
-      toast.success(`Upload completed successfully`, { id: uploadToastId })
+      toast.success(`Upload completed successfully`, { id: uploadToastId }) // Keep this generic completed message
     } catch (error) {
-      console.error("File upload error:", error)
-      toast.error("Failed to upload file(s)", { id: uploadToastId })
-    } finally {
+      console.error("Overall file upload error:", error) // Keep overall error log
+      toast.error("Failed during file upload(s)", { id: uploadToastId }) // Updated overall error message
+    } finally { // Use finally block to ensure cleanup runs
       setIsUploading(false)
-      setProcessingFile(null)
-      setProcessingError(null)
+      // setProcessingFile(null) // No longer processing here
+      // setProcessingError(null) // No longer processing here
       setUploadProgress({})
       const input = document.getElementById("file-upload") as HTMLInputElement
       if (input) input.value = ""
