@@ -18,72 +18,44 @@ CHUNKS_TABLE = "document_chunks"  # Updated table name
 # --- Document Storage ---
 
 
-def store_document_record(
-    filename: str, source_type: str, status: str = "processed"
-) -> Optional[str]:
-    """
-    Stores a record for a processed document in the Supabase documents table (esg_data.documents).
-    NOTE: The 'status' parameter is kept for potential future use but is NOT stored
-          as the column doesn't exist in the current DB schema.
+# def update_document_status(document_id: str, status: str) -> bool:
+#     """
+#     Updates the status of an existing document record in the Supabase documents table.
 
-    Args:
-        filename (str): The original name of the uploaded file.
-        source_type (str): The detected type of the file (e.g., 'pdf', 'csv', 'docx').
-        status (str): Processing status (Not stored currently).
+#     Args:
+#         document_id (str): The ID of the existing document record.
+#         status (str): The new status to set.
 
-    Returns:
-        Optional[str]: The UUID of the newly created document record, or None if storage fails.
-    """
-    supabase = get_supabase_client()
-    if not supabase:
-        logger.error("Supabase client not available. Cannot store document record.")
-        return None
+#     Returns:
+#         bool: True if update was successful, False otherwise.
+#     """
+#     supabase = get_supabase_client()
+#     if not supabase:
+#         logger.error("Supabase client not available. Cannot update document status.")
+#         return False
 
-    document_uuid = str(uuid.uuid4())
-    # Remove timezone info and convert to ISO format
-    upload_timestamp = datetime.now().replace(tzinfo=None).isoformat()
+#     try:
+#         logger.info(f"Updating document status for ID {document_id} to {status}")
+        
+#         # Update document status
+#         response = (
+#             supabase.schema("esg_data")
+#             .table(DOCUMENTS_TABLE)
+#             .update({"status": status})
+#             .eq("id", document_id)
+#             .execute()
+#         )
 
-    document_data = {
-        "id": document_uuid,  # Map to DB column 'id'
-        "file_name": filename,
-        "uploaded_at": upload_timestamp,  # Map to DB column 'uploaded_at' (without timezone)
-        "file_type": source_type,  # Map to DB column 'file_type'
-        # DB columns user_id, size, file_path are not populated here
-    }
+#         if hasattr(response, "error") and response.error:
+#             logger.error(f"Error updating document status: {response.error}")
+#             return False
 
-    try:
-        logger.info(
-            f"Storing document record for: {filename} (ID: {document_uuid}) in schema 'esg_data'"
-        )
-        # Specify schema using .schema() method before .table()
-        response = (
-            supabase.schema("esg_data")
-            .table(DOCUMENTS_TABLE)
-            .insert(document_data)
-            .execute()
-        )
+#         logger.info(f"Successfully updated status for document ID: {document_id}")
+#         return True
 
-        # Check for errors in the response
-        if hasattr(response, "error") and response.error:
-            logger.error(
-                f"Error storing document record for {filename}: {response.error}"
-            )
-            return None
-        # Check if data was actually returned (indicates success)
-        if not response.data:
-            logger.warning(
-                f"Supabase insert for document {filename} returned no data, though no explicit error."
-            )
-            # Continue assuming success if no error, but log warning.
-
-        logger.info(
-            f"Successfully stored document record for {filename}. Document ID: {document_uuid}"
-        )
-        return document_uuid  # Return the UUID used for the 'id' column
-
-    except Exception as e:
-        logger.exception(f"Exception storing document record for {filename}: {e}")
-        return None
+#     except Exception as e:
+#         logger.exception(f"Exception updating document status: {e}")
+#         return False
 
 
 # --- Chunk Storage ---

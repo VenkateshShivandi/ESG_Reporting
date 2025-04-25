@@ -115,6 +115,11 @@ const getFileTypeBadge = (filename: string) => {
   );
 };
 
+interface FileInfo {
+  id: string;
+  file_path: string;
+}
+
 const DocumentsPage: NextPage<Props> = () => {
   const [files, setFiles] = useState<FileItem[]>([])
   const [currentPath, setCurrentPath] = useState<string[]>([])
@@ -1020,8 +1025,17 @@ const DocumentsPage: NextPage<Props> = () => {
       const results = await Promise.allSettled(
         selectedItems.map(async (filePath) => {
           try {
-            // Process the file using its storage path
-            const result = await documentsApi.processFile(filePath)
+            // Get the file ID from the selected files
+            const selectedFiles: FileInfo[] = files.map(f => ({
+              id: f.id,
+              file_path: `${f.path.join("/")}/${f.name}`.replace(/^\//, "")
+            }))
+            const fileId = selectedFiles.find(f => f.file_path === filePath)?.id
+            if (!fileId) {
+              throw new Error(`Could not find file ID for path: ${filePath}`)
+            }
+            // Process the file using its storage path and ID
+            const result = await documentsApi.processFile(filePath, fileId)
             return { filePath, result }
           } catch (error) {
             console.error(`Error processing file ${filePath}:`, error)

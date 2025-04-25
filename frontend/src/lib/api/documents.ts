@@ -86,12 +86,13 @@ export const documentsApi = {
   },
 
   // Process a file to extract metadata and content
-  processFile: async (storagePath: string): Promise<ProcessedFileResult> => {
+  processFile: async (storagePath: string, fileId: string): Promise<ProcessedFileResult> => {
     try {
-      console.log('📞 API Call - processFile:', { storagePath })
+      console.log('📞 API Call - processFile:', { storagePath, fileId })
 
       const response = await api.post('/api/process-file', {
         storage_path: storagePath,
+        file_id: fileId,
       })
 
       console.log('📥 API Response:', response.data)

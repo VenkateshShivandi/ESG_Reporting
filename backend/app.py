@@ -279,18 +279,22 @@ def upload_file():
             datetime.now().replace(tzinfo=None).isoformat()
         )  # Remove timezone info
 
-        response = supabase.rpc(
-            "manage_document_metadata",
-            {
-                "p_action": "create",
-                "p_user_id": request.user["id"],  # User ID is not needed for create
-                "p_file_name": filename,
-                "p_file_type": file_type,
-                "p_uploaded_at": uploaded_at,
-                "p_size": str(file_size),  # Convert to string
-                "p_file_path": file_path,
-            },
-        ).execute()
+        response = (
+            supabase.schema("public")
+            .rpc(
+                "manage_document_metadata",
+                {
+                    "p_action": "create",
+                    "p_user_id": request.user["id"],
+                    "p_file_name": filename,
+                    "p_file_type": file_type,
+                    "p_uploaded_at": uploaded_at,
+                    "p_size": str(file_size),
+                    "p_file_path": file_path,
+                },
+            )
+            .execute()
+        )
 
         app.logger.info(f"📥 API Response: {response}")
 
@@ -325,6 +329,23 @@ def process_file():
         app.logger.info(
             f"📞 API Call - process_file: Processing file at Supabase path '{storage_path}'"
         )
+        try:
+            response = (
+                supabase.schema("esg_data")
+                .table("documents")
+                .select("id")
+                .eq("file_path", storage_path)
+                .execute()
+            )
+            if not response.data:
+                return jsonify({"error": "File not found in Supabase"}), 404
+
+            file_id = response.data[0]["id"]
+            app.logger.info(f"📄 File ID: {file_id}")
+
+        except Exception as e:
+            app.logger.error(f"❌ Error getting file ID: {str(e)}")
+            return jsonify({"error": "Failed to get file ID"}), 500
 
         # 1. Download the file from Supabase storage
         app.logger.info(f"⬇️ Downloading file from Supabase: {storage_path}")
@@ -333,10 +354,9 @@ def process_file():
             download_response = supabase.storage.from_("documents").download(
                 storage_path
             )
-            file_data = download_response  # The download method returns the file content directly as bytes
-            # Infer filename and content type
+            file_data = download_response
             filename = os.path.basename(storage_path)
-            content_type = "application/octet-stream"  # Default
+            content_type = "application/octet-stream"
             ext = filename.split(".")[-1].lower() if "." in filename else ""
             if ext == "pdf":
                 content_type = "application/pdf"
@@ -356,11 +376,9 @@ def process_file():
             )
 
         except Exception as download_error:
-            # Catch potential errors from Supabase download (e.g., file not found)
             app.logger.error(
                 f"❌ Failed to download file from Supabase storage '{storage_path}': {str(download_error)}"
             )
-            # Check if it's a Supabase specific error, e.g., StorageApiError
             if "not found" in str(download_error).lower():
                 return (
                     jsonify(
@@ -384,11 +402,16 @@ def process_file():
             app.logger.info(f"🚀 Calling RAG service for: {filename}")
             rag_url = "http://localhost:6050/api/v1/process_document"
 
-            # Send only the file part
+            # Send file, user_id, and file_id in the request
             files_payload = {"file": (filename, file_data, content_type)}
-
-            # Call with only files
-            rag_response = requests.post(rag_url, files=files_payload, timeout=120)
+            form_data = {"file_id": file_id}
+            # Call with both files and form data
+            rag_response = requests.post(
+                rag_url,
+                files=files_payload,  # Include both user_id and file_id
+                data=form_data,
+                timeout=120,
+            )
 
             app.logger.info(
                 f"📊 RAG Service Response Status: {rag_response.status_code}"
@@ -408,7 +431,6 @@ def process_file():
                                 "message": rag_result.get(
                                     "message", "Processing completed."
                                 ),
-                                "document_id": rag_result.get("document_id"),
                                 "chunk_count": rag_result.get("chunk_count"),
                                 "filename": filename,
                             }
@@ -476,18 +498,22 @@ def create_folder():
         uploaded_at = (
             datetime.now().replace(tzinfo=None).isoformat()
         )  # Remove timezone info
-        metadata_response = supabase.rpc(
-            "manage_document_metadata",
-            {
-                "p_action": "create",
-                "p_user_id": request.user["id"],
-                "p_file_name": name,
-                "p_file_type": "folder",  # Special type for folders
-                "p_uploaded_at": uploaded_at,
-                "p_size": "0",  # Folders themselves don't have a size
-                "p_file_path": folder_path,
-            },
-        ).execute()
+        metadata_response = (
+            supabase.schema("public")
+            .rpc(
+                "manage_document_metadata",
+                {
+                    "p_action": "create",
+                    "p_user_id": request.user["id"],
+                    "p_file_name": name,
+                    "p_file_type": "folder",  # Special type for folders
+                    "p_uploaded_at": uploaded_at,
+                    "p_size": "0",  # Folders themselves don't have a size
+                    "p_file_path": folder_path,
+                },
+            )
+            .execute()
+        )
 
         app.logger.info(f"📥 API Response - Storage: {response}")
         app.logger.info(f"📥 API Response - Metadata: {metadata_response}")
@@ -829,22 +855,27 @@ def delete_item():
 
             # First delete metadata using RPC
             try:
-                response = supabase.rpc(
-                    "manage_document_metadata",
-                    {
-                        "p_action": "delete",
-                        "p_file_path": path,
-                        "p_user_id": request.user["id"],
-                        "p_file_name": None,  # Not needed for delete
-                        "p_file_type": None,  # Not needed for delete
-                        "p_uploaded_at": None,  # Not needed for delete
-                        "p_size": None,  # Not needed for delete
-                    },
-                ).execute()
+                response = (
+                    supabase.schema("public")
+                    .rpc(
+                        "manage_document_metadata",
+                        {
+                            "p_action": "delete",
+                            "p_user_id": request.user["id"],
+                            "p_file_name": None,  # Not needed for delete
+                            "p_file_type": None,  # Not needed for delete
+                            "p_uploaded_at": None,  # Not needed for delete
+                            "p_size": None,
+                            "p_file_path": path,
+                        },
+                    )
+                    .execute()
+                )
                 app.logger.info(f"🔺 Successfully deleted metadata for file: {path}")
                 app.logger.info(f"🔺 Metadata response: {response}")
             except Exception as metadata_error:
                 app.logger.error(f"❌ Failed to delete metadata: {str(metadata_error)}")
+                return jsonify({"error": str(metadata_error)}), 500
                 # Continue with file deletion even if metadata deletion fails
 
             # Then delete the actual file
@@ -876,18 +907,22 @@ def delete_item():
                             app.logger.info(f"🔺 Deleting file in folder: {item_path}")
                             try:
                                 # Delete metadata first
-                                response = supabase.rpc(
-                                    "manage_document_metadata",
-                                    {
-                                        "p_action": "delete",
-                                        "p_file_path": item_path,
-                                        "p_user_id": request.user["id"],
-                                        "p_file_name": None,  # Not needed for delete
-                                        "p_file_type": None,  # Not needed for delete
-                                        "p_uploaded_at": None,  # Not needed for delete
-                                        "p_size": None,  # Not needed for delete
-                                    },
-                                ).execute()
+                                response = (
+                                    supabase.schema("public")
+                                    .rpc(
+                                        "manage_document_metadata",
+                                        {
+                                            "p_action": "delete",
+                                            "p_user_id": request.user["id"],
+                                            "p_file_name": None,  # Not needed for delete
+                                            "p_file_type": None,  # Not needed for delete
+                                            "p_uploaded_at": None,  # Not needed for delete
+                                            "p_size": None,
+                                            "p_file_path": item_path,
+                                        },
+                                    )
+                                    .execute()
+                                )
                                 app.logger.info(
                                     f"🔺 Successfully deleted metadata for file: {item_path}"
                                 )
@@ -910,18 +945,22 @@ def delete_item():
 
                     # Delete the folder's metadata
                     try:
-                        response = supabase.rpc(
-                            "manage_document_metadata",
-                            {
-                                "p_action": "delete",
-                                "p_file_path": folder_path,
-                                "p_user_id": request.user["id"],
-                                "p_file_name": None,  # Not needed for delete
-                                "p_file_type": None,  # Not needed for delete
-                                "p_uploaded_at": None,  # Not needed for delete
-                                "p_size": None,  # Not needed for delete
-                            },
-                        ).execute()
+                        response = (
+                            supabase.schema("public")
+                            .rpc(
+                                "manage_document_metadata",
+                                {
+                                    "p_action": "delete",
+                                    "p_user_id": request.user["id"],
+                                    "p_file_name": None,  # Not needed for delete
+                                    "p_file_type": None,  # Not needed for delete
+                                    "p_uploaded_at": None,  # Not needed for delete
+                                    "p_size": None,  # Not needed for delete
+                                    "p_file_path": folder_path,
+                                },
+                            )
+                            .execute()
+                        )
                         app.logger.info(
                             f"🔺 Successfully deleted metadata for folder: {folder_path}"
                         )
@@ -1120,11 +1159,10 @@ def rename_item():
                 if upload_response:
                     # Create new metadata for the new path
                     try:
-                        supabase.rpc(
+                        supabase.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "create",
-                                "p_file_path": new_path,
                                 "p_user_id": request.user["id"],
                                 "p_file_name": new_name_final,
                                 "p_file_type": content_type,
@@ -1132,6 +1170,7 @@ def rename_item():
                                 .replace(tzinfo=None)
                                 .isoformat(),
                                 "p_size": str(len(file_data)),
+                                "p_file_path": new_path,
                             },
                         ).execute()
                         app.logger.info(
@@ -1147,12 +1186,12 @@ def rename_item():
 
                     # Delete old metadata
                     try:
-                        supabase.rpc(
+                        supabase.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "delete",
-                                "p_file_path": old_path,
                                 "p_user_id": request.user["id"],
+                                "p_file_path": old_path,
                             },
                         ).execute()
                         app.logger.info(f"🗑️ Deleted old metadata for: {old_path}")
@@ -1206,11 +1245,10 @@ def rename_item():
                 # Update folder metadata
                 try:
                     # Create new metadata for the folder
-                    supabase.rpc(
+                    supabase.schema("public").rpc(
                         "manage_document_metadata",
                         {
                             "p_action": "create",
-                            "p_file_path": new_path,
                             "p_user_id": request.user["id"],
                             "p_file_name": new_name_final,
                             "p_file_type": "folder",
@@ -1218,6 +1256,7 @@ def rename_item():
                             .replace(tzinfo=None)
                             .isoformat(),
                             "p_size": "0",
+                            "p_file_path": new_path,
                         },
                     ).execute()
                     app.logger.info(f"✅ Created metadata for new folder: {new_path}")
@@ -1245,11 +1284,10 @@ def rename_item():
                                 {"contentType": "application/x-directory"},
                             )
                             # Update subfolder metadata
-                            supabase.rpc(
+                            supabase.schema("public").rpc(
                                 "manage_document_metadata",
                                 {
                                     "p_action": "create",
-                                    "p_file_path": new_item_path,
                                     "p_user_id": request.user["id"],
                                     "p_file_name": item["name"],
                                     "p_file_type": "folder",
@@ -1257,6 +1295,7 @@ def rename_item():
                                     .replace(tzinfo=None)
                                     .isoformat(),
                                     "p_size": "0",
+                                    "p_file_path": new_item_path,
                                 },
                             ).execute()
                             moved_files.append(old_item_path)
@@ -1283,11 +1322,10 @@ def rename_item():
 
                             if upload_response:
                                 # Update file metadata
-                                supabase.rpc(
+                                supabase.schema("public").rpc(
                                     "manage_document_metadata",
                                     {
                                         "p_action": "create",
-                                        "p_file_path": new_item_path,
                                         "p_user_id": request.user["id"],
                                         "p_file_name": item["name"],
                                         "p_file_type": content_type,
@@ -1295,6 +1333,7 @@ def rename_item():
                                         .replace(tzinfo=None)
                                         .isoformat(),
                                         "p_size": str(len(file_data)),
+                                        "p_file_path": new_item_path,
                                     },
                                 ).execute()
                                 moved_files.append(old_item_path)
@@ -1311,12 +1350,12 @@ def rename_item():
                         try:
                             supabase.storage.from_("documents").remove([old_path_item])
                             # Delete old metadata
-                            supabase.rpc(
+                            supabase.schema("public").rpc(
                                 "manage_document_metadata",
                                 {
                                     "p_action": "delete",
-                                    "p_file_path": old_path_item,
                                     "p_user_id": request.user["id"],
+                                    "p_file_path": old_path_item,
                                 },
                             ).execute()
                         except Exception as del_error:
@@ -1329,12 +1368,12 @@ def rename_item():
                         supabase.storage.from_("documents").remove(
                             [f"{old_path}/.folder"]
                         )
-                        supabase.rpc(
+                        supabase.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "delete",
-                                "p_file_path": old_path,
                                 "p_user_id": request.user["id"],
+                                "p_file_path": old_path,
                             },
                         ).execute()
                         app.logger.info(f"✅ Deleted old folder structure: {old_path}")
@@ -1372,12 +1411,12 @@ def rename_item():
                                             [item_path]
                                         )
                                         # Delete new metadata entry if it exists
-                                        supabase.rpc(
+                                        supabase.schema("public").rpc(
                                             "manage_document_metadata",
                                             {
                                                 "p_action": "delete",
-                                                "p_file_path": item_path,
                                                 "p_user_id": request.user["id"],
+                                                "p_file_path": item_path,
                                             },
                                         ).execute()
                                         app.logger.info(
@@ -1396,12 +1435,12 @@ def rename_item():
                                     [placeholder]
                                 )
                                 # Delete folder metadata
-                                supabase.rpc(
+                                supabase.schema("public").rpc(
                                     "manage_document_metadata",
                                     {
                                         "p_action": "delete",
-                                        "p_file_path": folder_path,
                                         "p_user_id": request.user["id"],
+                                        "p_file_path": folder_path,
                                     },
                                 ).execute()
                                 app.logger.info(
