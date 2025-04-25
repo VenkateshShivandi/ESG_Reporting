@@ -17,11 +17,23 @@ from flask import request, current_app
 import jwt
 from functools import wraps
 from supabase import create_client
+from pathlib import Path
+
 # CONSTANTS
-load_dotenv('.env.local')
+# Get the absolute path to the backend directory
+BACKEND_DIR = Path(__file__).resolve().parent
+ENV_PATH = BACKEND_DIR / '.env.local'
+
+# Load environment variables
+load_dotenv(ENV_PATH)
+
 SUPABASE_URL = os.environ.get('SUPABASE_URL')
 SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
-SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY')
+SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_ROLE_KEY')  # Updated to match .env.local
+
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set in .env.local")
+
 from jwcrypto import jwk
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
