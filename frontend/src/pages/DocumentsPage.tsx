@@ -69,8 +69,8 @@ import DroppableFolderItem from "@/components/documents/DroppableFolderItem"
 import { DragItem } from "@/lib/hooks/useDragDrop"
 import { useFilesStore } from "@/lib/store/files-store"
 import { motion, AnimatePresence } from "framer-motion"
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
-import 'react-pdf/dist/esm/Page/TextLayer.css';
+import '@/styles/react-pdf/AnnotationLayer.css';
+import '@/styles/react-pdf/TextLayer.css';
 
 const MotionTable = motion(Table)
 
