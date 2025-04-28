@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from dotenv import load_dotenv
-
+from supabase import create_client
 # Get the absolute path to the project root directory
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -171,6 +171,41 @@ class ESGPipeline:
             logger.error(f"Error connecting to Neo4j: {str(e)}")
             return False
     
+    def upload_entities_and_relationships(self, entities: List[Dict[str, Any]], relationships: List[Dict[str, Any]]) -> bool:
+        """
+        Upload entities and relationships to Supabase Tables.
+        """
+        try:
+            # Initialize Supabase client
+            supabase = create_client(
+                os.getenv("SUPABASE_URL"),
+                os.getenv("SUPABASE_ANON_KEY")
+            )
+            # Upload entities
+            entities_array = self.normalize_entities(entities)
+            relationships_array = self.normalize_relationships(relationships)
+
+            # Upload entities
+            supabase.schema("esg_data").table("entities").insert(entities_array).execute()
+            supabase.schema("esg_data").table("relationships").insert(relationships_array).execute()
+            logger.info("Entities and relationships uploaded to Supabase")
+            return True
+        except Exception as e:
+            logger.error(f"Error uploading entities and relationships to Supabase: {str(e)}")
+            return False
+                
+    def normalize_entities(self, entities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Normalize entities for Supabase upload.
+        """
+        return entities
+    
+    def normalize_relationships(self, relationships: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Normalize relationships for Supabase upload.
+        """
+        return relationships
+
     def process_single_file(self, pdf_path: str) -> Dict[str, Any]:
         """
         Process a single PDF file through the pipeline.
@@ -215,7 +250,8 @@ class ESGPipeline:
             )
             
             graph_result = graph_builder.build_graph()
-            
+            # Upload entities and relationships to Supabase
+            self.upload_entities_and_relationships(graph_result["entities"], graph_result["relationships"])
             # Get paths to the generated files
             entities_file = os.path.join(self.graph_dir, "entities.json")
             relationships_file = os.path.join(self.graph_dir, "relationships.json")

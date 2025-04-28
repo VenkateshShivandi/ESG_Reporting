@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file located in the RAG directory
 # Assumes .env is in the same directory as this file or its parent (rag/)
-dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '.env')) # Look in rag/ first
+dotenv_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '.env.local')) # Look in rag/ first
 if not os.path.exists(dotenv_path):
     # If not in rag/, check the parent directory (project root, where rag/ lives)
     # This provides flexibility if .env is placed at project root OR inside rag/
@@ -31,7 +31,7 @@ else:
 
 # Get Supabase credentials from environment variables
 supabase_url: str = os.environ.get("SUPABASE_URL")
-supabase_key: str = os.environ.get("SUPABASE_KEY") # Using ANON key initially, consider SERVICE_ROLE key
+supabase_key: str = os.environ.get("SUPABASE_ANON_KEY") # Using ANON key initially, consider SERVICE_ROLE key
 
 # Initialize Supabase client variable
 supabase: Client = None

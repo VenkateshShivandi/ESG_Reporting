@@ -330,6 +330,7 @@ def process_file():
             f"📞 API Call - process_file: Processing file at Supabase path '{storage_path}'"
         )
         try:
+            # Get the file ID from the documents table
             response = (
                 supabase.schema("esg_data")
                 .table("documents")
@@ -342,7 +343,6 @@ def process_file():
 
             file_id = response.data[0]["id"]
             app.logger.info(f"📄 File ID: {file_id}")
-
         except Exception as e:
             app.logger.error(f"❌ Error getting file ID: {str(e)}")
             return jsonify({"error": "Failed to get file ID"}), 500
