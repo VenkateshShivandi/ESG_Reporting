@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, ChangeEvent } from 'react';
+import React, { useState, useEffect, ChangeEvent, Fragment } from 'react';
 import { parse as parseDate, isValid as isDateValid } from 'date-fns';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { createClient } from '@supabase/supabase-js';
-import { FileText, Download, Loader2, RefreshCw, FileSpreadsheet, BarChart3, PieChart as PieChartIcon, Table as TableIcon, X, AlertCircle, CheckCircle, TreeDeciduous, Lightbulb, Recycle, Droplet, TrendingUp, TrendingDown, ArrowUp, ArrowDown, Filter, Maximize } from 'lucide-react';
+import { FileText, Download, Loader2, RefreshCw, FileSpreadsheet, BarChart3, PieChart as PieChartIcon, Table as TableIcon, X, AlertCircle, CheckCircle, TreeDeciduous, Lightbulb, Recycle, Droplet, TrendingUp, TrendingDown, ArrowUp, ArrowDown, Filter, Maximize, FileType } from 'lucide-react';
 // @ts-ignore - XLSX might not be type-safe but it's used conditionally
 import * as XLSX from 'xlsx'; 
 import { 
@@ -152,114 +152,6 @@ const isCategorical = (values: any[]): boolean => {
     uniqueValues.size > 1 && 
     (uniqueValues.size < nonEmptyValues.length * 0.3 || uniqueValues.size < 20)
   );
-};
-
-// Utility function to handle file downloads from Supabase more robustly
-const downloadFileFromSupabase = async (bucketName: string, fileName: string, fileIndex: number): Promise<Blob> => {
-  console.log(`Attempting to download file "${fileName}" (index: ${fileIndex}) from bucket "${bucketName}"`);
-  
-  try {
-    // First try the backend API endpoint using the index-based approach
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5050';
-    const apiEndpoint = `${backendUrl}/api/excel/download-by-index?index=${fileIndex}`;
-    console.log('Using backend index-based API endpoint:', apiEndpoint);
-    
-    const response = await fetch(apiEndpoint);
-    
-    if (!response.ok) {
-      let errorMessage = '';
-      
-      try {
-        // Try to parse error details from response
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorData.details || response.statusText;
-        console.error('Backend download failed:', errorData);
-      } catch (parseError) {
-        // If response is not JSON, use status text
-        errorMessage = response.statusText;
-      }
-      
-      // Fall back to Name-based API if index-based fails
-      console.log('Index-based download failed, falling back to name-based API');
-      return await downloadUsingNameBasedApi(fileName);
-    }
-    
-    // Convert response to blob
-    const blob = await response.blob();
-    console.log(`Successfully downloaded "${fileName}" through index-based API`);
-    
-    return blob;
-  } catch (error) {
-    console.error('Download error via index-based API:', error);
-    
-    // Fall back to name-based API if index-based fails completely
-    console.log('Error with index-based API, falling back to name-based API');
-    return await downloadUsingNameBasedApi(fileName);
-  }
-};
-
-// Fallback function to download using name-based API
-const downloadUsingNameBasedApi = async (fileName: string): Promise<Blob> => {
-  console.log('Attempting download through name-based API');
-  
-  // Use the original backend API endpoint as fallback
-  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5050';
-  const apiEndpoint = `${backendUrl}/api/excel/download?fileName=${encodeURIComponent(fileName)}`;
-  console.log('Using name-based API endpoint:', apiEndpoint);
-  
-  const response = await fetch(apiEndpoint);
-  
-  if (!response.ok) {
-    // As a last resort, try the Next.js API
-    console.log('Name-based backend API failed, trying Next.js API');
-    return await downloadUsingNextApiRoute(fileName);
-  }
-  
-  // Convert response to blob
-  const blob = await response.blob();
-  console.log(`Successfully downloaded "${fileName}" through name-based API`);
-  
-  return blob;
-};
-
-// Fallback function to download using Next.js API route
-const downloadUsingNextApiRoute = async (fileName: string): Promise<Blob> => {
-  console.log('Attempting download through Next.js API route');
-  
-  // Use the Next.js API endpoint as fallback
-  const nextApiEndpoint = `/api/download-excel?fileName=${encodeURIComponent(fileName)}`;
-  console.log('Using Next.js API endpoint:', nextApiEndpoint);
-  
-  const response = await fetch(nextApiEndpoint);
-  
-  if (!response.ok) {
-    let errorMessage = '';
-    
-    try {
-      // Try to parse error details from response
-      const errorData = await response.json();
-      errorMessage = errorData.error || errorData.details || response.statusText;
-      console.error('Next.js API download failed:', errorData);
-    } catch (parseError) {
-      // If response is not JSON, use status text
-      errorMessage = response.statusText;
-    }
-    
-    // Provide more specific error messages for common HTTP errors
-    if (response.status === 404) {
-      throw new Error(`File "${fileName}" not found in storage. Please verify that the file exists.`);
-    } else if (response.status === 403) {
-      throw new Error(`Access denied to file "${fileName}". Please check storage bucket permissions.`);
-    } else {
-      throw new Error(`Server error: ${response.status} ${errorMessage}`);
-    }
-  }
-  
-  // Convert response to blob
-  const blob = await response.blob();
-  console.log(`Successfully downloaded "${fileName}" through Next.js API`);
-  
-  return blob;
 };
 
 // Enhanced Donut Chart with more interactive elements and animations
@@ -959,6 +851,13 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
   const [showCharts, setShowCharts] = useState(false);
   const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedFileType, setSelectedFileType] = useState<'excel' | 'csv'>('excel');
+
+  // === State for User Chart Configuration ===
+  const [selectedChartType, setSelectedChartType] = useState<string>('Line'); // Default: Line
+  const [selectedXAxisCol, setSelectedXAxisCol] = useState<string>('');
+  const [selectedYAxisCol, setSelectedYAxisCol] = useState<string>('none'); // Changed from empty string to 'none'
+  // ==========================================
 
   // Add index to each file for reference when mapping
   const indexedExcelFiles = (files: Array<{name: string; path: string; size?: number; modified?: number}>, prefix: string = ''): FileInfo[] => {
@@ -1066,28 +965,76 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
 
   // Function to fetch and parse Excel file directly from Supabase
   const fetchExcelFileDirectly = async (fileName: string, fileIndex: number) => {
+    // fileIndex is no longer strictly needed for download but kept for logging/context
     try {
       setProcessingFile(true);
       setShowCharts(false);
     setError(null);
     
-      // Log the exact file name being used
-      console.log('Attempting to download file from Supabase:', fileName, 'with index:', fileIndex);
+      console.log(`Attempting to download ${selectedFileType} file from Supabase:`, fileName, 'with index:', fileIndex);
+      setProcessingMessage(`Requesting download URL for ${selectedFileType} file...`);
       
-      // Show processing state with meaningful message
-      setProcessingMessage("Downloading Excel file...");
-      
-      // Use the robust download utility function that tries multiple methods
       let fileData: Blob;
       try {
-        // Try the index-based API which should be more reliable with special characters
-        fileData = await downloadFileFromSupabase('documents', fileName, fileIndex);
+          // === Get Auth Token ===
+          const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
+          if (sessionError || !sessionData?.session) {
+              console.error('Error getting user session:', sessionError);
+              throw new Error('Authentication error: Could not retrieve user session.');
+          }
+          const accessToken = sessionData.session.access_token;
+          // === End Get Auth Token ===
+
+          // 1. Get the signed download URL from our backend
+          // Ensure backendUrl is defined in the component scope or imported
+          const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5050'; // Assuming it might be needed if not defined above
+          const encodedFileName = encodeURIComponent(fileName);
+          const signedUrlEndpoint = `${backendUrl}/api/files/${encodedFileName}/download`;
+          console.log('Fetching signed URL from:', signedUrlEndpoint);
+
+          // === Add Auth Header ===
+          const signedUrlResponse = await fetch(signedUrlEndpoint, {
+              headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+              },
+          });
+          // === End Add Auth Header ===
+
+          if (!signedUrlResponse.ok) {
+              let errorMsg = `Failed to get download URL (status: ${signedUrlResponse.status})`;
+              try {
+                  const errorJson = await signedUrlResponse.json();
+                  errorMsg = errorJson.error || errorMsg;
+              } catch (e) { /* Ignore if response is not JSON */ }
+              console.error('Error fetching signed URL:', errorMsg);
+              throw new Error(errorMsg);
+          }
+
+          const { url: signedUrl } = await signedUrlResponse.json();
+          if (!signedUrl) {
+              throw new Error('Backend did not return a valid download URL.');
+          }
+          console.log('Received signed URL:', signedUrl);
+
+          // 2. Download the file directly from the signed Supabase URL
+          setProcessingMessage(`Downloading ${selectedFileType} file...`);
+          console.log('Fetching file directly from Supabase signed URL...');
+          const fileResponse = await fetch(signedUrl);
+
+          if (!fileResponse.ok) {
+              throw new Error(`Failed to download file from Supabase (status: ${fileResponse.status})`);
+          }
+
+          fileData = await fileResponse.blob();
+          console.log('File downloaded successfully from signed URL.');
         
         // Update processing message after successful download
-        setProcessingMessage("Processing Excel data...");
+          setProcessingMessage(`Processing ${selectedFileType} data...`);
+
       } catch (downloadError) {
-        console.error('All download methods failed. File:', fileName, 'Error details:', downloadError);
-        throw new Error(`Could not download file "${fileName}". Please try a different file or check with your administrator.`);
+          console.error('Download process failed. File:', fileName, 'Error details:', downloadError);
+          // Use a more user-friendly error message
+          throw new Error(`Could not download file "${fileName}". Please verify the file exists and check console for details.`); 
       }
       
       // Log successful download and data info
@@ -1095,340 +1042,270 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
         type: fileData.type,
         size: fileData.size,
         fileName: fileName,
-        fileIndex: fileIndex
+        fileIndex: fileIndex,
+        fileType: selectedFileType
       });
       
-      // Update processing message for parsing step
-      setProcessingMessage("Parsing Excel data and creating visualizations...");
-      
-      // Parse the Excel file data
-      await parseExcelData(fileData);
-      
-      // Show success message
-      setSuccessMessage(`File "${fileName}" successfully processed!`);
-      setTimeout(() => setSuccessMessage(null), 3000);
-      
-      // Show charts after successful parsing
+      try {
+        // Parse Excel or CSV data
+        const data = await parseExcelData(fileData);
+        
+        // Process the raw data and generate charts
+        processExcelData(data);
+        
+        // Success!
+        setProcessingFile(false);
+        setProcessingMessage(null);
+        setSuccessMessage(`${selectedFileType.toUpperCase()} data analyzed successfully!`);
+        
+        // Show chart after a short delay for better UX
+        setTimeout(() => {
       setShowCharts(true);
       
-    } catch (err) {
-      console.error('Error fetching Excel file:', err);
-      setError(`${(err as Error).message || 'Unknown error'}`);
-      setParsedData(null);
-      setShowCharts(false);
-    } finally {
+          // Clear success message after 3 seconds
+          setTimeout(() => {
+            setSuccessMessage(null);
+          }, 3000);
+        }, 500);
+        
+      } catch (error) {
+        console.error('Error parsing Excel/CSV data:', error);
+        setError(`Error analyzing ${selectedFileType} data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        setProcessingFile(false);
+        setProcessingMessage(null);
+      }
+    } catch (error) {
+      console.error('Error in fetchExcelFileDirectly:', error);
+      setError(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setProcessingFile(false);
       setProcessingMessage(null);
     }
   };
 
   // Function to parse Excel data from a Blob
-  const parseExcelData = async (fileData: Blob) => {
+  const parseExcelData = async (fileData: Blob): Promise<any[]> => { // Return the full data array
     try {
-      // Different parsing approaches based on available libraries
-      if (XLSXModule) {
-        // Parse with SheetJS if available
-        const arrayBuffer = await fileData.arrayBuffer();
-        console.log('File loaded, parsing Excel data...');
-        
-        // Try different Excel reading options
-        let workbook;
-        let jsonData;
-        
-        try {
-          // First try with default options
-          workbook = XLSXModule.read(arrayBuffer, { type: 'array' });
+      setProcessingMessage(`Parsing ${selectedFileType} file...`);
+      
+      // Create array buffer from blob
+      const buffer = await fileData.arrayBuffer();
+      
+      // Check if XLSX is available
+      if (!XLSXModule) {
+        throw new Error("Excel processing library is not available");
+      }
+      
+      let data: any[] = [];
+      
+      if (selectedFileType === 'excel') {
+        // Parse Excel file
+        const workbook = XLSXModule.read(buffer, { type: 'array' });
           
           // Get first sheet name
           const firstSheetName = workbook.SheetNames[0];
-          console.log('Excel sheets found:', workbook.SheetNames);
           
-          // Convert sheet to JSON
+        // Get worksheet
           const worksheet = workbook.Sheets[firstSheetName];
-          jsonData = XLSXModule.utils.sheet_to_json(worksheet, { header: 1 });
-          
-          console.log(`Parsed with default options: ${jsonData.length} rows found`);
-          
-          // If no rows found or parsing looks incorrect, try with different options
-          if (!jsonData || jsonData.length < 2 || !Array.isArray(jsonData[0])) {
-            console.log('First parse attempt may have failed, trying with different options...');
-            
-            // Try with different options - sometimes Excel files need raw: true
-            workbook = XLSXModule.read(arrayBuffer, { type: 'array', raw: true });
-            jsonData = XLSXModule.utils.sheet_to_json(workbook.Sheets[firstSheetName], { 
-              header: 1,
-              raw: true
-            });
-            
-            console.log(`Parsed with raw=true: ${jsonData.length} rows found`);
-          }
-          
-          // If still no good results, try with different header option
-          if (!jsonData || jsonData.length < 2 || !Array.isArray(jsonData[0])) {
-            console.log('Second parse attempt didn\'t give good results, trying with different header option...');
-            
-            // Try parsing with no headers
-            jsonData = XLSXModule.utils.sheet_to_json(workbook.Sheets[firstSheetName], { 
-              header: 1,
-              raw: true,
-              defval: ''
-            });
-            
-            // If we got data but no headers, create generic headers
-            if (jsonData && jsonData.length > 0 && Array.isArray(jsonData[0])) {
-              // Create header row if it doesn't exist
-              const headerRow = jsonData[0].map((_, i) => `Column ${i+1}`);
-              jsonData.unshift(headerRow);
-              console.log(`Created generic headers for columns:`, headerRow);
-            }
-            
-            console.log(`Parsed with generic headers: ${jsonData?.length || 0} rows found`);
-          }
-        } catch (parseError) {
-          console.error('Excel parse error:', parseError);
-          // Try one last approach - cell-by-cell parsing
-          try {
-            console.log('Trying cell-by-cell parsing as last resort');
-            workbook = XLSXModule.read(arrayBuffer, { type: 'array' });
-            const firstSheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[firstSheetName];
-            
-            // Manually extract the sheet range
-            const range = XLSXModule.utils.decode_range(worksheet['!ref'] || 'A1:Z100');
-            
-            // Create empty array for the data
-            jsonData = [];
-            const headerRow: any[] = [];
-            
-            // Extract headers from first row (A1, B1, C1, etc.)
-            for (let c = range.s.c; c <= range.e.c; ++c) {
-              const cellAddress = XLSXModule.utils.encode_cell({ r: range.s.r, c });
-              const cell = worksheet[cellAddress];
-              headerRow.push(cell?.v || `Column ${c+1}`);
-            }
-            jsonData.push(headerRow);
-            
-            // Extract data rows
-            for (let r = range.s.r + 1; r <= range.e.r; ++r) {
-              const row: any[] = [];
-              for (let c = range.s.c; c <= range.e.c; ++c) {
-                const cellAddress = XLSXModule.utils.encode_cell({ r, c });
-                const cell = worksheet[cellAddress];
-                row.push(cell?.v);
-              }
-              jsonData.push(row);
-            }
-            
-            console.log(`Parsed with cell-by-cell approach: ${jsonData.length} rows found`);
-          } catch (cellError) {
-            console.error('Cell-by-cell parsing also failed:', cellError);
-            throw new Error('Failed to parse Excel file - all parsing methods failed');
-          }
-        }
         
-        if (!jsonData || !Array.isArray(jsonData) || jsonData.length < 1) {
-          throw new Error('Could not parse any data from the Excel file');
-        }
+        // Convert to JSON - explicitly setting header: 1 ensures first row is treated as headers
+        data = XLSXModule.utils.sheet_to_json(worksheet, { header: 1 });
         
-        // Process the data we successfully extracted
-        processExcelData(jsonData);
-      } else {
-        // Fallback method - try to use a fetch to the backend if parsing library not available
-        const formData = new FormData();
-        formData.append('file', fileData);
-        
-        const response = await fetch('/api/parse-excel', {
-          method: 'POST',
-          body: formData
+        console.log('Excel data parsed:', {
+          sheetCount: workbook.SheetNames.length,
+          firstSheetName,
+          rowCount: data.length
         });
+      } else {
+        // Parse CSV file
+        // Convert array buffer to text
+        const decoder = new TextDecoder('utf-8');
+        const csvText = decoder.decode(buffer);
         
-        if (!response.ok) {
-          throw new Error('Failed to parse Excel file through API');
+        // Use XLSX's CSV parser or Papa Parse if available
+        if (XLSXModule.read) {
+          const workbook = XLSXModule.read(csvText, { type: 'string' });
+          const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+          data = XLSXModule.utils.sheet_to_json(worksheet, { header: 1 });
+        } else {
+          // Simple CSV parser if XLSX's CSV parsing is not available
+          data = csvText.split('\n').map(line => line.split(','));
         }
         
-        const jsonData = await response.json();
-        processExcelData(jsonData);
+        console.log('CSV data parsed:', {
+          rowCount: data.length,
+          columnCount: data[0]?.length || 0
+        });
       }
-    } catch (err) {
-      console.error('Error parsing Excel data:', err);
-      setError(`Failed to parse Excel data: ${(err as Error).message}`);
+      
+      // Process the data (identify columns, summarize, etc.)
+      setProcessingMessage('Analyzing data patterns...');
+      
+      if (!data || data.length < 2) {
+        throw new Error(`The ${selectedFileType} file does not contain enough data to analyze`);
+      }
+      
+      // Get headers (first row) and ensure they are trimmed strings
+      const headers = data[0].map((h: any) => String(h || '').trim());
+      
+      // Get data rows (skip header)
+      const rows = data.slice(1);
+      
+      console.log('Data analysis in parseExcelData:', {
+        headers,
+        rowCount: rows.length,
+        sampleRow: rows[0]
+      });
+      
+      // Identify data types in each column HERE
+      const columnTypes = {
+        categorical: [] as string[],
+        numerical: [] as string[]
+      };
+      
+      headers.forEach((header: string, colIndex: number) => {
+        // Get all values for this column
+        const values = rows.map(row => row[colIndex]);
+        
+        // Check if column is numeric or categorical
+        const hasNumericValues = values.some(v => isNumeric(v));
+        // Use stricter check: majority non-empty values should be numeric OR very few unique values if not numeric
+        const isLikelyNumeric = hasNumericValues && !isCategorical(values); 
+        
+        if (isLikelyNumeric) {
+            columnTypes.numerical.push(header);
+        } else if (isCategorical(values)) { // Use isCategorical for the else if
+            columnTypes.categorical.push(header);
+        }
+        // Note: Columns that are neither strongly numeric nor categorical might be ignored for Y-axis
+      });
+      
+      console.log('Column types identified in parseExcelData:', columnTypes);
+      setIdentifiedColumns(columnTypes); // Set state here
+      
+      return data; // Return the FULL data array (headers + rows)
+    } catch (error) {
+      console.error(`Error parsing ${selectedFileType} file:`, error);
+      setError(`Error parsing ${selectedFileType} file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIdentifiedColumns({ categorical: [], numerical: [] }); // Reset on error
+      throw error;
     }
   };
 
   // Function to process the Excel data and identify column types
-  const processExcelData = (data: any[]) => {
-    if (!data || !Array.isArray(data) || data.length < 2) {
-      setError('Invalid or empty Excel data');
-      return;
-    }
-    
-    // Log the raw data for debugging
-    console.log('Raw Excel data received:', data.slice(0, 5));
-    
-    // REAL ELECTRICITY CONSUMPTION DATA FALLBACK
-    // If parsing fails, use this hardcoded data that matches the user's electricity bill
-    const electricityData = [
-      { month: "2023-01", value: 503360 },
-      { month: "2023-02", value: 539376 },
-      { month: "2023-03", value: 594885 },
-      { month: "2023-04", value: 571966 },
-      { month: "2023-05", value: 558914 },
-      { month: "2023-06", value: 511976 },
-      { month: "2023-07", value: 493762 },
-      { month: "2023-08", value: 502334 },
-      { month: "2023-09", value: 505733 },
-      { month: "2023-10", value: 480246 },
-      { month: "2023-11", value: 511839 },
-      { month: "2023-12", value: 519004 }
-    ];
-    
-    // Create structured data from the Excel
-    let timeSeriesData: Array<{name: string, value: number}> = [];
-    let tableData: Array<Record<string, any>> = [];
-    let headers: string[] = [];
-    
+  const processExcelData = (data: any[]) => { // Receives full data (headers + rows)
     try {
-      // Attempt to extract headers from first row
-      headers = data[0].map((header: any) => header?.toString() || '');
-      console.log('Excel headers found:', headers);
+      if (!data || data.length < 2) {
+        throw new Error(`The ${selectedFileType} file does not contain enough data to analyze.`);
+      }
       
-      // Process all rows except header row
+      // Get headers (first row) - Now correctly extracted as data[0]
+      const allHeaders: string[] = data[0].map((h: any) => String(h || '').trim());
+      console.log('Extracted Headers in processExcelData:', allHeaders);
+      
+      // Get data rows (skip header)
       const rows = data.slice(1);
-      console.log(`Found ${rows.length} data rows`);
       
-      // Try to find Mes and Consumo columns
-      const mesColumnIndex = headers.findIndex((h: string) => 
-        h.toLowerCase() === 'mes' || h.toLowerCase().includes('mes') || h.toLowerCase().includes('month')
-      );
+      // --- Column Identification is now done in parseExcelData ---
+      // We'll rely on the `identifiedColumns` state set previously.
+      // We still need the list of numeric headers for analytics calculation.
+      const numericHeaders = identifiedColumns.numerical; 
+      console.log('Using Numerical Headers from state:', numericHeaders);
+
+      // --- Calculate Analytics ONLY for Potentially Numeric Columns ---
+      const analyticsData: Record<string, { total: number; average: number; min: number; max: number }> = {};
+
+      numericHeaders.forEach(header => { // Iterate over numeric headers from state
+        const colIndex = allHeaders.indexOf(header);
+        if (colIndex === -1) {
+            console.warn(`Numeric header "${header}" not found in extracted headers. Skipping analytics.`);
+            return; 
+        }
+
+        console.log(`Calculating stats for numeric column: ${header} (idx ${colIndex}).`);
+        
+        const numericValues = rows
+          .map(row => row[colIndex]) 
+          .map(val => { // Robust conversion to number
+              if (typeof val === 'number') return val;
+              if (typeof val === 'string') {
+                const cleanVal = val.replace(/[^\d.-]/g, ''); 
+                const num = parseFloat(cleanVal);
+                return isNaN(num) ? null : num; // Return null if parsing fails
+              } 
+              return null; // Not number or string
+          })
+          .filter((val): val is number => val !== null && isFinite(val)); // Filter out nulls, NaN, Infinity
+        
+        if (numericValues.length > 0) {
+          const total = numericValues.reduce((sum, val) => sum + val, 0);
+          const average = total / numericValues.length;
+          const min = Math.min(...numericValues);
+          const max = Math.max(...numericValues);
+          
+          analyticsData[header] = { total, average, min, max };
+        } else {
+            console.log(`No valid numeric values found for column ${header} after filtering to calculate stats.`);
+        }
+      });
+      console.log('Calculated Analytics Data (for numeric columns):', analyticsData);
       
-      const consumoColumnIndex = headers.findIndex((h: string) => 
-        h.toLowerCase().includes('consumo') || h.toLowerCase().includes('kwh') || h.toLowerCase().includes('consumption')
-      );
-      
-      console.log('Detected indices - Mes:', mesColumnIndex, 'Consumo:', consumoColumnIndex);
-      
-      // Create normal table data
-      tableData = rows.map(row => {
-        const obj: Record<string, any> = {};
-        headers.forEach((header: string, index: number) => {
-          if (header) {
-            obj[header] = row[index];
-          }
+      // --- Basic Table Data (used for dynamic chart generation later) ---
+      const tableData = rows.map((row, rowIndex) => {
+        const obj: Record<string, any> = { id: rowIndex + 1 }; // Add an ID for potential key prop use
+        allHeaders.forEach((header: string, i: number) => {
+          obj[header] = row[i]; // Use actual header string as key
         });
         return obj;
       });
+
+      // --- Update State --- 
       
-      // If we found the expected columns, extract time series data
-      if (mesColumnIndex !== -1 && consumoColumnIndex !== -1) {
-        timeSeriesData = rows.map(row => {
-          let value = 0;
-          const rawValue = row[consumoColumnIndex];
-          
-          if (isNumeric(rawValue)) {
-            value = Number(rawValue);
-          } else if (typeof rawValue === 'string') {
-            const cleaned = rawValue.replace(/[^\d.-]/g, '');
-            value = parseFloat(cleaned) || 0;
-          }
-          
-          return {
-            name: String(row[mesColumnIndex]),
-            value: value
-          };
-        });
-        
-        // Sort by month
-        timeSeriesData = timeSeriesData.sort((a, b) => {
-          // Try to extract month number
-          const getMonth = (str: string) => {
-            const match = str.match(/(\d{4})-(\d{2})/);
-            if (match) {
-              return parseInt(match[2]);
-            }
-            return 0;
-          };
-          
-          return getMonth(a.name) - getMonth(b.name);
-        });
-      }
-    } catch (error) {
-      console.error('Error processing Excel data, using fallback:', error);
-    }
-    
-    // Use fallback data if no valid data was extracted
-    if (!timeSeriesData.length || timeSeriesData.some(item => item.value === 0)) {
-      console.log('Using electricity consumption fallback data');
-      timeSeriesData = electricityData.map(item => ({
-        name: item.month,
-        value: item.value
-      }));
-    }
-    
-    // Log the final data we're using
-    console.log('Final time series data:', timeSeriesData);
-    
-    // Calculate analytics
-    const values = timeSeriesData.map(item => item.value);
-    const total = values.reduce((sum, val) => sum + val, 0);
-    const avg = total / values.length;
-    const max = Math.max(...values);
-    const min = Math.min(...values);
-    
-    // Calculate month-to-month changes
-    const monthlyChanges = timeSeriesData.map((item, index) => {
-      const previousValue = index > 0 ? timeSeriesData[index - 1].value : item.value;
-      const change = previousValue > 0 ? 
-        ((item.value - previousValue) / previousValue) * 100 : 0;
+      // `identifiedColumns` is already set by parseExcelData
       
-      return {
-        month: item.name,
-        value: item.value,
-        previousValue: previousValue,
-        change: change
-      };
-    });
-    
-    // Store analytics data
-    const analytics = {
-      total,
-      average: avg,
-      max,
-      min,
-      dateColumn: "Mes",
-      valueColumn: "Consumo (kWh)",
-      monthlyChanges
-    };
-    
-    // Calculate percentage distribution for pie chart
-    const pieData = timeSeriesData.map(item => ({
-      name: item.name,
-      value: (item.value / total) * 100
-    }));
-    
-    // Update state with processed data
+      // Set parsedData with the essentials needed for user selection + stats table
     setParsedData({
-      headers,
-      tableData: tableData.length ? tableData : timeSeriesData,
-      analytics
-    });
-    
-    // Set chart data
+        headers: allHeaders, // Keep original headers array
+        // rows: rows, // We mostly use tableData now, rows might be redundant here
+        tableData, // Pass the structured table data
+        analytics: analyticsData, // Pass the stats for numeric columns
+      });
+      
+      // IMPORTANT: Clear old chart-specific data that relied on auto-detection
     setChartData({
-      bar: timeSeriesData,
-      pie: pieData
+        bar: [],
+        pie: []
     });
-    
     setData({
-      barChart: timeSeriesData,
-      donutChart: pieData,
-      tableData: tableData.length ? tableData : timeSeriesData,
-      lineChart: timeSeriesData
-    });
-    
-    setIdentifiedColumns({
-      numerical: ["Consumo (kWh)"],
-      categorical: ["Mes"]
-    });
+        barChart: [],
+        lineChart: [],
+        donutChart: [],
+        tableData: [] // This might be redundant if tableData in parsedData is used everywhere
+      });
+      // Also reset user selections when new data is processed
+      setSelectedXAxisCol('');
+      setSelectedYAxisCol('');
+      setSelectedChartType('Line'); // Reset to default
+
+      console.log('processExcelData completed. Updated parsedData state.');
+
+      // Return the core processed data (though it mainly sets state now)
+      return { 
+          headers: allHeaders,
+          tableData, 
+          analytics: analyticsData,
+          // No need to return potentiallyNumericHeaders as it's derived from state now
+      };
+      
+    } catch (error) {
+      console.error('Error processing data:', error);
+      setError(`Error processing data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Clear potentially partially processed data on error
+      setParsedData(null);
+      // identifiedColumns should have been reset by parseExcelData's error handler
+      setSelectedXAxisCol('');
+      setSelectedYAxisCol('');
+      throw error;
+    }
   };
 
   // Handle file selection
@@ -1503,14 +1380,38 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     }));
   };
 
+  // Handle file type selection
+  const handleFileTypeChange = (value: 'excel' | 'csv') => {
+    console.log('File type changed to:', value);
+    setSelectedFileType(value);
+    
+    // Reset selected file when switching file types
+    setSelectedFile('');
+    setSelectedFileIndex(0);
+    setParsedData(null);
+    setShowCharts(false);
+    
+    // If there are files of the new type, select the first one
+    const filesOfSelectedType = value === 'excel' ? availableFiles.excel : availableFiles.csv;
+    if (filesOfSelectedType.length > 0) {
+      setSelectedFile(filesOfSelectedType[0].name);
+      setSelectedFileIndex(filesOfSelectedType[0].index || 0);
+    } else {
+      setError(`No ${value.toUpperCase()} files found in the storage bucket. Upload ${value.toUpperCase()} files to the documents section first.`);
+    }
+  };
+
+  // Get current files based on selected type
+  const currentFileList = selectedFileType === 'excel' ? availableFiles.excel : availableFiles.csv;
+
   return (
     <div className={`space-y-8 ${className}`}>
       <Card className="overflow-hidden border-0 shadow-xl rounded-xl bg-white dark:bg-gray-900">
         <CardHeader className="pb-3 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900 border-b border-gray-100 dark:border-gray-800">
-          <CardTitle className="text-xl font-bold text-gray-800 dark:text-gray-100">Excel Data Analytics</CardTitle>
+          <CardTitle className="text-xl font-bold text-gray-800 dark:text-gray-100">Excel & CSV Data Analytics</CardTitle>
           <CardContent className="p-0 pt-3">
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              Analyze your ESG data from Excel files for enhanced insights and reporting.
+              Analyze your ESG data from Excel and CSV files for enhanced insights and reporting.
             </p>
             
             {error && (
@@ -1523,27 +1424,58 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
             
             <div className="flex flex-col space-y-4 md:flex-row md:space-y-0 md:space-x-4">
               <div className="flex-1">
-                <Label htmlFor="file-select" className="mb-2 block text-gray-700 dark:text-gray-300 font-medium">Select Excel File</Label>
+                {/* Add file type selector */}
+                <div className="mb-4">
+                  <Label htmlFor="file-type-select" className="mb-2 block text-gray-700 dark:text-gray-300 font-medium">File Type</Label>
+                  <Tabs 
+                    value={selectedFileType} 
+                    onValueChange={(value) => handleFileTypeChange(value as 'excel' | 'csv')}
+                    className="w-full"
+                  >
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger value="excel" className="flex items-center justify-center gap-2">
+                        <FileSpreadsheet className="h-4 w-4" />
+                        <span>Excel</span>
+                      </TabsTrigger>
+                      <TabsTrigger value="csv" className="flex items-center justify-center gap-2">
+                        <FileType className="h-4 w-4" />
+                        <span>CSV</span>
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                </div>
+                
+                <Label htmlFor="file-select" className="mb-2 block text-gray-700 dark:text-gray-300 font-medium">
+                  Select {selectedFileType === 'excel' ? 'Excel' : 'CSV'} File
+                </Label>
                 <Select 
                   value={selectedFile} 
                   onValueChange={handleFileChange}
-                  disabled={loading || availableFiles.excel.length === 0}
+                  disabled={loading || currentFileList.length === 0}
                 >
                   <SelectTrigger id="file-select" className="w-full border-gray-200 dark:border-gray-700 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                    <SelectValue placeholder={loading ? "Loading files..." : "Select a file to analyze"}>
+                    <SelectValue placeholder={loading ? "Loading files..." : `Select a ${selectedFileType} file to analyze`}>
                       {selectedFile && (
                         <div className="flex items-center">
+                          {selectedFileType === 'excel' ? (
                           <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-600" />
+                          ) : (
+                            <FileType className="h-4 w-4 mr-2 text-green-600" />
+                          )}
                           <span>{selectedFile}</span>
                 </div>
                       )}
                     </SelectValue>
               </SelectTrigger>
                   <SelectContent className="border-0 shadow-xl rounded-lg bg-white dark:bg-gray-800 backdrop-blur-sm">
-                    {availableFiles.excel.map(file => (
+                    {currentFileList.map(file => (
                       <SelectItem key={file.path} value={file.name} className="rounded-md my-0.5 hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors duration-150">
                         <div className="flex items-center">
+                          {selectedFileType === 'excel' ? (
                           <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-600" />
+                          ) : (
+                            <FileType className="h-4 w-4 mr-2 text-green-600" />
+                          )}
                           <span>{file.name}</span>
                           <span className="ml-2 text-xs text-gray-500">
                             {file.size ? `(${Math.round(file.size / 1024)} KB)` : ''}
@@ -1551,9 +1483,9 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                       </div>
                         </SelectItem>
                       ))}
-                    {availableFiles.excel.length === 0 && !loading && (
+                    {currentFileList.length === 0 && !loading && (
                       <SelectItem value="no-files" disabled className="opacity-60">
-                        No Excel files available
+                        No {selectedFileType === 'excel' ? 'Excel' : 'CSV'} files available
                         </SelectItem>
                   )}
               </SelectContent>
@@ -1586,7 +1518,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                           </div>
                         </div>
                       </div>
-                      Analyze Excel Data
+                      Analyze {selectedFileType === 'excel' ? 'Excel' : 'CSV'} Data
                     </>
                   )}
             </Button>
@@ -1608,332 +1540,134 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
       
       {/* Only show the visualization once processing is complete and we have data */}
       {parsedData && showCharts && !error && !processingFile && (
-        <div className="grid gap-8 mt-8">
-          {/* New consumption summary metric card */}
-          {parsedData?.analytics?.total && (
-            <Card className="overflow-hidden border-0 shadow-xl rounded-xl bg-white hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-1">
-              <CardHeader className="pb-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100">
-                <div className="flex justify-between items-center">
-                  <CardTitle className="text-2xl font-bold text-blue-900">Consumo Total Anual</CardTitle>
-                  <div className="relative bg-white bg-opacity-80 p-2 rounded-full shadow-md">
-                    <Recycle className="h-6 w-6 text-blue-600" />
-        </div>
-        </div>
-                <CardDescription className="text-blue-700 font-medium">Factura: 5343137002</CardDescription>
-                </CardHeader>
-              <CardContent className="py-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-4xl font-extrabold text-blue-800 tracking-tight">
-                    {Math.round(parsedData.analytics.total).toLocaleString('es')} 
-                    <span className="ml-2 text-lg font-medium text-blue-600">kWh</span>
-                  </div>
-                  <div className="text-right bg-white bg-opacity-90 p-3 rounded-xl shadow-md">
-                    <div className="text-sm font-bold text-blue-800">
-                      Promedio Mensual
-                    </div>
-                    <div className="text-xl font-extrabold text-blue-900">
-                      {Math.round(parsedData.analytics.average).toLocaleString('es')} kWh
-                    </div>
-                    <div className="mt-1 flex items-center justify-center text-blue-600 text-xs font-medium bg-blue-100 rounded-full px-2 py-0.5">
-                      <span>12 meses analizados</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-3 pt-3 border-t border-blue-100">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-white bg-opacity-95 p-2 rounded-xl shadow-sm">
-                      <div className="text-sm font-bold text-blue-700 mb-1">Consumo Máximo</div>
-                      <div className="font-extrabold text-xl text-blue-900 flex items-baseline">
-                        {Math.round(parsedData.analytics.max).toLocaleString('es')} 
-                        <span className="ml-1 text-xs font-medium text-blue-600">kWh</span>
-                      </div>
-                    </div>
-                    <div className="bg-white bg-opacity-95 p-2 rounded-xl shadow-sm">
-                      <div className="text-sm font-bold text-blue-700 mb-1">Consumo Mínimo</div>
-                      <div className="font-extrabold text-xl text-blue-900 flex items-baseline">
-                        {Math.round(parsedData.analytics.min).toLocaleString('es')}
-                        <span className="ml-1 text-xs font-medium text-blue-600">kWh</span>
-                      </div>
-                    </div>
-                  </div>
-                  </div>
-                </CardContent>
-              </Card>
-          )}
-
-          {/* Main metric cards - similar to dashboard style */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {chartData.pie.slice(0, 4).map((item: any, index: number) => {
-              // Define different color schemes for each card
-              const colorSchemes = [
-                { gradient: "from-blue-50 via-indigo-50 to-blue-50", text: "text-blue-700", accent: "text-blue-600", progress: "from-blue-500 to-indigo-500" },
-                { gradient: "from-emerald-50 via-green-50 to-emerald-50", text: "text-emerald-700", accent: "text-emerald-600", progress: "from-emerald-500 to-green-500" },
-                { gradient: "from-amber-50 via-yellow-50 to-amber-50", text: "text-amber-700", accent: "text-amber-600", progress: "from-amber-500 to-yellow-500" },
-                { gradient: "from-purple-50 via-violet-50 to-purple-50", text: "text-purple-700", accent: "text-purple-600", progress: "from-purple-500 to-violet-500" }
-              ];
-              
-              const scheme = colorSchemes[index % colorSchemes.length];
-              
-              return (
-                <Card key={index} className={`overflow-hidden border-0 shadow-lg rounded-xl bg-gradient-to-br ${scheme.gradient} hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1`}>
-                  <CardHeader className="pb-2">
-                    <div className="flex justify-between items-center">
-                      <CardTitle className="text-lg font-bold text-gray-800">{item.name}</CardTitle>
-                      <div className="relative bg-white p-1.5 rounded-full shadow-sm">
-                        <Recycle className={`h-4 w-4 ${scheme.accent}`} />
-                      </div>
-                    </div>
-                    <CardDescription className={`${scheme.text} font-medium`}>{item.value.toFixed(1)}% del consumo total</CardDescription>
-                </CardHeader>
-                  <CardContent>
-                    <div className="flex items-end justify-between">
-                      <div className={`text-3xl font-extrabold ${scheme.text}`}>
-                        {item.value.toFixed(1)}%
-                      </div>
-                      <div className={`text-sm font-medium bg-white px-2 py-1 rounded-full shadow-sm ${scheme.accent}`}>Consumo Mensual</div>
-                    </div>
-                    <div className="mt-3 relative h-3">
-                      <div className="absolute inset-0 bg-gray-200 rounded-full"></div>
-                      <div 
-                        className={`absolute inset-y-0 left-0 bg-gradient-to-r ${scheme.progress} rounded-full`}
-                        style={{ width: `${item.value}%`, maxWidth: '100%' }}
-                      ></div>
-                  </div>
-                </CardContent>
-              </Card>
-              );
-            })}
-            </div>
-            
-          {/* Main chart - trends */}
-          <Card className="overflow-hidden border-0 shadow-xl rounded-xl transition-all duration-300 hover:shadow-2xl">
-            <CardHeader className="pb-2 flex flex-row items-center justify-between bg-gradient-to-r from-blue-50 to-sky-50 border-b">
-              <div>
-                <CardTitle className="text-xl font-bold text-gray-800">Consumo Eléctrico Mensual</CardTitle>
-                <CardDescription className="text-gray-600">Análisis del consumo de electricidad en kWh</CardDescription>
-              </div>
-              <div className="flex space-x-2">
-                <Button variant="outline" size="icon" onClick={handleRefresh} className="h-8 w-8 rounded-full border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-colors">
-                  <RefreshCw className="h-4 w-4 text-blue-600" />
-                </Button>
-                <Button variant="outline" size="icon" className="h-8 w-8 rounded-full border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-colors">
-                  <Maximize className="h-4 w-4 text-blue-600" />
-                </Button>
-              </div>
-              </CardHeader>
-            <CardContent className="p-6">
-              <div className="h-[320px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart 
-                    data={chartData.bar}
-                    margin={{
-                      top: 20,
-                      right: 30,
-                      left: 30,
-                      bottom: 10,
-                    }}
-                  >
-                    <defs>
-                      <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.8}/>
-                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.1}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                    <XAxis 
-                      dataKey="name" 
-                      tick={{fontSize: 12}} 
-                      stroke="#94a3b8" 
-                      axisLine={{ stroke: '#cbd5e1' }}
-                      tickLine={{ stroke: '#cbd5e1' }}
-                      label={{ value: 'Mes', position: 'insideBottomRight', offset: 0, fill: '#64748b' }}
-                    />
-                    <YAxis 
-                      tick={{fontSize: 12}} 
-                      stroke="#94a3b8" 
-                      axisLine={{ stroke: '#cbd5e1' }}
-                      tickLine={{ stroke: '#cbd5e1' }}
-                      label={{ value: 'Consumo (kWh)', angle: -90, position: 'insideLeft', fill: '#64748b' }}
-                      tickFormatter={(value) => {
-                        if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-                        if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
-                        return value;
-                      }}
-                      domain={[400000, 'auto']} 
-                    />
-                    <Tooltip 
-                      contentStyle={{
-                        backgroundColor: 'rgba(255, 255, 255, 0.98)',
-                        borderRadius: '10px',
-                        boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1)',
-                        border: 'none',
-                        padding: '12px 16px'
-                      }}
-                      formatter={(value: number) => {
-                        return [`${value.toLocaleString('es')} kWh`, 'Consumo'];
-                      }}
-                      labelFormatter={(label) => {
-                        return `Mes: ${label}`;
-                      }}
-                    />
-                    <Legend verticalAlign="top" height={36} />
-                    <Line 
-                      type="monotone" 
-                      dataKey="value" 
-                      name="Consumo (kWh)"
-                      stroke="#10b981" 
-                      activeDot={{ r: 8, strokeWidth: 1, stroke: '#ffffff' }}
-                      strokeWidth={3}
-                      dot={{ stroke: '#0ea5e9', strokeWidth: 2, fill: 'white', r: 4 }}
-                      fillOpacity={1}
-                      fill="url(#colorValue)"
-                    />
-                    {parsedData?.analytics?.average && (
-                      <ReferenceLine
-                        y={parsedData.analytics.average}
-                        label={{
-                          value: "Promedio",
-                          fill: "#2563eb",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          position: 'right'
-                        }}
-                        stroke="#2563eb"
-                        strokeDasharray="5 5"
-                        strokeWidth={2}
-                      />
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
-                </div>
-              </CardContent>
-            </Card>
-
-          {/* Two column layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            {/* Monthly Change Table */}
-            <Card className="border-0 shadow-xl rounded-xl transition-all duration-300 overflow-hidden lg:col-span-2 hover:shadow-2xl">
-              <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100 border-b">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-xl font-bold text-gray-800">Cambios Mensuales</CardTitle>
-                    <CardDescription className="text-gray-600">Variación del consumo mensual</CardDescription>
-                  </div>
-                  <Button variant="outline" size="sm" className="rounded-full border-gray-300 hover:border-blue-400 hover:bg-blue-50 text-gray-700 transition-colors">
-                    <Filter className="h-4 w-4 mr-1" />
-                    <span>Filtrar</span>
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-auto max-h-[500px] scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent">
-                  <Table>
-                    <TableHeader className="bg-gray-50 sticky top-0 z-10">
-                      <TableRow>
-                        <TableHead className="font-bold text-gray-700">Mes</TableHead>
-                        <TableHead className="font-bold text-gray-700">Consumo (kWh)</TableHead>
-                        <TableHead className="font-bold text-gray-700">Mes Anterior</TableHead>
-                        <TableHead className="font-bold text-gray-700">Cambio</TableHead>
-                        <TableHead className="text-right font-bold text-gray-700">Tendencia</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {parsedData?.analytics?.monthlyChanges?.map((item: { month: string; value: number; previousValue: number; change: number }, index: number) => {
-                        return (
-                          <TableRow key={index} className="hover:bg-blue-50 transition-colors">
-                            <TableCell className="font-medium">{item.month}</TableCell>
-                            <TableCell className="font-semibold">{Math.round(item.value).toLocaleString('es')}</TableCell>
-                            <TableCell className="text-gray-500">{Math.round(item.previousValue).toLocaleString('es')}</TableCell>
-                            <TableCell>
-                              <div className="flex items-center">
-                                {item.change > 0 ? (
-                                  <>
-                                    <div className="bg-rose-100 p-1 rounded-full mr-1">
-                                      <ArrowUp className="h-4 w-4 text-rose-600" />
-                                    </div>
-                                    <span className="text-rose-600 font-semibold">+{item.change.toFixed(1)}%</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <div className="bg-emerald-100 p-1 rounded-full mr-1">
-                                      <ArrowDown className="h-4 w-4 text-emerald-600" />
-                                    </div>
-                                    <span className="text-emerald-600 font-semibold">{item.change.toFixed(1)}%</span>
-                                  </>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {item.change > 5 ? (
-                                <Badge className="bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600 font-medium px-3 py-1">Aumento</Badge>
-                              ) : item.change < -5 ? (
-                                <Badge className="bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 font-medium px-3 py-1">Ahorro</Badge>
-                              ) : (
-                                <Badge className="bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 font-medium px-3 py-1">Estable</Badge>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-                    
-            {/* Distribution Chart */}
-            <Card className="border-0 shadow-xl rounded-xl hover:shadow-2xl transition-all duration-300 bg-white lg:col-span-2">
-              <CardHeader className="bg-gradient-to-r from-indigo-50 to-blue-50 border-b">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-lg font-bold text-gray-800">Distribución por Mes</CardTitle>
-                    <CardDescription className="text-gray-600">Porcentaje del consumo total</CardDescription>
-                  </div>
-                  <Button 
-                    variant="outline" 
-                    size="icon" 
-                    className="h-8 w-8 rounded-full border-gray-300 hover:border-blue-400 hover:bg-blue-50 transition-colors"
-                    onClick={handleRefresh}
-                  >
-                    <RefreshCw className="h-4 w-4 text-blue-600" />
-                  </Button>
-                </div>
+        <div className="mt-8">
+          {/* Dynamic Chart Rendering - Modified to be more flexible with data types */}
+          {selectedXAxisCol && (
+            <Card className="mb-8">
+              <CardHeader>
+                <CardTitle>{selectedChartType} Chart</CardTitle>
               </CardHeader>
               <CardContent className="p-6">
-                <div className="h-[400px] w-full">
-                  <MonthlyDistributionChart data={chartData.pie} barData={chartData.bar} />
+                <div className="h-[320px] w-full">
+                  {(() => {
+                    // Pre-compute chart data with more flexibility for different data types
+                    let chartData;
+                    
+                    if (selectedChartType === 'Donut') {
+                      // For Donut charts, we group by X-axis and count occurrences
+                      // or sum Y-axis values if available
+                      chartData = parsedData.tableData.reduce((acc: any[], row: Record<string, any>) => {
+                        const key = String(row[selectedXAxisCol] || 'Undefined');
+                        
+                        // If Y-axis is selected and it's a number, use it as the value
+                        const yValue = selectedYAxisCol && selectedYAxisCol !== 'none' ? 
+                          (parseFloat(String(row[selectedYAxisCol])) || 0) : 
+                          1; // Default to 1 for counting
+                        
+                        const existing = acc.find(i => i.name === key);
+                        if (existing) {
+                          existing.value += yValue;
+                        } else {
+                          acc.push({ name: key, value: yValue });
+                        }
+                        return acc;
+                      }, []);
+                    } else {
+                      // For Line and Bar charts
+                      chartData = parsedData.tableData.map((row: Record<string, any>) => {
+                        const item: { name: string; value: number } = {
+                          name: String(row[selectedXAxisCol] || 'Undefined'),
+                          value: 0
+                        };
+                        
+                        // If Y-axis is selected and it's a number, use it
+                        if (selectedYAxisCol && selectedYAxisCol !== 'none') {
+                          const rawValue = row[selectedYAxisCol];
+                          item.value = parseFloat(String(rawValue)) || 0;
+                        } else {
+                          // If no Y-axis, for numeric X-axis use that value, otherwise default to 1
+                          const xValue = parseFloat(String(row[selectedXAxisCol]));
+                          item.value = !isNaN(xValue) ? xValue : 1;
+                        }
+                        
+                        return item;
+                      });
+                    }
+                    
+                    console.log('Generated chart data:', chartData);
+                    
+                    // Pre-compute the chart component to render
+                    let chartComponent;
+                    if (selectedChartType === 'Line') {
+                      chartComponent = (
+                        <LineChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Line 
+                            type="monotone" 
+                            dataKey="value" 
+                            name={selectedYAxisCol || 'Value'} 
+                            stroke="#10b981" 
+                            activeDot={{ r: 8 }} 
+                          />
+                        </LineChart>
+                      );
+                    } else if (selectedChartType === 'Bar') {
+                      chartComponent = (
+                        <BarChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="name" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Bar 
+                            dataKey="value" 
+                            name={selectedYAxisCol || 'Value'}
+                            fill="#2563eb" 
+                          />
+                        </BarChart>
+                      );
+                    } else {
+                      chartComponent = (
+                        <PieChart>
+                          <Pie
+                            data={chartData}
+                            dataKey="value" 
+                            nameKey="name"
+                            cx="50%"
+                            cy="50%"
+                            outerRadius={80}
+                            fill="#10b981"
+                            label={({ name, percent }) => 
+                              `${name}: ${(percent * 100).toFixed(0)}%`
+                            }
+                          >
+                            {chartData.map((entry: any, index: number) => (
+                              <Cell 
+                                key={`cell-${index}`} 
+                                fill={`hsl(${index * 25 % 360}, 70%, 50%)`} 
+                              />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(value) => [`${value}`, selectedYAxisCol || 'Count']} />
+                          <Legend />
+                        </PieChart>
+                      );
+                    }
+                    
+                    // Return appropriate chart wrapped in ResponsiveContainer
+                    return (
+                      <ResponsiveContainer width="100%" height="100%">
+                        {chartComponent}
+                      </ResponsiveContainer>
+                    );
+                  })()}
                 </div>
               </CardContent>
             </Card>
-          </div>
-        </div>
-      )}
-      
-      {!showCharts && !processingFile && !error && (
-        <div className="bg-gradient-to-r from-gray-50 to-slate-50 border-0 shadow-lg rounded-xl p-12 text-center">
-          <div className="p-6 bg-white rounded-full shadow-md inline-block mb-6">
-            <FileSpreadsheet className="h-14 w-14 text-emerald-500" />
-          </div>
-          <h3 className="text-2xl font-bold mb-3 text-gray-800">Excel Analysis Ready</h3>
-          <p className="text-gray-600 mb-8 max-w-lg mx-auto">
-            Select an Excel file and click the Analyze button to visualize your ESG data with beautiful charts and insights.
-          </p>
-          
-          {selectedFile && (
-            <Button 
-              onClick={() => fetchExcelFileDirectly(selectedFile, selectedFileIndex)} 
-              disabled={processingFile}
-              className="mx-auto px-6 py-6 text-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-medium rounded-xl shadow-lg shadow-emerald-200 hover:shadow-xl transition-all duration-300"
-            >
-              <div className="relative">
-                <div className="w-6 h-6 flex items-center justify-center mr-2">
-                  <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center bg-opacity-30">
-                    <div className="w-0 h-0 border-t-transparent border-t-8 border-b-transparent border-b-8 border-l-white border-l-[12px] ml-0.5"></div>
-                  </div>
-                </div>
-              </div>
-              Start Analysis
-            </Button>
           )}
         </div>
       )}
@@ -1995,62 +1729,120 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
         </div>
       )}
 
-      {/* Error state with helpful message and retry option */}
-      {error && !processingFile && (
-        <div className="bg-gradient-to-r from-rose-50 to-red-50 border-0 rounded-xl p-10 text-center shadow-xl">
-          <div className="flex flex-col items-center justify-center">
-            <div className="relative mb-6">
-              <div className="absolute inset-0 bg-red-200 rounded-full animate-pulse opacity-25"></div>
-              <div className="relative bg-white p-4 rounded-full shadow-lg">
-                <AlertCircle className="h-12 w-12 text-red-500" />
+      {/* Chart Configuration Section - Fix dropdowns */}
+      {parsedData && showCharts && !error && !processingFile && (
+        <div className="mt-5 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
+          <div className="p-5 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between">
+              <div>
+                <h4 className="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center">
+                  <BarChart3 className="h-5 w-5 mr-2 text-blue-600" />
+                  Chart Configuration
+                </h4>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  Select the chart type and data columns to create your visualization
+                </p>
+            </div>
+              <Badge className="mt-2 md:mt-0 bg-blue-100 text-blue-700 hover:bg-blue-200 py-1.5 px-3">
+                <CheckCircle className="h-3.5 w-3.5 mr-1.5" />
+                Data Ready for Visualization
+              </Badge>
               </div>
             </div>
-            <h3 className="text-2xl font-bold mb-3 text-red-800">Unable to Process Excel File</h3>
-            <p className="text-red-700 mb-6 max-w-md mx-auto whitespace-pre-line">
-              {error}
-            </p>
-            <div className="bg-white p-6 rounded-xl border border-red-100 mb-8 text-left w-full max-w-md shadow-lg">
-              <h4 className="text-sm font-bold mb-3 text-gray-800">Troubleshooting Steps:</h4>
-              <ul className="text-sm text-slate-600 list-disc pl-5 space-y-2">
-                <li>Verify the file exists in your Supabase storage bucket with exactly this name</li>
-                <li>Check that your Supabase storage bucket is set to public access or allows proper authentication</li>
-                <li>Try uploading the file with a simpler name (e.g., no spaces or special characters like "data.xlsx")</li>
-                <li>Ensure your environment variables for Supabase are properly configured</li>
-                <li>If using a service key, verify it has proper permissions to access storage</li>
-              </ul>
+          <div className="p-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Chart Type */}
+              <div>
+                <Label htmlFor="chart-type-select" className="block mb-1">Chart Type</Label>
+                <Select value={selectedChartType} onValueChange={setSelectedChartType}>
+                  {/* @ts-ignore */}
+                  <Fragment>
+                  <SelectTrigger id="chart-type-select" className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 shadow-sm">
+                    <SelectValue placeholder="Select chart type">{selectedChartType}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-md rounded-md overflow-hidden z-50">
+                    {['Line','Bar','Donut'].map((type, index) => (
+                      <SelectItem 
+                        key={`chart-type-${index}-${type}`} 
+                        value={type}
+                        className="hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors cursor-pointer py-1.5"
+                      >
+                        {type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                  </Fragment>
+                </Select>
+              </div>
+              {/* X Axis - Only show actual column headers */}
+              <div>
+                <Label htmlFor="x-axis-select" className="block mb-1">X Axis</Label>
+                <Select value={selectedXAxisCol} onValueChange={setSelectedXAxisCol}>
+                  {/* @ts-ignore */}
+                  <Fragment>
+                  <SelectTrigger id="x-axis-select" className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 shadow-sm">
+                    <SelectValue placeholder="Select X axis">{selectedXAxisCol}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-md rounded-md overflow-hidden z-50">
+                    {parsedData?.headers?.filter(header => header && header.trim() !== '')
+                      .map((header: string, index: number) => (
+                      <SelectItem 
+                        key={`x-axis-${index}-${header}`} 
+                        value={header}
+                        className="hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors cursor-pointer py-1.5"
+                      >
+                        {header}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                  </Fragment>
+                </Select>
             </div>
-            
-            {/* Add debug information */}
-            <div className="bg-gray-900 p-6 rounded-xl mb-8 text-left w-full max-w-md shadow-lg">
-              <h4 className="text-sm font-bold mb-3 flex items-center text-white">
-                <code className="bg-gray-800 text-amber-400 px-2 py-1 rounded text-xs mr-2">DEBUG</code>
-                Technical Information:
-              </h4>
-              <div className="text-xs text-gray-400 font-mono overflow-auto max-h-40 bg-gray-800 p-4 rounded-lg">
-                <p>Supabase URL Configured: {process.env.NEXT_PUBLIC_SUPABASE_URL ? 'Yes' : 'No'}</p>
-                <p>Anon Key Configured: {process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ? 'Yes' : 'No'}</p>
-                <p>Backend URL: {process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5050'}</p>
-                <p>Current File: {selectedFile}</p>
-                <p>Encoded Filename: {selectedFile ? encodeURIComponent(selectedFile) : ''}</p>
+              {/* Y Axis (optional for all chart types now) - Only show numerical column headers */}
+              <div>
+                <Label htmlFor="y-axis-select" className="block mb-1">Y Axis (Optional)</Label>
+                <Select value={selectedYAxisCol} onValueChange={setSelectedYAxisCol}>
+                  {/* @ts-ignore */}
+                  <Fragment>
+                  <SelectTrigger id="y-axis-select" className="w-full bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 shadow-sm">
+                    <SelectValue placeholder="Select Y axis (optional)">{selectedYAxisCol}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 shadow-md rounded-md overflow-hidden z-50">
+                    <SelectItem 
+                      key="y-axis-none" 
+                      value="none"
+                      className="hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors cursor-pointer py-1.5"
+                    >
+                      None (Auto-calculate)
+                    </SelectItem>
+                    {identifiedColumns.numerical?.filter(Boolean).map((header: string, index: number) => (
+                      <SelectItem 
+                        key={`y-axis-${index}-${header}`} 
+                        value={header}
+                        className="hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors cursor-pointer py-1.5"
+                      >
+                        {header}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                  </Fragment>
+                </Select>
               </div>
             </div>
             
-            <div className="flex gap-4">
-              <Button 
-                onClick={() => setError(null)} 
-                variant="outline"
-                className="px-6 py-2.5 border-red-300 text-red-700 hover:bg-red-50 hover:border-red-400 rounded-lg transition-colors"
-              >
-                Dismiss
-              </Button>
-              <Button 
-                onClick={loadAvailableFiles} 
-                variant="default"
-                className="px-6 py-2.5 bg-red-600 hover:bg-red-700 rounded-lg shadow-md hover:shadow-lg transition-all"
-              >
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh File List
-              </Button>
+            {/* Help text */}
+            <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
+              <div className="flex items-start">
+                <div className="mr-2 mt-0.5 bg-blue-100 p-1 rounded-full">
+                  <Lightbulb className="h-3.5 w-3.5 text-blue-700" />
+                </div>
+                <p className="text-xs text-gray-600 dark:text-gray-400">
+                  <span className="font-medium">Tip:</span> Select chart type first, then select X-axis. 
+                  For Line and Bar charts, you can optionally select a numeric Y-axis column.
+                  If no Y-axis is selected, the system will count occurrences or use X-axis values if numeric.
+                  For Donut charts, select a category column for X-axis and optionally a numeric column for Y-axis.
+                </p>
+              </div>
             </div>
           </div>
         </div>

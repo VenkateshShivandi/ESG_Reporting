@@ -1503,44 +1503,34 @@ def get_metrics():
 @app.route("/api/analytics/data-chunks", methods=["GET"])
 @require_auth
 def get_data_chunks():
-    """Get available data chunks for chart generation."""
+    """Get available data chunks for a specific document."""
     try:
         app.logger.info("📊 API Call - get_data_chunks")
+        document_id = request.args.get("document_id")
 
-        # Mock response with available data chunks
-        chunks = [
-            {
-                "id": "carbon_emissions_2023",
-                "name": "Carbon Emissions 2023",
-                "description": "Monthly carbon emissions data for 2023",
-                "category": "Environmental",
-                "updated_at": datetime.now().isoformat(),
-            },
-            {
-                "id": "energy_consumption_quarterly",
-                "name": "Energy Consumption (Quarterly)",
-                "description": "Quarterly energy consumption over the past 3 years",
-                "category": "Environmental",
-                "updated_at": datetime.now().isoformat(),
-            },
-            {
-                "id": "diversity_metrics_2023",
-                "name": "Diversity Metrics 2023",
-                "description": "Diversity statistics across departments",
-                "category": "Social",
-                "updated_at": datetime.now().isoformat(),
-            },
-            {
-                "id": "governance_compliance",
-                "name": "Governance Compliance",
-                "description": "Compliance metrics by region",
-                "category": "Governance",
-                "updated_at": datetime.now().isoformat(),
-            },
-        ]
+        if not document_id:
+            app.logger.warning("⚠️ Missing document_id parameter")
+            return jsonify({"error": "Missing document_id parameter"}), 400
 
-        app.logger.info(f"📥 API Response: Sent {len(chunks)} data chunks")
-        return jsonify(chunks), 200
+        app.logger.info(f"🔍 Fetching chunks for document_id: {document_id}")
+
+        # Query Supabase for chunks related to the document_id
+        response = (
+            supabase.schema("esg_data")
+            .table("document_chunks")
+            .select("id, chunk_text, chunk_type, created_at, chunk_id, document_id")
+            .eq("document_id", document_id)
+            .execute()
+        )
+
+        if response.data:
+            chunks = response.data
+            app.logger.info(f"📥 API Response: Sent {len(chunks)} data chunks for document {document_id}")
+            return jsonify(chunks), 200
+        else:
+            app.logger.info(f"🤷 No chunks found for document_id: {document_id}")
+            return jsonify([]), 200  # Return empty list if no chunks found
+
     except Exception as e:
         app.logger.error(f"❌ API Error in get_data_chunks: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -2008,6 +1998,51 @@ def create_embeddings_batch(
     except Exception as e:
         app.logger.error(f"❌ Error creating embeddings batch: {str(e)}")
         raise Exception(f"Failed to create embeddings batch: {str(e)}")
+
+
+@app.route("/api/documents/<document_id>/chunks", methods=["GET"])
+@require_auth
+def get_document_chunks(document_id):
+    """Retrieve all chunks associated with a specific document ID, optionally filtering by type."""
+    try:
+        chunk_type_filter = request.args.get("type") # Get optional 'type' query param
+
+        app.logger.info(
+            f"📞 API Call - get_document_chunks: Fetching chunks for doc ID {document_id}"
+            + (f" with type '{chunk_type_filter}'" if chunk_type_filter else "")
+        )
+
+        # Basic validation for document_id format (assuming UUID)
+        try:
+            uuid.UUID(document_id)
+        except ValueError:
+            app.logger.warning(f"Invalid document_id format received: {document_id}")
+            return jsonify({"error": "Invalid document_id format"}), 400
+
+        # Build the query
+        query = supabase.schema("esg_data").table("document_chunks").select(
+            "id, chunk_id, chunk_text, chunk_type, created_at" # Select desired columns
+        ).eq("document_id", document_id)
+
+        # Add optional type filter
+        if chunk_type_filter:
+            query = query.eq("chunk_type", chunk_type_filter)
+
+        # Order by chunk_id to maintain sequence
+        query = query.order("chunk_id", desc=False)
+
+        response = query.execute()
+
+        if hasattr(response, "error") and response.error:
+            app.logger.error(f"❌ Error fetching chunks for doc {document_id}: {response.error}")
+            return jsonify({"error": "Failed to fetch chunks"}), 500
+
+        app.logger.info(f"📥 API Response: Found {len(response.data)} chunks for doc {document_id}")
+        return jsonify(response.data), 200
+
+    except Exception as e:
+        app.logger.exception(f"❌ API Error in get_document_chunks: {str(e)}")
+        return jsonify({"error": f"An unexpected server error occurred: {str(e)}"}), 500
 
 
 if __name__ == "__main__":

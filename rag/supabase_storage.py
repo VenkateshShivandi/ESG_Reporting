@@ -93,7 +93,7 @@ def store_chunks(
     records_to_insert = []
     for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
         # Default chunk_type, maybe enhance later if chunk metadata provides it
-        chunk_type = chunk.get("metadata", {}).get("type", "text")
+        chunk_type = chunk.get("source_type", "text")
 
         record = {
             "document_id": document_id,  # FK to documents.id
