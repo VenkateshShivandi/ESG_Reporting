@@ -30,11 +30,6 @@ export async function signUp(email: string, password: string) {
       }
     })
 
-    if (data.user) {
-      // Call the API to add user to the graph database from the RAG API Set
-      
-    }
-
     if (error) throw error
 
     // Show success message with clear instructions

@@ -7,6 +7,7 @@ from werkzeug.utils import secure_filename
 from pathlib import Path
 from datetime import datetime
 import logging
+from flask_cors import CORS
 
 from run_esg_pipeline import ESGPipeline
 from rag.processor import process_uploaded_file
@@ -15,12 +16,34 @@ from rag.supabase_storage import store_chunks
 from rag.initialize_neo4j import Neo4jGraphInitializer
 
 app = flask.Flask(__name__)
+# Enable CORS for all routes
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ["http://localhost:3000"],  # Allow requests from Next.js dev server
+        "methods": ["GET", "POST", "OPTIONS"],  # Allow these methods
+        "allow_headers": ["Content-Type", "Authorization"]  # Allow these headers
+    }
+})
+
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB max file size
 app.config["UPLOAD_FOLDER"] = tempfile.gettempdir()
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 
+# Global Neo4j initializer and driver
+neo4j_initializer = None
+neo4j_driver = None
+
+def init_neo4j():
+    """Initialize Neo4j connection and ensure root node exists."""
+    global neo4j_initializer, neo4j_driver
+    neo4j_initializer = Neo4jGraphInitializer()
+    if not Neo4jGraphInitializer.wait_for_neo4j():
+        raise Exception("Neo4j not ready")
+    neo4j_driver = neo4j_initializer.getNeo4jDriver()
+    neo4j_initializer.initializeGraphWithRoot()
+    return neo4j_driver
 
 @app.route("/api/v1/process_document", methods=["POST"])
 def process_document_endpoint():
@@ -313,13 +336,82 @@ def get_community_insights():
         return flask.jsonify({"success": False, "error": str(e)}), 500
 
 
-if __name__ == "__main__":
-    initializer = Neo4jGraphInitializer()
-    initializer.startNeo4jDockerContainer()
-    driver = initializer.getNeo4jDriver()
-    initializer.initializeGraphWithRoot()
-    print("Neo4j initialized")
+@app.route("/api/v1/add-user", methods=["POST"])
+def add_user():
+    """Add a user to the graph database.
+    If the user already exists, do nothing.
+
+    Accepts JSON body with user_id and email fields.
+    """
     try:
+        data = flask.request.json
+        user_id = data.get("user_id")
+        email = data.get("email")
+        
+        if not user_id or not email:
+            return flask.jsonify({"error": "Missing user_id or email"}), 400
+
+        # Use global Neo4j initializer
+        if neo4j_initializer.userExists(user_id):
+            return flask.jsonify({"success": True, "message": "User already exists", "user_id": user_id, "email": email}), 200
+
+        # Create new user node using existing connection
+        neo4j_initializer.createUserNode(user_id, email)
+        return flask.jsonify({"success": True, "message": "User created successfully", "user_id": user_id, "email": email}), 201
+    except Exception as e:
+        app.logger.error(f"Error adding user: {str(e)}")
+        app.logger.error(traceback.format_exc())
+        return flask.jsonify({"error": str(e)}), 500
+
+@app.route("/api/v1/delete-user", methods=["POST"])
+def delete_user():
+    """Delete a user from the graph database.
+
+    Accepts JSON body with user_id field.
+    """
+    try:
+        data = flask.request.json
+        user_id = data.get("user_id")
+
+        if not user_id:
+            return flask.jsonify({"error": "Missing user_id"}), 400
+        
+        # TODO: Delete user from the graph database
+        neo4j_initializer.deleteUserNode(user_id)
+        return flask.jsonify({"success": True, "user_id": user_id}), 200
+    except Exception as e:
+        return flask.jsonify({"error": str(e)}), 500
+
+@app.route("/api/v1/delete-org", methods=["POST"])
+def delete_org():
+    """Delete an organization from the graph database.
+
+    Accepts JSON body with org_id field.
+    """
+    try:
+        data = flask.request.json
+        org_id = data.get("org_id")
+
+        if not org_id:
+            return flask.jsonify({"error": "Missing org_id"}), 400
+        
+        # TODO: Delete organization from the graph database
+        neo4j_initializer.deleteOrgNode(org_id)
+        return flask.jsonify({"success": True, "org_id": org_id}), 200
+    except Exception as e:
+        return flask.jsonify({"error": str(e)}), 500
+        
+
+
+
+if __name__ == "__main__":
+    try:
+        # Initialize Neo4j connection at startup
+        init_neo4j()
         app.run(debug=True, host="0.0.0.0", port=6050)
+    except Exception as e:
+        app.logger.error(f"Failed to initialize Neo4j: {str(e)}")
+        raise
     finally:
-        driver.close()
+        if neo4j_driver:
+            neo4j_driver.close()

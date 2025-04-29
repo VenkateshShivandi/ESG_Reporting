@@ -196,7 +196,15 @@ class Neo4jGraphInitializer:
                 MERGE (r)-[:HAS_ORG]->(o)
             """, {"orgId": orgId})
 
-    def createUserNode(self, userId: str, orgId: Optional[str] = None, rootLabel: str = "Root") -> None:
+    def userExists(self, userId: str, rootLabel: str = "Root") -> bool:
+        """
+        Check if a user node exists.
+        """
+        with self.driver.session() as session:
+            result = session.run(f"MATCH (u:User {{user_id: $userId}}) RETURN u", {"userId": userId})
+            return result.single() is not None
+
+    def createUserNode(self, userId: str, email: str, orgId: Optional[str] = None, rootLabel: str = "Root") -> None:
         """
         Create a user node, optionally connect to an org, else to root.
         Args:
@@ -208,16 +216,41 @@ class Neo4jGraphInitializer:
             if orgId:
                 session.run(f"""
                     MATCH (o:Org {{org_id: $orgId}})
-                    MERGE (u:User {{user_id: $userId}})
+                    MERGE (u:User {{user_id: $userId, email: $email}})
                     MERGE (o)-[:HAS_USER]->(u)
-                """, {"orgId": orgId, "userId": userId})
+                """, {"orgId": orgId, "userId": userId, "email": email})
             else:
                 session.run(f"""
                     MATCH (r:{rootLabel} {{name: 'root'}})
-                    MERGE (u:User {{user_id: $userId}})
+                    MERGE (u:User {{user_id: $userId, email: $email}})
                     MERGE (r)-[:HAS_USER]->(u)
-                """, {"userId": userId})
+                """, {"userId": userId, "email": email})
 
+    def deleteUserNode(self, userId: str, rootLabel: str = "Root") -> None:
+        """
+        Delete a user node.
+        Args:
+            userId: Unique user ID
+            rootLabel: Label for the root node
+        """
+        with self.driver.session() as session:
+            session.run(f"""
+                MATCH (u:User {{user_id: $userId}})
+                DETACH DELETE u
+            """, {"userId": userId})
+
+    def deleteOrgNode(self, orgId: str, rootLabel: str = "Root") -> None:
+        """
+        Delete an organization node.
+        Args:
+            orgId: Unique organization ID
+            rootLabel: Label for the root node
+        """
+        with self.driver.session() as session:
+            session.run(f"""
+                MATCH (o:Org {{org_id: $orgId}})
+                DETACH DELETE o
+            """, {"orgId": orgId}) 
 
 def run() -> None:
     """
@@ -235,6 +268,9 @@ def run() -> None:
         
     try:
         driver = initializer.getNeo4jDriver()
+        print("Neo4j driver initialized")
+        # Wait for Neo4j to be ready
+        Neo4jGraphInitializer.wait_for_neo4j()
         initializer.initializeGraphWithRoot()
         
         # Create test data
@@ -244,10 +280,10 @@ def run() -> None:
         for orgId in orgIds:
             initializer.createOrgNode(orgId)
             
-        initializer.createUserNode("user1", orgId="org1")
-        initializer.createUserNode("user2", orgId="org2")
+        initializer.createUserNode("user1", "user1@example.com", orgId="org1")
+        initializer.createUserNode("user2", "user2@example.com", orgId="org2")
         for uid in userIds[2:]:
-            initializer.createUserNode(uid)
+            initializer.createUserNode(uid, f"{uid}@example.com")
             
         print("Graph initialized and test users/orgs created.")
     except Exception as e:
@@ -256,6 +292,7 @@ def run() -> None:
     finally:
         if driver:
             driver.close()
+            initializer.stopNeo4jContainer()
 
 
 if __name__ == "__main__":
