@@ -97,7 +97,6 @@ if not os.path.exists(CHUNKS_DIR):
 # Initialize Supabase client
 supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-
 @app.route("/")
 def home():
     """Render the home page."""
@@ -232,7 +231,6 @@ def list_tree():
                     }
                 )
 
-        app.logger.info(f"📤 Returning response: {files}")
         return jsonify(files), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in list_tree: {str(e)}")
@@ -280,7 +278,7 @@ def upload_file():
         )  # Remove timezone info
 
         response = (
-            supabase.schema("public")
+            supabase.postgrest.schema("public")
             .rpc(
                 "manage_document_metadata",
                 {
@@ -332,7 +330,7 @@ def process_file():
         try:
             # Get the file ID from the documents table
             response = (
-                supabase.schema("esg_data")
+                supabase.postgrest.schema("esg_data")
                 .table("documents")
                 .select("id")
                 .eq("file_path", storage_path)
@@ -499,7 +497,7 @@ def create_folder():
             datetime.now().replace(tzinfo=None).isoformat()
         )  # Remove timezone info
         metadata_response = (
-            supabase.schema("public")
+            supabase.postgrest.schema("public")
             .rpc(
                 "manage_document_metadata",
                 {
@@ -856,7 +854,7 @@ def delete_item():
             # First delete metadata using RPC
             try:
                 response = (
-                    supabase.schema("public")
+                    supabase.postgrest.schema("public")
                     .rpc(
                         "manage_document_metadata",
                         {
@@ -908,7 +906,7 @@ def delete_item():
                             try:
                                 # Delete metadata first
                                 response = (
-                                    supabase.schema("public")
+                                    supabase.postgrest.schema("public")
                                     .rpc(
                                         "manage_document_metadata",
                                         {
@@ -946,7 +944,7 @@ def delete_item():
                     # Delete the folder's metadata
                     try:
                         response = (
-                            supabase.schema("public")
+                            supabase.postgrest.schema("public")
                             .rpc(
                                 "manage_document_metadata",
                                 {
@@ -1159,7 +1157,7 @@ def rename_item():
                 if upload_response:
                     # Create new metadata for the new path
                     try:
-                        supabase.schema("public").rpc(
+                        supabase.postgrest.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "create",
@@ -1186,7 +1184,7 @@ def rename_item():
 
                     # Delete old metadata
                     try:
-                        supabase.schema("public").rpc(
+                        supabase.postgrest.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "delete",
@@ -1245,7 +1243,7 @@ def rename_item():
                 # Update folder metadata
                 try:
                     # Create new metadata for the folder
-                    supabase.schema("public").rpc(
+                    supabase.postgrest.schema("public").rpc(
                         "manage_document_metadata",
                         {
                             "p_action": "create",
@@ -1284,7 +1282,7 @@ def rename_item():
                                 {"contentType": "application/x-directory"},
                             )
                             # Update subfolder metadata
-                            supabase.schema("public").rpc(
+                            supabase.postgrest.schema("public").rpc(
                                 "manage_document_metadata",
                                 {
                                     "p_action": "create",
@@ -1322,7 +1320,7 @@ def rename_item():
 
                             if upload_response:
                                 # Update file metadata
-                                supabase.schema("public").rpc(
+                                supabase.postgrest.schema("public").rpc(
                                     "manage_document_metadata",
                                     {
                                         "p_action": "create",
@@ -1350,7 +1348,7 @@ def rename_item():
                         try:
                             supabase.storage.from_("documents").remove([old_path_item])
                             # Delete old metadata
-                            supabase.schema("public").rpc(
+                            supabase.postgrest.schema("public").rpc(
                                 "manage_document_metadata",
                                 {
                                     "p_action": "delete",
@@ -1368,7 +1366,7 @@ def rename_item():
                         supabase.storage.from_("documents").remove(
                             [f"{old_path}/.folder"]
                         )
-                        supabase.schema("public").rpc(
+                        supabase.postgrest.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "delete",
@@ -1411,7 +1409,7 @@ def rename_item():
                                             [item_path]
                                         )
                                         # Delete new metadata entry if it exists
-                                        supabase.schema("public").rpc(
+                                        supabase.postgrest.schema("public").rpc(
                                             "manage_document_metadata",
                                             {
                                                 "p_action": "delete",
@@ -1435,7 +1433,7 @@ def rename_item():
                                     [placeholder]
                                 )
                                 # Delete folder metadata
-                                supabase.schema("public").rpc(
+                                supabase.postgrest.schema("public").rpc(
                                     "manage_document_metadata",
                                     {
                                         "p_action": "delete",

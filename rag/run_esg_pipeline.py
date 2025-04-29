@@ -186,8 +186,8 @@ class ESGPipeline:
             relationships_array = self.normalize_relationships(relationships)
 
             # Upload entities
-            supabase.schema("esg_data").table("entities").insert(entities_array).execute()
-            supabase.schema("esg_data").table("relationships").insert(relationships_array).execute()
+            supabase.postgrest.schema("esg_data").table("entities").insert(entities_array).execute()
+            supabase.postgrest.schema("esg_data").table("relationships").insert(relationships_array).execute()
             logger.info("Entities and relationships uploaded to Supabase")
             return True
         except Exception as e:

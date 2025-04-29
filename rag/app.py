@@ -12,6 +12,7 @@ from run_esg_pipeline import ESGPipeline
 from rag.processor import process_uploaded_file
 from rag.embedding_service import generate_embeddings
 from rag.supabase_storage import store_chunks
+from rag.initialize_neo4j import Neo4jGraphInitializer
 
 app = flask.Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB max file size
@@ -313,4 +314,12 @@ def get_community_insights():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=6050)
+    initializer = Neo4jGraphInitializer()
+    initializer.startNeo4jDockerContainer()
+    driver = initializer.getNeo4jDriver()
+    initializer.initializeGraphWithRoot()
+    print("Neo4j initialized")
+    try:
+        app.run(debug=True, host="0.0.0.0", port=6050)
+    finally:
+        driver.close()
