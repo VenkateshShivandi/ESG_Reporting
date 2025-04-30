@@ -173,13 +173,17 @@ export async function generateReport(reportConfig: {
 }
 
 // Get Excel data for analytics visualization
-export async function fetchExcelData(fileName?: string) {
+export async function fetchExcelData(fileName?: string): Promise<any> {
+  if (!fileName) {
+    console.error('fetchExcelData called without fileName');
+    throw new Error('No file name provided');
+  }
+
   try {
     const token = await getAuthToken();
     
-    const url = fileName 
-      ? `${API_BASE_URL}/api/analytics/excel-data?file_name=${encodeURIComponent(fileName)}`
-      : `${API_BASE_URL}/api/analytics/excel-data`;
+    // Use the new direct Excel processing endpoint
+    const url = `${API_BASE_URL}/api/analytics/excel-data?file_name=${encodeURIComponent(fileName)}`;
     
     const response = await fetch(url, {
       headers: {
@@ -189,14 +193,47 @@ export async function fetchExcelData(fileName?: string) {
     });
     
     if (!response.ok) {
-      throw new Error(`Error fetching Excel data: ${response.status}`);
+      // Attempt to get error details from backend response
+      let errorDetails = `HTTP status ${response.status}`;
+      try {
+        const errorData = await response.json();
+        errorDetails = errorData.error || errorData.message || errorDetails;
+      } catch (e) {
+        // Ignore if response is not JSON
+      }
+      throw new Error(`Error fetching Excel data: ${errorDetails}`);
     }
     
-    return await response.json();
+    const data = await response.json();
+    
+    // Log the raw data received from API
+    console.log('[API] Raw data received from /api/analytics/excel-data:', data);
+    
+    // Provide default values if elements are missing to ensure consistent structure
+    const result = {
+      barChart: data.chartData?.barChart || [],
+      lineChart: data.chartData?.lineChart || [],
+      donutChart: data.chartData?.donutChart || [],
+      tableData: data.tableData || [],
+      metadata: {
+        columns: data.metadata?.columns || [],
+        categoricalColumns: data.metadata?.categoricalColumns || [],
+        numericalColumns: data.metadata?.numericalColumns || [],
+        timeColumns: data.metadata?.timeColumns || [],
+        yearColumns: data.metadata?.yearColumns || []
+      },
+      stats: data.stats || {
+        rowCount: 0,
+        columnCount: 0,
+        isTruncated: false
+      }
+    };
+    
+    return result;
   } catch (error) {
     console.error('Error in fetchExcelData:', error);
-    // Return mock data for development/testing if the API fails
-    return getMockExcelData();
+    // Re-throw the error so the component can handle it
+    throw error;
   }
 }
 
@@ -205,6 +242,7 @@ export async function fetchExcelFiles() {
   try {
     const token = await getAuthToken();
     
+    // Use the new endpoint to list Excel files
     const response = await fetch(`${API_BASE_URL}/api/analytics/excel-files`, {
       headers: {
         'Authorization': `Bearer ${token}`,
