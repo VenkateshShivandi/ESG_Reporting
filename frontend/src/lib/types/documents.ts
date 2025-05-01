@@ -1,7 +1,7 @@
 export type FileItem = {
   id: string
   name: string
-  type: "file" | "folder"
+  type: 'file' | 'folder'
   size?: number
   modified: Date
   path: string[]
@@ -10,6 +10,7 @@ export type FileItem = {
   processed?: boolean
   processingResult?: ProcessedFileResult
   processingError?: string
+  chunked?: boolean
 }
 
 export type UploadProgress = {
@@ -60,5 +61,3 @@ export interface RenameItemResponse {
   newPath: string
   warning?: string
 }
-  
-  

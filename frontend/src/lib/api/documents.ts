@@ -57,7 +57,12 @@ export const documentsApi = {
         params: { path: path.join('/') },
       })
       console.log('📥 API Response:', response.data)
-      return response.data
+      // Transform the response to include chunked status
+      const files = response.data.map((file: FileItem) => ({
+        ...file,
+        chunked: file.chunked ?? false, // Set default value if not provided
+      }))
+      return files
     } catch (error) {
       console.error('❌ API Error in listFiles:', error)
       throw error
@@ -636,6 +641,21 @@ export const documentsApi = {
       return response.data
     } catch (error) {
       console.error('❌ API Error in getChunk:', error)
+      throw error
+    }
+  },
+
+  // Get list of chunked files (mock)
+  getChunkedFiles: async (): Promise<
+    Array<{ id: string; name: string; chunk_count: number; chunked_at: string }>
+  > => {
+    try {
+      console.log('📞 API Call - getChunkedFiles')
+      const response = await api.get('/api/chunked-files')
+      console.log('📥 API Response:', response.data)
+      return response.data.chunked_files
+    } catch (error) {
+      console.error('❌ API Error in getChunkedFiles:', error)
       throw error
     }
   },
