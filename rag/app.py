@@ -8,12 +8,14 @@ from pathlib import Path
 from datetime import datetime
 import logging
 from flask_cors import CORS
-
+import concurrent.futures
+from tqdm import tqdm
 from run_esg_pipeline import ESGPipeline
 from rag.processor import process_uploaded_file
 from rag.embedding_service import generate_embeddings
 from rag.supabase_storage import store_chunks
 from rag.initialize_neo4j import Neo4jGraphInitializer
+from rag.er_parallel import EntityRelationshipManager
 
 app = flask.Flask(__name__)
 # Enable CORS for all routes
@@ -51,6 +53,7 @@ def process_document_endpoint():
     Accepts file upload, processes it, generates embeddings, stores results
     in Supabase, and returns the document ID.
     """
+    app.logger.info(f"---------------/api/v1/process_document-----------------")
     if "file" not in flask.request.files:
         return flask.jsonify({"error": "No file part in the request"}), 400
 
@@ -161,8 +164,21 @@ def process_document_endpoint():
         logging.info(
             f"[{filename}] Successfully processed, embedded, and stored document. ID: {file_id}"
         )
+        # 5. Extract Entities and Relationships
+        try:
+            # Initialize the EntityRelationshipManager
+            er_manager = EntityRelationshipManager(model_name="gpt-4o-mini")
+            # Process the chunks in parallel
+            entities, relationships = er_manager.process_document(file_id, chunks, embeddings)
+            # Store the entities and relationships in the database
+            er_manager.store_results(file_id, entities, relationships)
+            logging.info(f"[{filename}] Successfully extracted entities and relationships and stored in the database")
 
-        # 5. Return Success Response
+        except Exception as e:
+            logging.exception(f"[{filename}] Critical error during processing: {e}")
+            return flask.jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+        # 6. Return Success Response
         return flask.jsonify(
             {
                 "success": True,
@@ -171,7 +187,7 @@ def process_document_endpoint():
                 "document_id": file_id,
                 "chunk_count": len(chunks),
             }
-        )
+        ),200
 
     except Exception as e:
         logging.exception(f"[{filename}] Critical error during processing: {e}")
@@ -203,6 +219,7 @@ def process_file():
     Returns:
         JSON response with processing results and graph data
     """
+    app.logger.info(f"---------------/api/v1/process-file-----------------")
     if "file" not in flask.request.files:
         return flask.jsonify({"error": "No file provided"}), 400
 
@@ -223,7 +240,6 @@ def process_file():
         "neo4j_password", os.getenv("NEO4J_PASSWORD")
     )
     neo4j_database = flask.request.form.get("neo4j_database", "neo4j")
-
     # Create timestamp for unique directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     file_stem = Path(secure_filename(file.filename)).stem
@@ -308,6 +324,7 @@ def get_community_insights():
     Returns:
         JSON response with community insights
     """
+    app.logger.info(f"---------------/api/v1/community-insights-----------------")
     output_dir = flask.request.args.get("output_dir")
     if not output_dir:
         return flask.jsonify({"error": "No output_dir provided"}), 400
@@ -343,6 +360,7 @@ def add_user():
 
     Accepts JSON body with user_id and email fields.
     """
+    app.logger.info(f"---------------/api/v1/add-user-----------------")
     try:
         data = flask.request.json
         user_id = data.get("user_id")
@@ -369,6 +387,7 @@ def delete_user():
 
     Accepts JSON body with user_id field.
     """
+    app.logger.info(f"---------------/api/v1/delete-user-----------------")
     try:
         data = flask.request.json
         user_id = data.get("user_id")
@@ -388,6 +407,7 @@ def delete_org():
 
     Accepts JSON body with org_id field.
     """
+    app.logger.info(f"---------------/api/v1/delete-org-----------------")
     try:
         data = flask.request.json
         org_id = data.get("org_id")

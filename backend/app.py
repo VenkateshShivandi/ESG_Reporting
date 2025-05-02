@@ -187,8 +187,10 @@ def list_tree():
         doc_map = {}
         try:
             # Get documents data from esg_data.documents table
-            db_result = supabase.schema("esg_data").table("documents").select("*").execute()
-
+            db_result = supabase.postgrest.schema("esg_data").table("documents").select("*").execute()
+            
+            app.logger.info(f"Retrieved {len(db_result.data)} documents from database")
+            
             if db_result.data:
                 for doc in db_result.data:
                     file_path = doc.get("file_path", "")
@@ -205,6 +207,9 @@ def list_tree():
                         "path_array": path_array,
                         "file_name": file_name,
                     }
+                    
+                    # Log the chunked status for debugging
+                    app.logger.debug(f"Document {file_name} chunked status: {doc.get('chunked', False)}")
         except Exception as db_error:
             app.logger.warning(f"⚠️ Could not fetch document metadata: {str(db_error)}")
             # Continue without document metadata
@@ -242,6 +247,13 @@ def list_tree():
                 # Only include files that are in the current directory
                 if not doc_path_array or doc_path_array == current_path_array:
                     metadata = item.get("metadata", {}) or {}
+                    
+                    # Explicitly check for chunked status and log it
+                    chunked_status = False
+                    if doc_record and "chunked" in doc_record:
+                        chunked_status = bool(doc_record.get("chunked"))
+                        app.logger.info(f"File {item['name']} has chunked status: {chunked_status}")
+                    
                     files.append(
                         {
                             "id": doc_record.get("id", item["id"]),
@@ -258,7 +270,7 @@ def list_tree():
                             "updated_at": doc_record.get(
                                 "updated_at", item.get("updated_at")
                             ),
-                            "chunked": doc_record.get("chunked", False),
+                            "chunked": chunked_status,
                         }
                     )
 
@@ -440,7 +452,6 @@ def process_file():
                 rag_url,
                 files=files_payload,  # Include both user_id and file_id
                 data=form_data,
-                timeout=120,
             )
 
             app.logger.info(
@@ -455,14 +466,10 @@ def process_file():
                     )
                     # Update the document record with the RAG result
                     response = (
-                        supabase.schema("public")
-                        .rpc(
-                            "set_chunked_state",
-                            {
-                                "p_document_id": file_id,
-                                "p_chunked": True,
-                            },
-                        )
+                        supabase.postgrest.schema("esg_data")
+                        .table("documents")
+                        .update({"chunked": True})
+                        .eq("id", file_id)
                         .execute()
                     )
                     app.logger.info(f"📥 API Response - Chunked State: {response}")
