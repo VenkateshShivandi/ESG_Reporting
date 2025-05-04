@@ -18,69 +18,199 @@ import pandas as pd
 from chardet.universaldetector import UniversalDetector
 import math
 import numpy as np
+import time
+import hashlib
+import json
+from pathlib import Path
 from flask import current_app # Import current_app to access logger
+import logging
+import csv # <<< Add import for csv module
+
+# Set up a default logger for use outside of Flask context
+default_logger = logging.getLogger('robust_etl')
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+default_logger.addHandler(handler)
+default_logger.setLevel(logging.INFO)
+
+def get_logger():
+    """Get the appropriate logger based on context"""
+    try:
+        return current_app.logger
+    except RuntimeError:
+        return default_logger
+
+# Try to import polars for large files
+try:
+    import polars as pl
+    HAS_POLARS = True
+    get_logger().info("Polars is available for large file processing")
+except ImportError:
+    HAS_POLARS = False
+    get_logger().info("Polars is not available, falling back to pandas for all file sizes")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CONSTANTS
 # ─────────────────────────────────────────────────────────────────────────────
 MEM_STREAM_THRESHOLD = 50 * 1024 * 1024  # 50 MB
+POLARS_THRESHOLD = 500 * 1024 * 1024  # 500 MB
 NUMERIC_UNIQUE_RATIO = 0.9
 CATEGORICAL_MAX_UNIQUE = 50
-MAX_JSON_ROWS = 10_000
+MAX_JSON_ROWS = 1000  # Maximum rows to include in JSON response
+ENABLE_CACHE = True  # Global toggle for caching
+CACHE_DIR = "cache/etl"  # Relative to current directory
+CACHE_EXPIRY = 60 * 60 * 24  # Cache expiry in seconds (24 hours)
+FILE_SIZE_THRESHOLD = 100 * 1024 * 1024  # 100MB threshold for using polars
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CACHING FUNCTIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _generate_cache_key(fp, original_filename, sample_nrows):
+    """
+    Generate a unique key for caching based on file content and parameters.
+    
+    Args:
+        fp: File path or file-like object
+        original_filename: Original filename
+        sample_nrows: Number of rows to sample
+        
+    Returns:
+        A string hash key for the cache
+    """
+    # For paths, use file path + mtime
+    if isinstance(fp, str):
+        try:
+            stat = os.stat(fp)
+            mtime = stat.st_mtime
+            size = stat.st_size
+            key_input = f"{fp}:{mtime}:{size}:{sample_nrows}:{original_filename}"
+            return hashlib.md5(key_input.encode('utf-8')).hexdigest()
+        except Exception as e:
+            get_logger().warning(f"Failed to generate cache key from file path: {str(e)}")
+            return None
+            
+    # For BytesIO, we can't reliably cache without reading the entire content
+    # Only hash the first 16KB to get a reasonable approximation
+    elif isinstance(fp, io.BytesIO):
+        try:
+            # Remember current position
+            current_pos = fp.tell()
+            # Seek to beginning and read up to 16KB for hash
+            fp.seek(0)
+            content_sample = fp.read(16 * 1024)
+            # Restore position
+            fp.seek(current_pos)
+            
+            # Use content hash + original filename + sample size
+            key_input = f"{hashlib.md5(content_sample).hexdigest()}:{original_filename}:{sample_nrows}"
+            return hashlib.md5(key_input.encode('utf-8')).hexdigest()
+        except Exception as e:
+            get_logger().warning(f"Failed to generate cache key from BytesIO: {str(e)}")
+            return None
+            
+    return None
+
+def _get_cached_result(cache_key):
+    """
+    Retrieve a cached ETL result if available and not expired.
+    
+    Args:
+        cache_key: The cache key to look up
+        
+    Returns:
+        The cached payload or None if not found or expired
+    """
+    if not ENABLE_CACHE or not cache_key:
+        return None
+        
+    try:
+        # Ensure cache directory exists
+        cache_path = Path(CACHE_DIR)
+        cache_file = cache_path / f"{cache_key}.json"
+        
+        if not cache_file.exists():
+            return None
+            
+        # Check if cache is expired
+        stat = os.stat(cache_file)
+        if time.time() - stat.st_mtime > CACHE_EXPIRY:
+            get_logger().info(f"Cache expired for key {cache_key}")
+            return None
+            
+        # Load the cached result
+        with open(cache_file, 'r', encoding='utf-8') as f:
+            cached_data = json.load(f)
+            get_logger().info(f"Loaded cached ETL result for key {cache_key}")
+            return cached_data
+    except Exception as e:
+        get_logger().warning(f"Failed to load from cache: {str(e)}")
+        return None
+
+def _cache_result(cache_key, payload):
+    """
+    Save an ETL result to the cache.
+    
+    Args:
+        cache_key: The cache key
+        payload: The ETL result payload to cache
+        
+    Returns:
+        Boolean indicating success or failure
+    """
+    if not ENABLE_CACHE or not cache_key:
+        return False
+        
+    try:
+        # Ensure cache directory exists
+        cache_path = Path(CACHE_DIR)
+        cache_path.mkdir(parents=True, exist_ok=True)
+        
+        cache_file = cache_path / f"{cache_key}.json"
+        
+        # Add timestamp to the cached data
+        payload_with_meta = {
+            **payload,
+            "_cache_meta": {
+                "timestamp": time.time(),
+                "cache_key": cache_key
+            }
+        }
+        
+        # Write to the cache file
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(payload_with_meta, f)
+            
+        get_logger().info(f"Cached ETL result with key {cache_key}")
+        return True
+    except Exception as e:
+        get_logger().warning(f"Failed to write to cache: {str(e)}")
+        return False
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PUBLIC API
 # ─────────────────────────────────────────────────────────────────────────────
-def _nan_to_none(obj):
+def _nan_to_none(data):
     """
-    Recursively replace all NaN values with None in a nested dictionary/list structure
-    for proper JSON serialization. Also converts NumPy types to standard Python types.
+    Convert NaN, infinite, and None values to None for JSON serialization.
     
     Args:
-        obj: Any Python object that might contain NaN values or NumPy types
+        data: List of dictionaries or dictionary to clean
         
     Returns:
-        The same object with all NaN values replaced with None and NumPy types converted
+        Cleaned data with NaN/inf/None values converted to None
     """
-    if isinstance(obj, dict):
-        return {k: _nan_to_none(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_nan_to_none(item) for item in obj]
-    elif isinstance(obj, (float, np.float64, np.float32, np.float16)) and (pd.isna(obj) or math.isnan(obj) or np.isnan(obj)):
-        return None
-    # Handle NumPy integer types
-    elif isinstance(obj, (np.int_, np.intc, np.intp, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64)):
-        return int(obj)
-    # Handle NumPy float types (non-NaN)
-    elif isinstance(obj, (np.float_, np.float16, np.float32, np.float64)):
-        # Check for NaN again to be safe
-        try:
-            if np.isnan(obj) or math.isnan(float(obj)):
-                return None
-            return float(obj)
-        except (TypeError, ValueError):
-            return float(obj)
-    # Handle NumPy bool
-    elif isinstance(obj, np.bool_):
-        return bool(obj)
-    # Handle string-like objects
-    elif isinstance(obj, (np.str_, np.string_)):
-        return str(obj)
-    # Handle NaT (Not a Time) and other datetime objects
-    elif isinstance(obj, (np.datetime64, pd.Timestamp)):
-        try:
-            return obj.isoformat()
-        except:
-            return str(obj)
-    # Handle more generic cases of pd.NA, numpy masked arrays, or any other NA type
-    elif pd.api.types.is_scalar(obj) and pd.isna(obj):
-        return None
-    return obj
+    if isinstance(data, dict):
+        return {k: None if pd.isna(v) or (isinstance(v, float) and (np.isinf(v) or np.isneginf(v))) else v 
+                for k, v in data.items()}
+    elif isinstance(data, list):
+        return [_nan_to_none(item) if isinstance(item, dict) else None if pd.isna(item) else item 
+                for item in data]
+    else:
+        return None if pd.isna(data) else data
 
 
-def etl_to_chart_payload(
-    fp: str | io.BytesIO, *, original_filename: str | None = None, sample_nrows=None
-) -> dict:
+def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None = None, sample_nrows=None) -> dict:
     """
     ETL pipeline that converts various file types to a standardized chart payload.
     
@@ -92,134 +222,719 @@ def etl_to_chart_payload(
     Returns:
         A dictionary containing chart data and metadata suitable for JSON serialization
     """
-    current_app.logger.info(f"Starting ETL process for file: {original_filename}")
-    try:
-        df = _load_dataframe(fp, original_filename)
-        current_app.logger.info(f"DataFrame loaded with shape: {df.shape}")
-        current_app.logger.debug(f"Initial DataFrame: {df.head().to_string()}")
-        
-        # Apply row sampling if requested
-        if sample_nrows is not None and len(df) > sample_nrows:
-            df = df.head(sample_nrows)
-            
-        df = _clean_dataframe(df)
-        current_app.logger.info(f"DataFrame cleaned, new shape: {df.shape}")
-        current_app.logger.debug(f"Cleaned DataFrame: {df.head().to_string()}")
-        
-        column_types = _classify_columns(df)
-        current_app.logger.info(f"Columns classified: {column_types}")
-        
-        df = _coerce_numeric_columns(df)
-        current_app.logger.info(f"Numeric coercion applied to DataFrame")
-        current_app.logger.debug(f"DataFrame after numeric coercion: {df.head().to_string()}")
-        
-        payload = _build_chart_payloads(df, column_types)
-        current_app.logger.info(f"Chart payload built successfully")
-        current_app.logger.debug(f"Final payload: {payload}")
-        
-        # Create final payload structure
-        final_payload = {
-            "data": df.replace({np.nan: None}).to_dict("records"),  # First level NaN replacement
-            "stats": {
-                "rowCount": len(df),
-                "columnCount": len(df.columns),
-                "isTruncated": sample_nrows is not None and len(df) > sample_nrows,
-            },
-            "meta": {
-                "columns": list(df.columns),
-                "numericalColumns": column_types["numericalColumns"],
-                "categoricalColumns": column_types["categoricalColumns"],
-                "timeColumns": [],
-                "yearColumns": [],
-            },
-            "chartData": payload,
-        }
-        
-        # Final recursive NaN replacement for deep nested structures
-        final_payload = _nan_to_none(final_payload)
-        current_app.logger.info(f"Successfully built payload. Returning.")
-        return final_payload
-    except Exception as e:
-        current_app.logger.error(f"Error in ETL process for {original_filename}: {str(e)}", exc_info=True)
-        # Return a structured error response that the frontend can handle
-        import traceback
+    start_time = time.time()
+    logger = get_logger()
+    
+    def create_error_response(message: str, error_type: str = "general", details: str | dict = None) -> dict:
+        duration = time.time() - start_time
         error_payload = {
             "error": True,
-            "message": str(e),
-            "traceback": traceback.format_exc(),
-            "data": [],
-            "stats": {
-                "rowCount": 0,
-                "columnCount": 0,
-                "isTruncated": False,
-            },
-            "meta": {
-                "columns": [],
-                "numericalColumns": [],
-                "categoricalColumns": [],
-                "timeColumns": [],
-                "yearColumns": [],
-            },
-            "chartData": {
-                "barChart": [],
-                "lineChart": [],
-                "donutChart": []
-            },
+            "errorType": error_type,
+            "message": message,
+            "duration": duration
         }
+        if details:
+            error_payload["errorDetails"] = details
+        logger.info(f"Creating error response: Type={error_type}, Msg={message}, Details: {details}")
         return error_payload
+    
+    try:
+        logger.debug("Starting ETL process")
+        # Basic validation
+        if isinstance(fp, io.BytesIO):
+            fp.seek(0)
+            if not fp.read(1):
+                fp.seek(0)
+                return create_error_response("Input file is empty", "empty_file")
+            fp.seek(0)
+        elif isinstance(fp, str):
+            if not os.path.exists(fp):
+                return create_error_response(f"File not found: {fp}", "file_not_found")
+            if os.path.getsize(fp) == 0:
+                return create_error_response("Input file is empty", "empty_file")
+        else:
+            return create_error_response("Invalid input type for fp", "invalid_input")
+
+        # Load the data
+        try:
+            logger.debug("Attempting to load dataframe")
+            df = _load_dataframe(fp, original_filename)
+            # We already check for empty file content, so df None/empty should mean parsing issue
+            if df is None or df.empty:
+                logger.warning("Load resulted in None or empty dataframe, likely parsing issue")
+                return create_error_response("Failed to parse data from file", "invalid_format")
+            logger.debug("Dataframe loaded successfully")
+        except pd.errors.EmptyDataError as e:
+            logger.warning(f"Caught EmptyDataError: {str(e)}")
+            return create_error_response(str(e), "empty_file")
+        except pd.errors.ParserError as e:
+            logger.error(f"Caught ParserError during load: {str(e)}")
+            return create_error_response(f"Failed to parse file: {str(e)}", "invalid_format", details=str(e))
+        except FileNotFoundError as e:
+            logger.error(f"Caught FileNotFoundError during load: {str(e)}")
+            return create_error_response(str(e), "file_not_found")
+        except Exception as e:
+            error_details = f"{type(e).__name__}: {str(e)}"
+            logger.error(f"Caught general Exception during load: {error_details}", exc_info=True)
+            return create_error_response("Failed to load data", "load_error", details=error_details)
+
+        # Sample if requested
+        if sample_nrows is not None and sample_nrows < len(df):
+            logger.debug(f"Sampling dataframe to {sample_nrows} rows")
+            df = df.sample(n=sample_nrows, random_state=42)
+        
+        # Clean the data
+        try:
+            logger.debug("Attempting to clean dataframe")
+            df = _clean_dataframe(df)
+            logger.debug("Dataframe cleaned successfully")
+        except Exception as e:
+            error_details = f"{type(e).__name__}: {str(e)}"
+            logger.error(f"Caught Exception during clean: {error_details}", exc_info=True)
+            return create_error_response("Failed to clean data", "clean_error", details=error_details)
+            
+        # Attempt to melt if it looks like wide time-series data
+        try:
+            logger.debug("Attempting to melt dataframe")
+            df, was_melted = _melt_time_series(df)
+            if was_melted:
+                logger.info("Dataframe was melted from wide format.")
+            else:
+                logger.debug("Melting not applied or needed.")
+        except Exception as e:
+            logger.warning(f"Melting attempt failed (continuing): {type(e).__name__}: {str(e)}")
+            pass
+        
+        # Classify columns (after potential melting)
+        try:
+            logger.debug("Attempting to classify columns")
+            column_types = _classify_columns(df)
+            logger.debug("Columns classified successfully")
+        except Exception as e:
+            error_details = f"{type(e).__name__}: {str(e)}"
+            logger.error(f"Caught Exception during classify: {error_details}", exc_info=True)
+            return create_error_response("Failed to classify columns", "classification_error", details=error_details)
+        
+        # Build chart payloads
+        try:
+            logger.debug("Attempting to build chart payloads")
+            chart_data = _build_chart_payloads(df, column_types)
+            logger.debug("Chart payloads built successfully")
+        except Exception as e:
+            error_details = f"{type(e).__name__}: {str(e)}"
+            logger.error(f"Caught Exception during build charts: {error_details}", exc_info=True)
+            return create_error_response("Failed to build chart data", "chart_error", details=error_details)
+        
+        # Calculate stats
+        logger.debug("Calculating stats")
+        stats = {
+            "rowCount": len(df),
+            "columnCount": len(df.columns),
+            "duration": time.time() - start_time
+        }
+        
+        # Return success payload
+        logger.info("ETL process completed successfully")
+        
+        # Prepare final metadata
+        final_meta = {
+            "filename": original_filename,
+            "columns": df.columns.tolist(), # Use final cleaned columns
+            "numericalColumns": column_types.get("numericalColumns", []),
+            "categoricalColumns": column_types.get("categoricalColumns", []),
+            "dateColumns": column_types.get("dateColumns", []),
+            "yearColumns": column_types.get("yearColumns", []),
+            # Add other meta info if needed
+        }
+        
+        return {
+            "data": _nan_to_none(df.to_dict(orient="records")),
+            "meta": final_meta, # Use the prepared meta dictionary
+            "stats": stats,
+            "chartData": chart_data
+        }
+        
+    except Exception as e:
+        error_details = f"{type(e).__name__}: {str(e)}"
+        logger.error(f"Caught UNEXPECTED Exception in outer block: {error_details}", exc_info=True)
+        return create_error_response("ETL pipeline failed unexpectedly", "pipeline_error", details=error_details)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1  EXTRACT
 # ─────────────────────────────────────────────────────────────────────────────
-def _load_dataframe(fp, original_filename):
-    ext = _infer_extension(fp, original_filename)
-    size = _get_size(fp)
+def _load_dataframe(fp: str | io.BytesIO, original_filename: str | None = None) -> pd.DataFrame | None:
+    """
+    Load a DataFrame from various file types, automatically detecting the header row and handling multiple sheets.
+    
+    Args:
+        fp: File path or BytesIO object
+        original_filename: Original filename with extension (for type detection)
+        
+    Returns:
+        pandas DataFrame or None if loading fails
+        
+    Raises:
+        FileNotFoundError: If file path does not exist
+        pd.errors.EmptyDataError: If file is empty
+        pd.errors.ParserError: If file format is invalid or cannot be parsed
+    """
+    logger = get_logger()
+    file_type = 'unknown'
+    ext = ''
+    MAX_ROWS_FOR_HEURISTIC = 25 # Read slightly more for heuristic
 
-    if ext in {".csv", ".tsv"}:
-        return _read_csv(fp, size, ext)
-    if ext in {".xlsx", ".xlsm", ".xls"}:
-        return pd.read_excel(fp, sheet_name=0, header=None)
-    if ext == ".xlsb":
-        return pd.read_excel(fp, sheet_name=0, header=None, engine="pyxlsb")
-    raise ValueError(f"Unsupported file extension {ext}")
+    try:
+        # Determine file type and extension
+        if isinstance(fp, io.BytesIO):
+            # Need to check content because BytesIO has no filename inherent type
+            ext = _infer_extension(fp, original_filename)
+            if ext == '.xlsx': file_type = 'excel'
+            elif ext in ['.csv', '.txt']: file_type = 'csv'
+            else: file_type = 'unknown' # Could be binary or other non-parsable memory stream
+            fp.seek(0) # Ensure we are at the start
+        elif isinstance(fp, str):
+            if not os.path.exists(fp):
+                raise FileNotFoundError(f"File not found: {fp}")
+            if os.path.getsize(fp) == 0:
+                raise pd.errors.EmptyDataError("File is empty")
+            ext = os.path.splitext(fp)[1].lower()
+            if ext == '.xlsx': file_type = 'excel'
+            elif ext in ['.csv', '.txt']: file_type = 'csv'
+            else: file_type = 'unknown' # Treat other file extensions as unknown for now
 
+        logger.info(f"Loading dataframe. Determined file type: {file_type}, extension: {ext}")
 
-def _read_csv(fp, size, ext):
-    sample = (
-        fp.read(2_000_000)
-        if isinstance(fp, io.BytesIO)
-        else open(fp, "rb").read(2_000_000)
-    )
-    if isinstance(fp, io.BytesIO):
-        fp.seek(0)
+        # --- Load based on type --- 
+        if file_type == 'excel':
+            excel_file = None
+            try:
+                excel_file = pd.ExcelFile(fp)
+                sheet_names = excel_file.sheet_names
+                logger.debug(f"Excel file opened. Found sheets: {sheet_names}")
+                
+                target_sheet_name = None
+                df_head_for_heuristic = None
+                
+                # Find the first suitable sheet for analysis
+                for sheet_name in sheet_names:
+                    try:
+                        logger.debug(f"Checking sheet: '{sheet_name}'")
+                        # Read head WITH header=None to analyze for header row later
+                        df_head = excel_file.parse(sheet_name=sheet_name, header=None, nrows=MAX_ROWS_FOR_HEURISTIC)
+                        # Check if sheet has meaningful content
+                        if not df_head.empty and not df_head.isna().all().all():
+                            logger.info(f"Selected sheet '{sheet_name}' for processing.")
+                            target_sheet_name = sheet_name
+                            df_head_for_heuristic = df_head
+                            break # Use the first good sheet found
+                        else:
+                            logger.debug(f"Skipping empty or all-NaN sheet: '{sheet_name}'")
+                    except Exception as sheet_err:
+                        logger.warning(f"Could not read head of sheet '{sheet_name}': {sheet_err}")
+                        continue # Try next sheet
+                        
+                if not target_sheet_name or df_head_for_heuristic is None:
+                    logger.error("No suitable sheet found in Excel file.")
+                    raise pd.errors.ParserError("Excel file contains no sheets with data.")
 
-    encoding = _detect_encoding(sample)
-    sep = "\t" if ext == ".csv" and b"\t" in sample[:512] else None
-    read_kw = dict(encoding=encoding, engine="python", sep=sep, low_memory=False)
+                # Find the header index using the heuristic on the selected sheet's head
+                header_idx = _find_real_header_index(df_head_for_heuristic)
+                
+                # Read the full selected sheet using the determined header index
+                logger.debug(f"Reading full sheet '{target_sheet_name}' with header index: {header_idx}")
+                return excel_file.parse(sheet_name=target_sheet_name, header=header_idx)
+                
+            finally:
+                # Ensure ExcelFile is closed if it was opened
+                if excel_file: 
+                    try:
+                        excel_file.close()
+                    except Exception:
+                        pass # Ignore errors during close
+                        
+        elif file_type == 'csv':
+            # Reset BytesIO if needed before reading head
+            if isinstance(fp, io.BytesIO): fp.seek(0)
+            
+            # Read head first for heuristic
+            # Detect encoding and delimiter *before* reading head if possible
+            encoding = _detect_encoding(fp) # Resets seek(0) if BytesIO
+            delimiter = _detect_delimiter(fp, encoding) # Resets seek(0) if BytesIO
+            logger.debug(f"Detected CSV params: encoding='{encoding}', delimiter='{repr(delimiter)}'")
+            
+            df_head_for_heuristic = pd.read_csv(fp, header=None, nrows=MAX_ROWS_FOR_HEURISTIC, sep=delimiter, encoding=encoding)
+            
+            # Reset BytesIO again before full read
+            if isinstance(fp, io.BytesIO): fp.seek(0)
+            
+            # Find header index
+            header_idx = _find_real_header_index(df_head_for_heuristic)
+            
+            # Read full file using detected parameters and header index
+            logger.debug(f"Reading full CSV with header index: {header_idx}")
+            return _read_csv(fp, encoding=encoding, sep=delimiter, header=header_idx)
+            
+        else:
+            # Handle unknown file types
+            logger.error(f"Cannot load dataframe: Unsupported file type '{ext}' for {original_filename or 'memory stream'}")
+            raise pd.errors.ParserError(f"Unsupported file type: {ext}")
 
-    if size > MEM_STREAM_THRESHOLD:
-        reader = pd.read_csv(
-            fp, chunksize=100_000, dtype_backend="pyarrow", iterator=True, **read_kw
+    except FileNotFoundError as e:
+        logger.error(f"File not found error in _load_dataframe: {str(e)}")
+        raise
+    except pd.errors.EmptyDataError as e:
+        logger.warning(f"EmptyDataError in _load_dataframe: {str(e)}")
+        raise
+    except pd.errors.ParserError as e:
+        logger.error(f"ParserError in _load_dataframe: {str(e)}")
+        raise # Re-raise to be caught by the caller
+    except Exception as e:
+        logger.error(f"Unexpected error in _load_dataframe: {type(e).__name__}: {str(e)}", exc_info=True)
+        # Raise as ParserError for consistent handling in the main ETL function
+        raise pd.errors.ParserError(f"Failed to load dataframe due to unexpected error: {str(e)}")
+
+def _read_csv(fp, encoding='utf-8', **kwargs) -> pd.DataFrame:
+    """
+    Read a CSV file with robust error handling, including checks for inconsistent columns.
+    
+    Args:
+        fp: File path or BytesIO object
+        encoding: File encoding to use
+        **kwargs: Additional arguments for pd.read_csv
+        
+    Returns:
+        pandas DataFrame
+        
+    Raises:
+        pd.errors.EmptyDataError: If file is empty
+        pd.errors.ParserError: If file format is invalid or contains bad lines
+    """
+    logger = get_logger()
+    logger.info(f"Attempting to read CSV with encoding: {encoding}")
+    
+    delimiter = kwargs.get('sep', ',') # Get delimiter, default to comma
+    
+    try:
+        # First check if the file content is empty
+        lines_for_check = []
+        if isinstance(fp, io.BytesIO):
+            original_pos = fp.tell()
+            fp.seek(0)
+            # Read first few lines for consistency check
+            for _ in range(5):
+                line = fp.readline()
+                if not line: break
+                lines_for_check.append(line.decode(encoding, errors='ignore'))
+            fp.seek(original_pos)
+            
+            if not lines_for_check or all(not line.strip() for line in lines_for_check):
+                logger.warning("Empty content detected in BytesIO")
+                raise pd.errors.EmptyDataError("CSV file is empty")
+        else: # File path
+             with open(fp, 'r', encoding=encoding, errors='ignore') as f_check:
+                 for _ in range(5):
+                     line = f_check.readline()
+                     if not line: break
+                     lines_for_check.append(line)
+             if not lines_for_check or all(not line.strip() for line in lines_for_check):
+                logger.warning(f"Empty content detected in file: {fp}")
+                raise pd.errors.EmptyDataError("CSV file is empty")
+
+        # Attempt to read CSV
+        try:
+            logger.debug("Attempting to read CSV with strict error checking")
+            if isinstance(fp, io.BytesIO):
+                fp.seek(0)  # Reset position
+            df = pd.read_csv(fp, encoding=encoding, on_bad_lines='error', sep=delimiter, **kwargs)
+        except Exception as e:
+            logger.warning(f"Initial CSV read failed: {type(e).__name__}: {str(e)}")
+            if isinstance(fp, io.BytesIO):
+                fp.seek(0)
+            if "inconsistent" in str(e).lower() or "expected" in str(e).lower() or "bad line" in str(e).lower():
+                logger.error(f"Detected inconsistent CSV structure during initial read: {str(e)}")
+                raise pd.errors.ParserError(f"Inconsistent columns in CSV: {str(e)}")
+            raise # Re-raise other errors
+            
+        # Check if the dataframe is empty but the content wasn't
+        if df.empty:
+             logger.warning("CSV resulted in empty DataFrame despite having content")
+             raise pd.errors.ParserError("CSV resulted in an empty DataFrame, possibly due to format issues.")
+                
+        # *** Explicit check for column consistency ***
+        if lines_for_check:
+            # Find the expected number of columns based on the first data line (heuristic)
+            # Assumes first line might be header, check second line if possible
+            check_line_index = 1 if len(lines_for_check) > 1 else 0
+            if check_line_index < len(lines_for_check):
+                expected_cols = lines_for_check[check_line_index].count(delimiter) + 1
+                actual_cols = df.shape[1]
+                logger.debug(f"Consistency Check: Expected cols (line {check_line_index+1}) = {expected_cols}, Actual cols (pandas) = {actual_cols}")
+                # Allow some flexibility if pandas inferred fewer columns than header might suggest
+                # But raise error if pandas found MORE columns than expected, or if data lines are inconsistent
+                if actual_cols != expected_cols:
+                     # Double check against another line if available
+                     if len(lines_for_check) > 2 and check_line_index + 1 < len(lines_for_check):
+                         next_expected_cols = lines_for_check[check_line_index + 1].count(delimiter) + 1
+                         if next_expected_cols != expected_cols:
+                             logger.error(f"Detected inconsistent column count between data lines ({expected_cols} vs {next_expected_cols})")
+                             raise pd.errors.ParserError("Inconsistent number of columns found in CSV data lines.")
+                     # If lines are consistent but pandas differs, raise error
+                     logger.error(f"Pandas column count ({actual_cols}) differs from expected count ({expected_cols}) based on delimiter.")
+                     raise pd.errors.ParserError("Inconsistent column count between header/data and parsed result.")
+
+        logger.info(f"Successfully read CSV, shape: {df.shape}")
+        return df
+        
+    except pd.errors.EmptyDataError as e:
+        logger.warning(f"EmptyDataError reading CSV: {str(e)}")
+        raise  # Re-raise specific error
+    except pd.errors.ParserError as e:
+        logger.error(f"ParserError reading CSV: {str(e)}")
+        raise pd.errors.ParserError(f"Failed to parse CSV: {str(e)}")
+    except ValueError as e:
+        logger.error(f"ValueError reading CSV: {str(e)}")
+        raise pd.errors.ParserError(f"Invalid value found during CSV parsing: {str(e)}")
+    except Exception as e:
+        logger.error(f"Unexpected error reading CSV: {type(e).__name__}: {str(e)}", exc_info=True)
+        raise pd.errors.ParserError(f"Unexpected error reading CSV file: {str(e)}")
+
+def _read_excel_with_polars(fp, ext):
+    """
+    Read Excel file using Polars for better performance with large files.
+    """
+    try:
+        # Handle BytesIO by writing to temp file first
+        if isinstance(fp, io.BytesIO):
+            temp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
+            temp.write(fp.read())
+            temp.close()
+            get_logger().debug(f"Wrote temporary file for Polars Excel reading: {temp.name}")
+            
+            # Get sheet names first
+            sheet_names = pl.read_excel_schema(temp.name)
+            get_logger().debug(f"Polars detected sheets: {sheet_names}")
+            
+            # Read each sheet
+            dfs = []
+            for sheet_name in sheet_names:
+                sheet_df = pl.read_excel(temp.name, sheet_name=sheet_name).to_pandas()
+                sheet_df['sheetName'] = sheet_name
+                dfs.append(sheet_df)
+            get_logger().info(f"Loaded and concatenated {len(dfs)} Excel sheets with Polars")
+            return pd.concat(dfs, ignore_index=True)
+    except Exception as e:
+        get_logger().error(f"Error reading Excel with Polars: {str(e)}")
+        raise
+    finally:
+        # Clean up temp file if it was created
+        if 'temp' in locals() and os.path.exists(temp.name):
+            os.unlink(temp.name)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HEADER DETECTION HELPER
+# ─────────────────────────────────────────────────────────────────────────────
+def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
+    """Analyze first rows of a given DataFrame snippet to find the best candidate for the header row index."""
+    logger = get_logger()
+    # <<< Explicitly set level to DEBUG for this function >>>
+    original_level = logger.level
+    logger.setLevel(logging.DEBUG)
+    # <<< END explicit level setting >>>
+    
+    logger.debug(f"Running refined header detection heuristic on dataframe snippet with shape: {df_head.shape}")
+    best_score = -float('inf') # Use -inf for proper comparison
+    second_best_score = -float('inf')
+    header_idx = 0 # Default to first row (index 0)
+    second_header_idx = 0
+
+    # Ensure we don't check more rows than available
+    rows_to_analyze = min(len(df_head), max_rows_to_check)
+    if rows_to_analyze == 0:
+        logger.warning("Header detection received empty DataFrame snippet, defaulting to 0.")
+        return 0
+        
+    logger.debug(f"Refined header detection analyzing first {rows_to_analyze} rows:")
+    
+    # Compile patterns once
+    header_keywords = {'id', 'name', 'date', 'value', 'total', 'sum', 'category', 'type', 'status', 'descripción', 'fecha', 'nombre', 'código'}
+    summary_keywords = {'total', 'sum', 'subtotal', 'sub total', 'grand total'}
+    # Regex for typical header patterns (allows single words, CamelCase, snake_case, UPPER_CASE, avoids pure numbers/long text)
+    header_pattern = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*|[A-Z][A-Z0-9_]*)$') 
+    short_len_threshold = 25 # Allow slightly longer headers
+
+    # Store scores for ambiguity check later
+    row_scores = {}
+
+    for i, row in df_head.head(rows_to_analyze).iterrows():
+        logger.debug("Inside header detection loop, row %s", i)
+        if row.isnull().all(): 
+            row_scores[i] = -100 # Heavily penalize fully empty rows
+            continue 
+
+        # --- Initialize Scores & Metrics ---
+        score = 0.0
+        components = {
+            "non_null": 0.0, "string": 0.0, "numeric_penalty": 0.0, 
+            "transition": 0.0, "summary_penalty": 0.0, 
+            "positional": 0.0, "keyword": 0.0, "pattern": 0.0
+        }
+        num_cells = len(row)
+        non_null_count = row.notna().sum()
+        string_count = sum(isinstance(x, str) for x in row if pd.notna(x))
+        numeric_count = sum(isinstance(x, (int, float, np.number)) for x in row if pd.notna(x))
+        
+        # Avoid division by zero
+        if non_null_count == 0: 
+            row_scores[i] = -50 # Penalize rows with no non-null content slightly less than fully empty
+            continue 
+
+        # --- Scoring Heuristics --- 
+        
+        # 1. Non-null ratio
+        non_null_ratio = non_null_count / max(1, num_cells)
+        if non_null_ratio > 0.7:
+            components["non_null"] = non_null_ratio * 1.5 # Increased bonus for being mostly full
+        elif non_null_ratio < 0.4 and num_cells > 3: 
+            # Only penalize low non-null ratio if it DOESN'T look like a text header
+            string_ratio_for_penalty_check = string_count / non_null_count # Recalculate here for clarity
+            if string_ratio_for_penalty_check < 0.6: # If it's sparse AND not mostly strings
+                logger.debug(f"Applying non_null penalty to row {i} (ratio={non_null_ratio:.2f}, string_ratio={string_ratio_for_penalty_check:.2f})")
+                components["non_null"] = -3 # Apply penalty
+            else:
+                logger.debug(f"Skipping non_null penalty for row {i} despite low ratio ({non_null_ratio:.2f}) due to high string ratio ({string_ratio_for_penalty_check:.2f})")
+                # Otherwise, it might be a sparse header, don't penalize based on non-null alone
+                pass 
+
+        # 2. String ratio (Higher weight)
+        string_ratio = string_count / non_null_count
+        if string_ratio > 0.8: components["string"] = string_ratio * 5 # Strong bonus for mostly strings
+        elif string_ratio > 0.6: components["string"] = string_ratio * 3
+        elif string_ratio < 0.3 and num_cells > 3: components["numeric_penalty"] -= 4 # Penalize if few strings (likely data)
+
+        # 3. Purely numeric penalty
+        if numeric_count / non_null_count > 0.8:
+             components["numeric_penalty"] -= 5 # Increased penalty
+
+        # 4. Heterogeneity/Transition Score (Compare with next row)
+        if i + 1 < rows_to_analyze:
+            next_row = df_head.iloc[i+1]
+            if not next_row.isnull().all():
+                next_non_null = next_row.notna().sum()
+                if next_non_null > 0:
+                    next_numeric_count = sum(isinstance(x, (int, float, np.number)) for x in next_row if pd.notna(x))
+                    next_numeric_frac = next_numeric_count / next_non_null
+                    # Bonus if current row looks like text header and next looks like data
+                    if string_ratio > 0.7 and next_numeric_frac > 0.6: 
+                        components["transition"] = 3 # Increased bonus
+                    # Penalty if current row looks like data and next looks like text (unlikely header)
+                    elif numeric_count / non_null_count > 0.7 and (next_non_null - next_numeric_count) / next_non_null > 0.6:
+                         components["transition"] = -2
+        
+        # 5. Summary word penalty
+        try:
+            first_cell_value = str(row.iloc[0]).strip().lower()
+            if first_cell_value in summary_keywords:
+               components["summary_penalty"] = -6 # Increased penalty
+        except IndexError: pass 
+
+        # 6. Positional Bias (Reduced)
+        components["positional"] = max(0, 1.0 - i * 0.4) 
+        
+        # 7. Keyword Hints Bonus
+        row_str_lower = ' '.join(str(x).lower() for x in row if isinstance(x, str))
+        if any(keyword in row_str_lower for keyword in header_keywords):
+            components["keyword"] = 0.5 
+            
+        # 8. Header Pattern Bonus
+        pattern_bonus_count = 0
+        for cell in row.dropna():
+             cell_str = str(cell).strip()
+             if header_pattern.match(cell_str) and len(cell_str) < short_len_threshold:
+                 pattern_bonus_count += 1
+        if num_cells > 0:
+             components["pattern"] = (pattern_bonus_count / num_cells) * 2 # Scale bonus by fraction of cells matching
+
+        # Calculate final score for the row
+        score = sum(components.values())
+        row_scores[i] = score
+
+        # --- Log Per-Row Details ---
+        log_content = row.iloc[:5].apply(lambda x: str(x)[:20]).to_dict() # Truncate cell content for logs
+        logger.debug(
+            f"Row {i}: Score={score:.2f} | Components: { {k: f'{v:.2f}' for k, v in components.items()} } | Content: {log_content}"
         )
-        return pd.concat(reader, ignore_index=True)
-    return pd.read_csv(fp, dtype_backend="pyarrow", **read_kw)
+
+        # Update best and second best scores
+        if score > best_score:
+            second_best_score = best_score
+            second_header_idx = header_idx
+            best_score = score
+            header_idx = i
+        elif score > second_best_score:
+            second_best_score = score
+            second_header_idx = i
+
+    # --- Final Decision & Ambiguity Check ---
+    final_header_idx = header_idx # Start with the best scoring index
+
+    # Check for ambiguity only if we have a valid second best score and the best score isn't strongly negative
+    if second_header_idx != header_idx and best_score > -5 and second_best_score > -float('inf'):
+        # Use relative difference if best_score is positive, absolute difference otherwise
+        score_diff = best_score - second_best_score
+        ambiguity_threshold_relative = 0.10 # 10% relative threshold
+        ambiguity_threshold_absolute = 1.0 # Absolute threshold for scores near zero
+        
+        is_ambiguous = False
+        if best_score > 0:
+            is_ambiguous = (score_diff / best_score) < ambiguity_threshold_relative
+        else: # Handle cases where best_score might be negative or zero
+            is_ambiguous = score_diff < ambiguity_threshold_absolute
+
+        if is_ambiguous:
+            logger.warning(
+                f"Header detection ambiguity: Row {header_idx} (Score: {best_score:.2f}) vs "
+                f"Row {second_header_idx} (Score: {second_best_score:.2f}). Scores are close."
+            )
+            # Default to the *earlier* row index in case of ambiguity
+            final_header_idx = min(header_idx, second_header_idx)
+            logger.warning(f"Defaulting to earlier ambiguous row index: {final_header_idx}")
+        else:
+             logger.debug("Scores sufficiently distinct, choosing best score.")
+
+    logger.info(f"Refined Header Detection Result: Chose index={final_header_idx} (Best Score: {row_scores.get(final_header_idx, 'N/A'):.2f})")
+    # <<< Restore original level >>>
+    logger.setLevel(original_level)
+    # <<< END restore original level >>>
+    return int(final_header_idx)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2  TRANSFORM
 # ─────────────────────────────────────────────────────────────────────────────
-def _clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+def _clean_dataframe(df):
     """
-    Clean DataFrame by removing empty rows/columns and deduplicating column names.
+    Clean DataFrame by removing empty rows, filtering summary rows, 
+    and deduplicating column names. Empty columns are preserved.
+    
+    Args:
+        df: pandas DataFrame to clean
+        
+    Returns:
+        Cleaned DataFrame
     """
-    current_app.logger.info(f"Starting DataFrame cleaning, initial shape: {df.shape}")
+    logger = get_logger()
+    logger.info(f"Starting DataFrame cleaning, initial shape: {df.shape}")
+    
+    # --- Filter out summary rows --- 
+    if not df.empty and df.shape[1] > 0:
+        summary_keywords = ['total', 'sum', 'subtotal', 'sub total', 'grand total']
+        # Check the first column for summary keywords (case-insensitive)
+        try:
+            # Ensure the first column exists and convert to lowercase string
+            first_col_str = df.iloc[:, 0].astype(str).str.lower().str.strip()
+            is_summary_row = first_col_str.isin(summary_keywords)
+            
+            # Keep rows that are NOT summary rows
+            original_row_count = len(df)
+            df = df[~is_summary_row]
+            rows_removed = original_row_count - len(df)
+            if rows_removed > 0:
+                logger.info(f"Removed {rows_removed} summary row(s) based on keywords in the first column.")
+        except IndexError:
+            logger.warning("Could not access first column for summary row filtering (IndexError).")
+        except Exception as e:
+            logger.warning(f"Error during summary row filtering: {type(e).__name__} - {str(e)}")
+    # ----------------------------- 
+
+    # Store original column order and count (after potential filtering)
+    original_columns = df.columns.tolist()
+    original_column_count = len(original_columns)
+    logger.debug(f"DataFrame shape after potential summary row filtering: {df.shape}")
+    if not df.empty and df.shape[1] > 0:
+        logger.debug(f"First few values of first column after filtering: {df.iloc[:3, 0].tolist()}")
+    
+    # Drop rows that are completely empty (all values are NaN)
     df = df.dropna(how='all', axis=0)
-    current_app.logger.debug(f"DataFrame after dropping empty rows: {df.shape}")
-    df = df.dropna(how='all', axis=1)
-    current_app.logger.debug(f"DataFrame after dropping empty columns: {df.shape}")
-    df.columns = _dedup_columns(df.columns)
-    current_app.logger.info(f"Column names deduplicated")
-    current_app.logger.debug(f"Final cleaned DataFrame shape: {df.shape}")
+    logger.debug(f"DataFrame after dropping empty rows: {df.shape}")
+    
+    # Deduplicate column names 
+    # Ensure column names are strings before deduplication
+    df.columns = [str(col) for col in df.columns]
+    new_columns = _dedup_columns(df.columns) # Use current columns after potential filtering
+    df.columns = new_columns
+    
+    # Log column count changes
+    if len(df.columns) < original_column_count:
+        logger.warning(f"Column count decreased after cleaning/deduplication. Original: {original_column_count}, Final: {len(df.columns)}")
+            
+    logger.info(f"Column names deduplicated.")
+
+    # --- Drop 'No.' column if exists (case-insensitive) ---
+    # cols_to_drop = [col for col in df.columns if str(col).strip().lower() == 'no.']
+    # if cols_to_drop:
+    #     df = df.drop(columns=cols_to_drop)
+    #     logger.info(f"Dropped columns identified as row numbers: {cols_to_drop}")
+    #     logger.debug(f"DataFrame shape after dropping 'No.' column(s): {df.shape}")
+
+    # --- Drop fully empty columns ---
+
+    # Convert any datetime-like columns to datetime
+    for col in df.columns:
+        try:
+            if col in df and df[col].dtype == 'object':
+                # --- PRESERVE YYYY-MM FORMAT --- 
+                # Check if the column looks like YYYY-MM before attempting full date conversion
+                sample_str = df[col].dropna().astype(str)
+                is_yyyy_mm = sample_str.str.match(r'^\d{4}[-/]\d{2}$').mean() > 0.8
+                if is_yyyy_mm:
+                    logger.debug(f"Column '{col}' resembles YYYY-MM format, preserving as object.")
+                    continue # Skip datetime conversion for this column
+                # --- END PRESERVE --- 
+                
+                # Skip if column looks purely numeric or is completely empty
+                if df[col].isna().all() or pd.api.types.is_numeric_dtype(df[col].dropna()):
+                    continue 
+                    
+                # Check if a reasonable portion resembles *full* dates before attempting conversion
+                # Adjusted regex to avoid matching YYYY-MM here
+                if sample_str.str.match(r'\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4}$').mean() > 0.5:
+                    # Attempt conversion, coercing errors
+                    original_dtype = df[col].dtype
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+                    # Log only if dtype actually changed to datetime
+                    if pd.api.types.is_datetime64_any_dtype(df[col].dtype) and original_dtype == 'object':
+                        logger.debug(f"Converted column '{col}' to datetime")
+        except Exception as e:
+            logger.debug(f"Could not process column '{col}' for date conversion during cleaning: {type(e).__name__}")
+            continue
+    
+    logger.debug(f"Final cleaned DataFrame shape: {df.shape}")
     return df
+
+def _dedup_columns(cols):
+    """
+    Give every column a unique, string-safe name.
+    • Blank/NaN headers become 'Unnamed'
+    • Subsequent duplicates get _1, _2 … suffixes
+    • Preserves original column order
+    """
+    out = []
+    seen = {}
+    
+    for col in cols:
+        # Normalize: NaN → 'Unnamed', everything else → string
+        if pd.isna(col) or (isinstance(col, float) and pd.isna(col)):
+            base = "Unnamed"
+        else:
+            base = str(col).strip() or "Unnamed"
+            
+        if base not in seen:
+            seen[base] = 0
+            out.append(base)
+        else:
+            seen[base] += 1
+            out.append(f"{base}_{seen[base]}")
+            
+    return out
 
 # New improved header guessing logic
 def _guess_header_row_improved(df: pd.DataFrame, max_rows_to_check=10) -> int | None:
@@ -253,68 +968,255 @@ def _guess_header_row_improved(df: pd.DataFrame, max_rows_to_check=10) -> int | 
                 header_idx = i
                 
     if header_idx is not None:
-        current_app.logger.debug(f"Improved header guess: Row index {header_idx} with score {best_score:.2f}")
+        get_logger().debug(f"Improved header guess: Row index {header_idx} with score {best_score:.2f}")
         return int(header_idx)
     else:
-        current_app.logger.debug("Improved header guess failed to find suitable row, falling back.")
+        get_logger().debug("Improved header guess failed to find suitable row, falling back.")
         return None
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 3  LOAD (chart payloads)
 # ─────────────────────────────────────────────────────────────────────────────
 def _classify_columns(df):
-    cat, num = [], []
-    for col in df.columns:
-        if pd.api.types.is_numeric_dtype(df[col]):
-            unique_ratio = df[col].nunique(dropna=True) / max(len(df), 1)
-            (num if unique_ratio < NUMERIC_UNIQUE_RATIO else cat).append(col)
-        elif df[col].nunique(dropna=True) <= CATEGORICAL_MAX_UNIQUE:
-            cat.append(col)
-    result = {
-        "columns": df.columns.tolist(),
-        "categoricalColumns": cat,
-        "numericalColumns": num,
+    """
+    Classify DataFrame columns into types (numeric, categorical, date, year).
+    
+    Args:
+        df: pandas DataFrame to analyze
+        
+    Returns:
+        dict: Classification results with column lists by type
+    """
+    logger = get_logger()
+    get_logger().info("Starting column classification")
+    
+    # Initialize classification containers
+    numerical_cols = []
+    categorical_cols = []
+    date_cols = []
+    year_cols = []
+    classified_order_log = [] # Log the order of classification
+    
+    # Initialize metrics
+    metrics = {
+        "processed_columns": 0,
+        "numeric_detected": 0,
+        "categorical_detected": 0,
+        "date_detected": 0,
+        "year_detected": 0
     }
-
-    # Log the classification result
-    current_app.logger.debug(f"Column classification result: Categorical={cat}, Numerical={num}")
-    return result
+    
+    # Compile year pattern once
+    year_pattern = re.compile(r"^(19|20)\d{2}$")
+    
+    for col in df.columns:
+        try:
+            get_logger().debug(f"Analyzing column: {col}")
+            metrics["processed_columns"] += 1
+            
+            # Skip empty columns
+            if df[col].isna().all():
+                get_logger().debug(f"Skipping empty column: {col}")
+                continue
+            
+            # 1. Check for year columns first (either in column name or content)
+            col_str = str(col)
+            if year_pattern.match(col_str):
+                year_cols.append(col)
+                metrics["year_detected"] += 1
+                get_logger().debug(f"Classified {col} as year column (from name)")
+                continue
+            elif col_str.lower() == 'year':
+                # Check if values look like years
+                values = df[col].dropna().astype(str)
+                if values.str.match(r'^(19|20)\d{2}$').mean() > 0.8:
+                    year_cols.append(col)
+                    metrics["year_detected"] += 1
+                    get_logger().debug(f"Classified {col} as year column (from values)")
+                    continue
+            
+            # 2. Check for boolean columns
+            if pd.api.types.is_bool_dtype(df[col]) or (
+                df[col].dtype == 'object' and 
+                df[col].dropna().isin([True, False, 'True', 'False']).all()
+            ):
+                categorical_cols.append(col)
+                classified_order_log.append(f"{col} (Categorical)")
+                metrics["categorical_detected"] += 1
+                get_logger().debug(f"Classified {col} as categorical (boolean)")
+                continue
+            
+            # 3. Check for numeric columns (attempt cleaning first)
+            numeric_check_passed = False
+            if pd.api.types.is_numeric_dtype(df[col]):
+                numeric_check_passed = True # Already numeric
+            else:
+                # Try cleaning potential non-numeric chars before numeric check
+                try:
+                    # Convert to string, remove common noise like *, ,, $, spaces
+                    # Keep decimal point and minus sign
+                    cleaned_series = df[col].astype(str).str.replace(r'[^\d.\-]', '', regex=True)
+                    # Attempt conversion to numeric on the cleaned series
+                    converted_series = pd.to_numeric(cleaned_series, errors='coerce')
+                    # Check if a significant portion could be converted
+                    if converted_series.notna().mean() > 0.7: # Threshold for considering it numeric after cleaning
+                        numeric_check_passed = True
+                        logger.debug(f"Column '{col}' deemed numeric after cleaning non-numeric characters.")
+                except Exception as clean_err:
+                    logger.debug(f"Could not clean/check column '{col}' as numeric: {clean_err}")
+            
+            if numeric_check_passed:
+                # Check if it genuinely contains numbers, not just IDs/codes
+                # Heuristic: High unique ratio suggests ID, low suggests measurement
+                # We already check unique ratio for categorical, let's reuse that logic implicitly
+                # If it didn't get classified as categorical based on low unique ratio, 
+                # and it passes numeric checks, treat as numerical.
+                
+                # Further check: Avoid classifying columns that are almost all integers as numeric 
+                # if they look like typical ID columns (e.g., high unique ratio, few duplicates)
+                # However, let's keep it simple for now and rely on the categorical unique check.
+                
+                success_ratio = df[col].notna().mean() # Check original column density
+                if success_ratio > 0.5:
+                    numerical_cols.append(col)
+                    classified_order_log.append(f"{col} (Numeric)")
+                    metrics["numeric_detected"] += 1
+                    get_logger().debug(f"Classified {col} as numeric (density: {success_ratio:.2f})")
+                    continue
+            
+            # 4. Check for date columns
+            try:
+                # Try parsing as datetime
+                if pd.api.types.is_datetime64_any_dtype(df[col]):
+                    date_cols.append(col)
+                    metrics["date_detected"] += 1
+                    get_logger().debug(f"Classified {col} as date (already datetime type)")
+                    continue
+                else:
+                    # Try converting to datetime
+                    success = pd.to_datetime(df[col], errors='coerce')
+                    success_ratio = success.notna().mean()
+                    if success_ratio > 0.8:  # More than 80% valid dates
+                        date_cols.append(col)
+                        metrics["date_detected"] += 1
+                        get_logger().debug(f"Classified {col} as date (success ratio: {success_ratio:.2f})")
+                        continue
+            except Exception as e:
+                get_logger().debug(f"Date parsing failed for {col}: {str(e)}")
+            
+            # 5. Default to categorical if:
+            # - Column has low cardinality (few unique values)
+            # - Or column has string/object dtype
+            # - Or column has mixed types
+            unique_ratio = df[col].nunique() / len(df[col].dropna())
+            if (unique_ratio < 0.5 or 
+                pd.api.types.is_string_dtype(df[col]) or 
+                df[col].dtype == 'object'):
+                categorical_cols.append(col)
+                classified_order_log.append(f"{col} (Categorical)")
+                metrics["categorical_detected"] += 1
+                get_logger().debug(f"Classified {col} as categorical (unique ratio: {unique_ratio:.2f})")
+                continue
+            
+            # If we get here, column couldn't be confidently classified
+            get_logger().debug(f"Could not confidently classify column: {col}")
+            
+        except Exception as e:
+            get_logger().warning(f"Error classifying column {col}: {str(e)}")
+            continue
+    
+    # Log classification results
+    logger.debug(f"Column classification order: {classified_order_log}") # Log the order
+    logger.info(
+        f"Column classification complete: "
+        f"{metrics['numeric_detected']} numeric, "
+        f"{metrics['categorical_detected']} categorical, "
+        f"{metrics['date_detected']} date, "
+        f"{metrics['year_detected']} year columns"
+    )
+    # <<< Log the final lists before returning >>>
+    logger.debug(f"Final classified Numerical Cols: {numerical_cols}")
+    logger.debug(f"Final classified Categorical Cols: {categorical_cols}")
+    # <<< End log >>>
+    
+    return {
+        "numericalColumns": numerical_cols,
+        "categoricalColumns": categorical_cols,
+        "dateColumns": date_cols,
+        "yearColumns": year_cols,
+        "metrics": metrics
+    }
 
 
 def _build_chart_payloads(df, meta):
     """
-    Build standardized chart payload data structures from the dataframe.
+    Build standardized chart payload data structures from the unified dataframe.
     
     Args:
-        df: The cleaned pandas DataFrame
+        df: The cleaned, unified pandas DataFrame
         meta: Dictionary with column classification metadata
         
     Returns:
         Dictionary with chart data for bar, line and donut charts
     """
-    cat, num = meta["categoricalColumns"], meta["numericalColumns"]
+    logger = get_logger()
+    cat = meta.get("categoricalColumns", [])
+    num = meta.get("numericalColumns", [])
+    date = meta.get("dateColumns", [])
+    year = meta.get("yearColumns", []) # Get year columns from meta
     
     # Initialize with empty arrays to ensure consistent structure
     bar_data = []
     line_data = []
     donut_data = []
     
-    current_app.logger.debug(f"Building chart payloads with: Categorical={cat}, Numerical={num}")
+    logger.debug(f"Building chart payloads with: Categorical={cat}, Numerical={num}, Date={date}, Year={year}")
 
-    # Generate bar chart data if we have both categorical and numerical columns
-    if cat and num:
-        current_app.logger.debug(f"Attempting to build Bar Chart using cat='{cat[0]}' and num='{num[0]}'")
+    # --- Heuristic Column Selection ---
+    def find_preferred_col(cols, preferences, default_index=0):
+        if not cols: return None
+        cols_lower = [str(c).lower() for c in cols]
+        for pref in preferences:
+            try:
+                idx = cols_lower.index(pref.lower())
+                return cols[idx]
+            except ValueError:
+                continue
+        # Fallback
+        if default_index < len(cols):
+            return cols[default_index]
+        return cols[0] # Absolute fallback
+
+    cat_prefs = ['nom_loc', 'name', 'category', 'location', 'type', 'month', 'mes', 'description', 'descripción']
+    num_prefs = ['pobtot', 'value', 'total', 'count', 'amount', 'consumo (kwh)', 'consumo']
+    
+    # Select columns using heuristic
+    cat_col = find_preferred_col(cat, cat_prefs)
+    num_col = find_preferred_col(num, num_prefs)
+    time_col = find_preferred_col(date + year, []) # Prefer date, then year, then first if available
+
+    logger.debug(f"Selected columns using heuristic: Category='{cat_col}', Numerical='{num_col}', Time='{time_col}'")
+    # --- End Heuristic Column Selection ---
+
+    # Generate bar chart data if we have selected categorical and numerical columns
+    if cat_col and num_col:
+        # logger.debug(f"Selected for Bar Chart: cat_col='{cat_col}', num_col='{num_col}'") # Redundant with log above
+        logger.debug(f"Attempting to build Bar Chart using cat='{cat_col}' and num='{num_col}'")
         try:
-            grouped = df.groupby(cat[0])[num[0]].sum()
-            current_app.logger.debug(f"Bar Chart - Grouped data:\n{grouped.head().to_string()}")
+            # Ensure the selected columns exist in the DataFrame
+            if cat_col not in df.columns or num_col not in df.columns:
+                 logger.error(f"Selected columns '{cat_col}' or '{num_col}' not found in DataFrame columns: {df.columns.tolist()}")
+                 raise ValueError("Selected columns not found in DataFrame")
+                 
+            grouped = df.groupby(cat_col)[num_col].sum()
+            logger.debug(f"Bar Chart - Grouped data:\n{grouped.head().to_string()}")
             bar_data = (
                 grouped
-                .reset_index()
-                .rename(columns={cat[0]: "name", num[0]: "value"})
+                .reset_index() # Index is now 'cat_col' name
+                .rename(columns={cat_col: "name", num_col: "value"}) # Rename for consistency
                 .replace({np.nan: None})
                 .to_dict("records")
             )
-            # Ensure bar chart data has valid name and value fields
             bar_data = [
                 {
                     "name": str(item.get("name", "Unknown")), 
@@ -322,71 +1224,108 @@ def _build_chart_payloads(df, meta):
                 } 
                 for item in bar_data
             ]
+            if len(bar_data) > 15:
+                bar_data = sorted(bar_data, key=lambda x: x["value"], reverse=True)[:15]
+                logger.debug(f"Limited bar chart to top 15 items (from {len(grouped)}) ")
         except Exception as e:
-            current_app.logger.error(f"Error generating bar chart data: {str(e)}")
-            # Fallback to empty array on error
+            logger.error(f"Error generating bar chart data: {str(e)}", exc_info=True) # Add exc_info
             bar_data = []
     else:
-        current_app.logger.debug("Skipping Bar Chart: Insufficient categorical or numerical columns.")
+        logger.debug("Skipping Bar Chart: Insufficient categorical or numerical columns after heuristic selection.")
 
-    # Generate line chart data if we have Year column and numerical columns
-    if "Year" in df.columns and num:
-        current_app.logger.debug(f"Attempting to build Line Chart using col='Year' and num='{num[0]}'")
+    # Generate line chart data using the heuristically selected time and numerical columns
+    if time_col and num_col: 
         try:
-            grouped = df[["Year", num[0]]].groupby("Year")[num[0]].sum()
-            current_app.logger.debug(f"Line Chart - Grouped data:\n{grouped.head().to_string()}")
+            # Group and prepare data based on the time column
+            if time_col not in df.columns or num_col not in df.columns:
+                 logger.error(f"Selected columns '{time_col}' or '{num_col}' not found for Line Chart in DataFrame columns: {df.columns.tolist()}")
+                 raise ValueError("Selected columns not found for Line Chart")
+                 
+            df_copy = df.copy()
+            if time_col in date:
+                df_copy[time_col] = pd.to_datetime(df_copy[time_col], errors='coerce')
+                df_copy = df_copy.sort_values(time_col)
+                # Format date for display if it's a date column
+                df_copy["display_time"] = df_copy[time_col].dt.strftime('%Y-%m-%d') 
+            else: # Assumed to be Year or other non-date time column
+                df_copy[time_col] = df_copy[time_col].astype(str)
+                # Use the column directly for display if not a date
+                df_copy["display_time"] = df_copy[time_col]
+                # Try sorting numerically if possible, otherwise string sort
+                try:
+                     df_copy = df_copy.sort_values(by=[pd.to_numeric(df_copy[time_col]), num_col], errors='ignore')
+                except:
+                     df_copy = df_copy.sort_values(by=[time_col, num_col])
+
+            # Group by the original time column, aggregate the numerical column
+            grouped = df_copy.groupby("display_time")[num_col].sum()
+                
+            logger.debug(f"Line Chart - Grouped data:\n{grouped.head().to_string()}")
             line_data = (
                 grouped
-                .reset_index()
-                .rename(columns={"Year": "name", num[0]: "value"})
+                .reset_index() # Index is now 'display_time'
+                .rename(columns={"display_time": "name", num_col: "value"}) # Rename for consistency
                 .replace({np.nan: None})
                 .to_dict("records")
             )
-            # Ensure line chart data has valid name and value fields
             line_data = [
                 {
-                    "name": str(item.get("name", "")), 
+                    "name": str(item.get("name", "")),
                     "value": float(item.get("value", 0)) if item.get("value") is not None else 0
                 }
                 for item in line_data
             ]
+            
+            # Sorting is handled during grouping/preparation now
+            
         except Exception as e:
-            current_app.logger.error(f"Error generating line chart data: {str(e)}")
-            # Fallback to empty array on error
+            logger.error(f"Error generating line chart data: {str(e)}", exc_info=True) # Add exc_info
             line_data = []
     else:
-        current_app.logger.debug(f"Skipping Line Chart: 'Year' column not found or no numerical columns. Columns: {df.columns.tolist()}")
+        logger.debug(f"Skipping Line Chart: No suitable time or numerical column found after heuristic selection. Time: '{time_col}', Num: '{num_col}'")
 
-    # Generate donut chart data from categorical column 
-    if cat:
-        current_app.logger.debug(f"Attempting to build Donut Chart using cat='{cat[0]}'")
+    # Generate donut chart data using the heuristically selected categorical column
+    if cat_col: 
+        logger.debug(f"Building Donut Chart distribution using cat='{cat_col}'")
         try:
-            counts = df[cat[0]].value_counts().head(10)
-            current_app.logger.debug(f"Donut Chart - Value counts:\n{counts.to_string()}")
+            if cat_col not in df.columns:
+                 logger.error(f"Selected column '{cat_col}' not found for Donut Chart in DataFrame columns: {df.columns.tolist()}")
+                 raise ValueError("Selected column not found for Donut Chart")
+            
+            # Ensure the numerical column exists for summing
+            if not num_col or num_col not in df.columns:
+                 logger.error(f"Numerical column '{num_col}' needed for donut sum not found.")
+                 raise ValueError("Numerical column for donut sum not found")
+                 
+            # Sum the numerical column per category instead of counting rows
+            grouped = df.groupby(cat_col)[num_col].sum()
+            logger.debug(f"Donut Chart - Grouped Sum data:\n{grouped.head().to_string()}")
             donut_data = (
-                counts
-                .reset_index(name="value")
-                .rename(columns={"index": "name"})
+                grouped
+                .reset_index() # Index is now 'cat_col' name
+                .rename(columns={cat_col: "name", num_col: "value"}) # Rename grouped columns
                 .replace({np.nan: None})
                 .to_dict("records")
             )
-            # Ensure donut chart data has valid name and value fields
+            # Format to standard name/value list
             donut_data = [
-                {
-                    "name": str(item.get("name", "Unknown")), 
-                    "value": float(item.get("value", 0)) if item.get("value") is not None else 0
-                }
+                {"name": str(item.get("name", "Unknown")), "value": float(item.get("value", 0)) if item.get("value") is not None else 0}
                 for item in donut_data
             ]
+            # If more than top 10 categories, aggregate the rest into 'Other'
+            if len(donut_data) > 10:
+                # Sort by value before taking top 10 + Other
+                donut_data = sorted(donut_data, key=lambda x: x['value'], reverse=True)
+                others_value = sum(item["value"] for item in donut_data[10:])
+                donut_data = donut_data[:10] + [{"name": "Other", "value": others_value}]
         except Exception as e:
-            current_app.logger.error(f"Error generating donut chart data: {str(e)}")
-            # Fallback to empty array on error
+            logger.error(f"Error generating donut chart data: {str(e)}", exc_info=True) # Add exc_info
             donut_data = []
     else:
-        current_app.logger.debug("Skipping Donut Chart: No categorical columns found.")
+        logger.debug("Skipping Donut Chart: No categorical column found after heuristic selection.")
 
     # Log final chart data arrays
-    current_app.logger.debug(f"Final chart payloads: bar={len(bar_data)}, line={len(line_data)}, donut={len(donut_data)}")
+    logger.debug(f"Final chart payloads: bar={len(bar_data)}, line={len(line_data)}, donut={len(donut_data)}")
     
     return {
         "barChart": bar_data,
@@ -395,8 +1334,42 @@ def _build_chart_payloads(df, meta):
     }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HELPERS
+# HELPERS (Including new delimiter detection)
 # ─────────────────────────────────────────────────────────────────────────────
+def _detect_delimiter(fp: str | io.BytesIO, encoding: str) -> str:
+    """Detect the delimiter of a CSV file using csv.Sniffer."""
+    sample_bytes = b''
+    try:
+        if isinstance(fp, io.BytesIO):
+            original_pos = fp.tell()
+            fp.seek(0)
+            # Read a decent amount for sniffing (e.g., 4KB)
+            sample_bytes = fp.read(4096)
+            fp.seek(original_pos) # Reset position
+        else: # It's a file path
+            with open(fp, 'rb') as f_sniff:
+                sample_bytes = f_sniff.read(4096)
+                
+        if not sample_bytes:
+             logger.warning("No content to sniff delimiter, defaulting to ','")
+             return ','
+             
+        # Decode the sample using the detected encoding
+        sample_text = sample_bytes.decode(encoding, errors='replace')
+        
+        # Use Sniffer
+        sniffer = csv.Sniffer()
+        dialect = sniffer.sniff(sample_text)
+        logger.debug(f"Sniffer detected delimiter: {repr(dialect.delimiter)}")
+        return dialect.delimiter
+    except (csv.Error, UnicodeDecodeError, Exception) as e:
+        logger.warning(f"Could not sniff delimiter: {type(e).__name__} - {str(e)}. Defaulting to ','.")
+        # Ensure BytesIO position is reset even on error
+        if isinstance(fp, io.BytesIO):
+            try: fp.seek(original_pos)
+            except NameError: fp.seek(0) # If original_pos wasn't set
+        return ',' # Default to comma on any error
+        
 def _infer_extension(fp, original):
     if original:
         return os.path.splitext(original)[1].lower()
@@ -414,40 +1387,81 @@ def _get_size(fp):
     return size
 
 
-def _detect_encoding(sample: bytes):
-    det = UniversalDetector()
-    det.feed(sample)
-    det.close()
-    return det.result["encoding"] or "utf-8"
-
-
-def _dedup_columns(cols):
+def _detect_encoding(fp: str | io.BytesIO) -> str:
     """
-    Give every column a unique, string-safe name.
-    • Blank/NaN headers become 'Unnamed'
-    • Subsequent duplicates get _1, _2 … suffixes
+    Detect the encoding of a file.
+    
+    Args:
+        fp: File path or BytesIO object
+        
+    Returns:
+        str: Detected encoding (defaults to utf-8 if detection fails)
     """
-    out, seen = [], {}
-    for col in cols:
-        # normalise: NaN → 'Unnamed', everything else → string
-        if isinstance(col, float) and pd.isna(col):
-            base = "Unnamed"
+    try:
+        det = UniversalDetector()
+        
+        if isinstance(fp, io.BytesIO):
+            # For BytesIO, read the content directly
+            content = fp.getvalue()
+            det.feed(content)
+            det.close()
+            # Reset the BytesIO position for subsequent reads
+            fp.seek(0)
         else:
-            base = str(col).strip() or "Unnamed"
-
-        if base not in seen:
-            seen[base] = 0
-            out.append(base)
+            # For file paths, read in chunks
+            with open(fp, 'rb') as f:
+                for chunk in iter(lambda: f.read(4096), b''):
+                    det.feed(chunk)
+                    if det.done:
+                        break
+                det.close()
+        
+        if det.result['encoding']:
+            return det.result['encoding']
         else:
-            seen[base] += 1
-            out.append(f"{base}_{seen[base]}")
-    return out
+            get_logger().debug("No encoding detected, defaulting to utf-8")
+            return 'utf-8'
+    except Exception as e:
+        get_logger().warning(f"Error detecting encoding: {str(e)}, defaulting to utf-8")
+        return 'utf-8'
 
 
 def _split_on_nan_columns(df):
+    """
+    Split a DataFrame into multiple blocks based on fully empty columns.
+    This helps handle side-by-side tables separated by blank columns.
+    
+    Args:
+        df: The pandas DataFrame to split
+        
+    Returns:
+        List of DataFrames, each representing an independent data block
+    """
+    # Find columns that are entirely NaN
     nan_cols = df.columns[df.isna().all()]
-    edges = [-1] + nan_cols.tolist() + [df.shape[1]]
-    return [df.iloc[:, l + 1 : r] for l, r in zip(edges, edges[1:]) if isinstance(l, int) and isinstance(r, int)]
+    
+    if len(nan_cols) == 0:
+        # No empty columns, return the original DataFrame as a single block
+        return [df]
+        
+    # Get indices of separator columns
+    sep_indices = [df.columns.get_loc(col) for col in nan_cols]
+    
+    # Create a list of start/end indices for each block
+    edges = [-1] + sorted(sep_indices) + [df.shape[1]]
+    
+    # Split the DataFrame into blocks
+    blocks = []
+    for l, r in zip(edges, edges[1:]):
+        # Skip empty blocks or separator columns
+        if r > l + 1:  # Ensure there's at least one data column
+            block = df.iloc[:, l+1:r]
+            if not block.empty and not block.isna().all().all():
+                blocks.append(block)
+                get_logger().debug(f"Split block: {l+1}:{r} with shape {block.shape}")
+    
+    get_logger().info(f"Split DataFrame into {len(blocks)} blocks based on empty columns")
+    return blocks
 
 
 def _separate_id_value_cols(block):
@@ -459,10 +1473,107 @@ def _separate_id_value_cols(block):
 
 
 def _looks_like_year_cols(cols):
-    year_re = re.compile(r"(19|20)\d{2}")
-    return bool(cols) and all(
-        year_re.search(str(c)) or str(c).isdigit() for c in list(cols)[:3]
-    )
+    """
+    Check if the columns look like they contain years.
+    
+    Args:
+        cols: List-like or pandas Index of column names
+        
+    Returns:
+        bool: True if the columns appear to be years
+    """
+    # Ensure we're working with a sequence and handle empty input
+    if cols is None or len(cols) == 0:
+        return False
+        
+    # Convert to list of strings and handle pandas Index objects properly
+    try:
+        # Convert to strings and filter out any non-string/non-numeric values
+        str_cols = [str(col).strip() for col in cols if pd.notna(col)]
+        if not str_cols:
+            return False
+            
+        # Take a sample to avoid checking huge lists
+        sample = str_cols[:5]
+        
+        # Compile regex patterns once
+        year_patterns = [
+            re.compile(r"^(19|20)\d{2}$"),  # Exact year match (e.g., "2020")
+            re.compile(r"^y(19|20)\d{2}$", re.I),  # y2020, Y2020, etc.
+            re.compile(r"^year[_\s]?(19|20)\d{2}$", re.I),  # year_2020, Year 2020, etc.
+            re.compile(r"^year$", re.I),  # Just "year" column
+        ]
+        
+        # Track matches
+        matches = 0
+        total = len(sample)
+        
+        for col in sample:
+            # Check if it's a year using any of our patterns
+            is_year = any(pattern.match(col) for pattern in year_patterns)
+            
+            # If not matched by patterns, check if it's a 4-digit number in valid range
+            if not is_year and col.isdigit() and len(col) == 4:
+                year = int(col)
+                is_year = 1900 <= year <= 2100  # Reasonable year range
+                
+            if is_year:
+                matches += 1
+                
+        # Consider it a year column set if at least 2 columns match and >50% are years
+        return matches >= 2 and matches / len(sample) > 0.5
+        
+    except (TypeError, ValueError) as e:
+        get_logger().warning(f"Error in _looks_like_year_cols: {str(e)}")
+        return False
+
+
+def _melt_time_series(df):
+    """
+    Detect if a dataframe appears to be in 'wide' time-series format (with years/dates as columns)
+    and melt it into a long format more suitable for visualization.
+    
+    Args:
+        df: The pandas DataFrame to potentially melt
+        
+    Returns:
+        Tuple of (melted_df, is_melted) - the dataframe (melted if appropriate) and a flag
+    """
+    # Check if column headers look like years
+    if not _looks_like_year_cols(df.columns[1:]):
+        get_logger().debug("DataFrame doesn't appear to be in wide time-series format")
+        return df, False
+    
+    get_logger().info("Detected wide time-series format with year columns")
+    
+    try:
+        # Identify potential ID columns (typically the first column(s))
+        # Heuristic: Use first column as ID, rest as values
+        id_cols = [df.columns[0]]
+        value_cols = [col for col in df.columns if col not in id_cols]
+        
+        get_logger().debug(f"Melting with id_cols={id_cols}, value_cols={len(value_cols)} columns")
+        
+        # Melt the dataframe
+        melted_df = pd.melt(
+            df,
+            id_vars=id_cols,
+            value_vars=value_cols,
+            var_name='Year',
+            value_name='Value'
+        )
+        
+        # Convert Year column to string to ensure consistency
+        melted_df['Year'] = melted_df['Year'].astype(str)
+        
+        # Drop rows with NaN values that often appear in melted dataframes
+        melted_df = melted_df.dropna()
+        
+        get_logger().info(f"Melted time-series data from shape {df.shape} to {melted_df.shape}")
+        return melted_df, True
+    except Exception as e:
+        get_logger().error(f"Error melting time-series data: {str(e)}")
+        return df, False
 
 
 def _coerce_numeric_columns(df):

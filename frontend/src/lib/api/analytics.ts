@@ -209,25 +209,36 @@ export async function fetchExcelData(fileName?: string): Promise<any> {
     // Log the raw data received from API
     console.log('[API] Raw data received from /api/analytics/excel-data:', data);
     
-    // Provide default values if elements are missing to ensure consistent structure
+    // Correctly map the actual top-level fields from the backend response
     const result = {
-      barChart: data.chartData?.barChart || [],
-      lineChart: data.chartData?.lineChart || [],
-      donutChart: data.chartData?.donutChart || [],
-      tableData: data.tableData || [],
+      // Chart data is top-level in the response
+      barChart: data.barChart || [], 
+      lineChart: data.lineChart || [], 
+      donutChart: data.donutChart || [], 
+      
+      // Table data is top-level 'tableData' in the response
+      tableData: data.tableData || [], // Corrected mapping from 'tableData'
+      
+      // Metadata is top-level 'metadata'
       metadata: {
+        filename: data.metadata?.filename || fileName, 
         columns: data.metadata?.columns || [],
-        categoricalColumns: data.metadata?.categoricalColumns || [],
         numericalColumns: data.metadata?.numericalColumns || [],
-        timeColumns: data.metadata?.timeColumns || [],
+        categoricalColumns: data.metadata?.categoricalColumns || [],
+        dateColumns: data.metadata?.dateColumns || [], 
         yearColumns: data.metadata?.yearColumns || []
       },
+      
+      // Stats is top-level 'stats'
       stats: data.stats || {
         rowCount: 0,
         columnCount: 0,
-        isTruncated: false
+        duration: 0
       }
     };
+    
+    // Log the structured result being returned to the component
+    console.log('[API] Returning structured result:', result);
     
     return result;
   } catch (error) {

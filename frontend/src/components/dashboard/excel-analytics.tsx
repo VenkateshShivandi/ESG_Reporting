@@ -49,6 +49,9 @@ import {
 } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import EnhancedDataPreview from "../../components/enhanced-data-preview";
+import GenericHeatmapPreview from "../../components/generic-heatmap-preview";
 
 // Create alert UI components since @/components/ui/alert seems to be missing
 const Alert = ({ children, className, variant }: { children: React.ReactNode, className?: string, variant?: string }) => (
@@ -746,6 +749,91 @@ const CalendarIcon = (props: any) => (
 // Import the API functions
 import { fetchExcelData, fetchExcelFiles } from '@/lib/api/analytics';
 
+// Chart selection panel component
+function ChartSelectionPanel({ 
+  availableCharts, 
+  selectedCharts, 
+  onSelectionChange 
+}: { 
+  availableCharts: Record<string, boolean>,
+  selectedCharts: Record<string, boolean>,
+  onSelectionChange: (id: string, checked: boolean) => void
+}) {
+  return (
+    <Card className="mb-6">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center text-lg">
+          <Filter className="h-5 w-5 mr-2 text-blue-500" />
+          Chart Display Options
+        </CardTitle>
+        <CardDescription>
+          Select which charts to display based on your data
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className={`flex items-center space-x-3 rounded-lg border p-4 ${availableCharts.bar ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50 opacity-60'}`}>
+            <Checkbox 
+              id="show-bar-chart" 
+              checked={selectedCharts.bar}
+              disabled={!availableCharts.bar}
+              onCheckedChange={(checked) => onSelectionChange('bar', checked === true)}
+              className={availableCharts.bar ? 'border-blue-500 data-[state=checked]:bg-blue-500' : 'border-gray-300 data-[state=checked]:bg-gray-400'}
+            />
+            <div className="flex flex-1 items-center justify-between">
+              <Label 
+                htmlFor="show-bar-chart" 
+                className={`font-medium ${availableCharts.bar ? 'text-blue-900' : 'text-gray-500'}`}
+              >
+                Bar Chart
+              </Label>
+              <BarChart3 className={`h-5 w-5 ${availableCharts.bar ? 'text-blue-500' : 'text-gray-400'}`} />
+            </div>
+          </div>
+          
+          <div className={`flex items-center space-x-3 rounded-lg border p-4 ${availableCharts.line ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-gray-50 opacity-60'}`}>
+            <Checkbox 
+              id="show-line-chart" 
+              checked={selectedCharts.line}
+              disabled={!availableCharts.line}
+              onCheckedChange={(checked) => onSelectionChange('line', checked === true)}
+              className={availableCharts.line ? 'border-emerald-500 data-[state=checked]:bg-emerald-500' : 'border-gray-300 data-[state=checked]:bg-gray-400'}
+            />
+            <div className="flex flex-1 items-center justify-between">
+              <Label 
+                htmlFor="show-line-chart" 
+                className={`font-medium ${availableCharts.line ? 'text-emerald-900' : 'text-gray-500'}`}
+              >
+                Line Chart
+              </Label>
+              <TrendingUp className={`h-5 w-5 ${availableCharts.line ? 'text-emerald-500' : 'text-gray-400'}`} />
+            </div>
+          </div>
+          
+          <div className={`flex items-center space-x-3 rounded-lg border p-4 ${availableCharts.donut ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50 opacity-60'}`}>
+            <Checkbox 
+              id="show-donut-chart" 
+              checked={selectedCharts.donut}
+              disabled={!availableCharts.donut}
+              onCheckedChange={(checked) => onSelectionChange('donut', checked === true)}
+              className={availableCharts.donut ? 'border-amber-500 data-[state=checked]:bg-amber-500' : 'border-gray-300 data-[state=checked]:bg-gray-400'}
+            />
+            <div className="flex flex-1 items-center justify-between">
+              <Label 
+                htmlFor="show-donut-chart" 
+                className={`font-medium ${availableCharts.donut ? 'text-amber-900' : 'text-gray-500'}`}
+              >
+                Donut Chart
+              </Label>
+              <PieChartIcon className={`h-5 w-5 ${availableCharts.donut ? 'text-amber-500' : 'text-gray-400'}`} />
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
   // Add styles for the progress animation
   useEffect(() => {
@@ -794,10 +882,22 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
   const [fileLoading, setFileLoading] = useState(false);
   const [parsedData, setParsedData] = useState<any>(null);
-  const [identifiedColumns, setIdentifiedColumns] = useState<{
-    categorical: string[];
-    numerical: string[];
+  const [metadata, setMetadata] = useState<{
+    filename: string;
+    columns: string[];
+    numericalColumns: string[];
+    categoricalColumns: string[];
+    dateColumns: string[];
+    yearColumns: string[];
   }>({
+    filename: '',
+    columns: [],
+    numericalColumns: [],
+    categoricalColumns: [],
+    dateColumns: [],
+    yearColumns: []
+  });
+  const [identifiedColumns, setIdentifiedColumns] = useState<{ categorical: string[]; numerical: string[] }>({
     categorical: [],
     numerical: []
   });
@@ -923,13 +1023,26 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     }
   };
 
+  // Add chart visibility state
+  const [availableCharts, setAvailableCharts] = useState({
+    bar: false,
+    line: false,
+    donut: false
+  });
+  
+  const [selectedCharts, setSelectedCharts] = useState({
+    bar: true,
+    line: true,
+    donut: true
+  });
+
   // Function to fetch and process Excel file using backend ETL
   const fetchExcelFileDirectly = async (fileName: string, fileIndex: number) => {
     // Reset states
-      setProcessingFile(true);
+    setProcessingFile(true);
     setError(null);
     setProcessingMessage('Analyzing via backend...');
-      setShowCharts(false);
+    setShowCharts(false);
     setParsedData(null);
     
     try {
@@ -939,41 +1052,60 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
       const result = await fetchExcelData(fileName);
       
       // Log raw result data to debug chart issues
-      console.log('[Component] Raw result received from fetchExcelData:', result);
-      console.log('Chart data:', { 
-        barChart: result.barChart, 
-        lineChart: result.lineChart, 
-        donutChart: result.donutChart,
-        tableData: Array.isArray(result.tableData) ? result.tableData : [],
-      });
+      console.log('[Component] Raw result received from fetchExcelData:', JSON.stringify(result)); // Log full result
       
       // Process successful result
-      setData({
+      const chartData = {
         barChart: Array.isArray(result.barChart) ? result.barChart : [],
         lineChart: Array.isArray(result.lineChart) ? result.lineChart : [],
         donutChart: Array.isArray(result.donutChart) ? result.donutChart : [],
-        tableData: Array.isArray(result.tableData) ? result.tableData : [],
+      };
+      
+      const metaData = {
+          filename: result.metadata?.filename || fileName,
+          columns: result.metadata?.columns || [],
+          numericalColumns: result.metadata?.numericalColumns || [],
+          categoricalColumns: result.metadata?.categoricalColumns || [],
+          dateColumns: result.metadata?.dateColumns || [],
+          yearColumns: result.metadata?.yearColumns || [],
+      }
+
+      const tableDisplayData = result.tableData || [];
+      
+      // Check which charts have valid data *before* setting state
+      // Use simple length check for now to ensure charts show if data exists
+      const chartAvailability = {
+        bar: chartData.barChart && chartData.barChart.length > 0,
+        line: chartData.lineChart && chartData.lineChart.length > 0, 
+        donut: chartData.donutChart && chartData.donutChart.length > 0
+      };
+      console.log('[Component] Determined chart availability (using length check):', chartAvailability);
+      
+      // Group state updates that depend on the fetched data
+      setAvailableCharts(chartAvailability);
+      setSelectedCharts({
+        bar: chartAvailability.bar,
+        line: chartAvailability.line,
+        donut: chartAvailability.donut
       });
-      
-      // Log the data state we're about to set
-      console.log('[Component] State data after setData:', data);
-      
-      setParsedData({
-        headers: result.metadata?.columns || [],
-        tableData: result.tableData || [],
-        analytics: {},
+      setData(chartData); // State for Recharts components
+      setParsedData({ // State for Data Preview table
+          headers: metaData.columns,
+          tableData: tableDisplayData,
+          analytics: {}, 
       });
+      // Save metadata for dynamic chart labels
+      setMetadata(metaData);
+      setShowCharts(true); // Explicitly show charts section after data is processed
       
-      setIdentifiedColumns({
-        categorical: result.metadata?.categoricalColumns || [],
-        numerical: result.metadata?.numericalColumns || [],
-      });
-      
-      setShowCharts(true);
-      setSuccessMessage(`${fileName} analyzed via backend ETL`);
-    } catch (error) {
-      console.error('Error processing Excel file:', error);
-      setError(`Failed to analyze ${fileName}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Log the state values *after* attempting to set them
+      // Note: Due to async nature, these logs might show values *before* re-render
+      console.log('[Component] Attempted state updates. availableCharts should be:', chartAvailability);
+      console.log('[Component] Attempted state updates. parsedData should have headers:', metaData.columns, 'and tableData length:', tableDisplayData.length);
+
+    } catch (err: any) {
+      console.error('Error processing Excel file:', err);
+      setError(`Failed to analyze ${fileName}: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setShowCharts(false);
     } finally {
       setProcessingFile(false);
@@ -1076,6 +1208,19 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
 
   // Get current files based on selected type
   const currentFileList = selectedFileType === 'excel' ? availableFiles.excel : availableFiles.csv;
+
+  // Function to handle chart selection changes
+  const handleChartSelectionChange = (chartId: string, checked: boolean) => {
+    setSelectedCharts(prev => ({
+      ...prev,
+      [chartId]: checked
+    }));
+  };
+
+  // Determine dynamic labels based on metadata
+  const firstCatCol = metadata.categoricalColumns[0] || '';
+  const firstNumCol = metadata.numericalColumns[0] || '';
+  const firstDateCol = metadata.dateColumns[0] || metadata.categoricalColumns[0] || '';
 
   return (
     <div className={`space-y-8 ${className}`}>
@@ -1215,202 +1360,187 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
       {/* Only show the visualization once processing is complete and we have data */}
       {parsedData && showCharts && !error && !processingFile && (
         <div className="mt-8">
-          {/* Dynamic Chart Rendering - Modified to be more flexible with data types */}
-          {selectedXAxisCol && (
-            <Card className="mb-8">
+          {/* Chart Selection Panel */}
+          <ChartSelectionPanel 
+            availableCharts={availableCharts}
+            selectedCharts={selectedCharts}
+            onSelectionChange={handleChartSelectionChange}
+          />
+
+          {/* Generic Heatmap Preview */}
+          <GenericHeatmapPreview parsedData={parsedData} />
+
+          {/* EnhancedDataPreview */}
+          <EnhancedDataPreview
+            parsedData={parsedData}
+            handleDownload={handleDownload}
+          />
+          
+          {/* Bar Chart */}
+          {selectedCharts.bar && (
+            <Card className="mb-6">
               <CardHeader>
-                <CardTitle>{selectedChartType} Chart</CardTitle>
+                <CardTitle className="flex items-center text-lg">
+                  <BarChart3 className="h-5 w-5 mr-2 text-blue-500" />
+                  Bar Chart
+                </CardTitle>
+                <CardDescription>
+                  {availableCharts.bar 
+                    ? 'Categorical breakdown of numerical values'
+                    : 'No suitable categorical and numerical data found'}
+                </CardDescription>
                 </CardHeader>
-              <CardContent className="p-6">
-                <div className="h-[320px] w-full">
-                  {(() => {
-                    // Pre-compute chart data with more flexibility for different data types
-                    let chartData: Array<{ name: string; value: number }> = [];
-                    
-                    if (selectedChartType === 'Donut') {
-                      // For Donut charts, we group by X-axis and count occurrences
-                      // or sum Y-axis values if available
-                      chartData = parsedData.tableData.reduce((acc: Array<{ name: string; value: number }>, row: Record<string, any>) => {
-                        const key = String(row[selectedXAxisCol] || 'Undefined');
-                        
-                        // If Y-axis is selected and it's a number, use it as the value
-                        let yValue = 1; // Default to 1 for counting
-                        if (selectedYAxisCol && selectedYAxisCol !== 'none') {
-                          // Handle numeric conversion safely 
-                          const rawValue = row[selectedYAxisCol];
-                          if (typeof rawValue === 'number') {
-                            yValue = rawValue;
-                          } else if (typeof rawValue === 'string') {
-                            const parsed = parseFloat(rawValue);
-                            if (!Number.isNaN(parsed)) {
-                              yValue = parsed;
-                            }
-                          }
-                        }
-                        
-                        const existing = acc.find(i => i.name === key);
-                        if (existing) {
-                          existing.value += yValue;
-                        } else {
-                          acc.push({ name: key, value: yValue });
-                        }
-                        return acc;
-                      }, []);
-                    } else {
-                      // For Line and Bar charts
-                      chartData = parsedData.tableData.map((row: Record<string, any>) => {
-                        const item: { name: string; value: number } = {
-                          name: String(row[selectedXAxisCol] || 'Undefined'),
-                          value: 0
-                        };
-                        
-                        // If Y-axis is selected, use it as the value
-                        if (selectedYAxisCol && selectedYAxisCol !== 'none') {
-                          const rawValue = row[selectedYAxisCol];
-                          if (typeof rawValue === 'number') {
-                            item.value = rawValue;
-                          } else if (typeof rawValue === 'string') {
-                            const parsed = parseFloat(rawValue);
-                            if (!Number.isNaN(parsed)) {
-                              item.value = parsed;
-                            }
-                          }
-                        } else {
-                          // Default to 1 if no Y-axis is selected
-                          item.value = 1;
-                        }
-                        
-                        return item;
-                      });
-                      
-                      // Group by name and sum values for cleaner charts
-                      const groupedData: Record<string, number> = {};
-                      chartData.forEach((item: { name: string; value: number }) => {
-                        if (groupedData[item.name]) {
-                          groupedData[item.name] += item.value;
-                        } else {
-                          groupedData[item.name] = item.value;
-                        }
-                      });
-                      
-                      // Convert back to array format
-                      chartData = Object.entries(groupedData).map(([name, value]) => ({ name, value }));
-                      
-                      // For line charts, sort by name if it looks like a date/time
-                      if (selectedChartType === 'Line') {
-                        chartData.sort((a, b) => {
-                          // Try to sort numerically or by date if possible
-                          const aValue = a.name;
-                          const bValue = b.name;
-                          
-                          // Check if values look like dates (2023-01, Jan 2023, etc.)
-                          const datePattern = /\d{4}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/i;
-                          if (datePattern.test(aValue) && datePattern.test(bValue)) {
-                            return aValue.localeCompare(bValue);
-                          }
-                          
-                          // Check if values can be parsed as numbers
-                          const aNum = parseFloat(aValue);
-                          const bNum = parseFloat(bValue);
-                          if (!isNaN(aNum) && !isNaN(bNum)) {
-                            return aNum - bNum;
-                          }
-                          
-                          // Default to alphabetical sort
-                          return aValue.localeCompare(bValue);
-                        });
-                      }
-                    }
-                    
-                    // Log chart data for debugging
-                    console.log(`Generated ${selectedChartType} chart data:`, chartData);
-                    
-                    // Pre-compute the chart component to render
-                    let chartComponent;
-                    if (selectedChartType === 'Line') {
-                      chartComponent = (
-                        <LineChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="name" />
-                          <YAxis />
-                          <Tooltip />
-                          <Legend />
-                    <Line 
-                      type="monotone" 
-                      dataKey="value" 
-                            name={selectedYAxisCol || 'Value'} 
-                      stroke="#10b981" 
-                            activeDot={{ r: 8 }} 
-                          />
-                  </LineChart>
-                      );
-                    } else if (selectedChartType === 'Bar') {
-                      chartComponent = (
-                        <BarChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="name" />
-                          <YAxis />
-                          <Tooltip />
-                          <Legend />
-                          <Bar 
-                            dataKey="value" 
-                            name={selectedYAxisCol || 'Value'}
-                            fill="#2563eb" 
-                          />
-                        </BarChart>
-                      );
-                    } else {
-                      chartComponent = (
-                        <PieChart>
-                          <Pie
-                            data={chartData}
-                            dataKey="value" 
-                            nameKey="name"
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={40}
-                            outerRadius={80}
-                            fill="#10b981"
-                            label={({ name, percent }) => 
-                              `${name}: ${(percent * 100).toFixed(0)}%`
-                            }
-                          >
-                            {chartData.map((entry: any, index: number) => (
-                              <Cell 
-                                key={`cell-${index}`} 
-                                fill={`hsl(${index * 25 % 360}, 70%, 50%)`} 
-                              />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(value) => [`${value}`, selectedYAxisCol || 'Count']} />
-                          <Legend />
-                        </PieChart>
-                      );
-                    }
-                    
-                    // Return appropriate chart wrapped in ResponsiveContainer
-                        return (
-                      <ResponsiveContainer width="100%" height="100%">
-                        {(() => {
-                          console.log(`[Component] Rendering ${selectedChartType} chart with data:`, chartData);
-                          return isValidChartData(chartData) ? (
-                            chartComponent
-                          ) : (
-                            <div className="flex items-center justify-center h-full w-full border border-dashed border-gray-300 rounded-lg">
-                              <div className="text-center text-gray-500">
-                                <p>No {selectedChartType} chart data available</p>
-                                <p className="text-sm mt-2">The data may not contain suitable {selectedChartType === 'Bar' ? 'numerical' : selectedChartType === 'Line' ? 'time series' : 'categorical'} data for charting</p>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </ResponsiveContainer>
-                    );
-                  })()}
+                  <CardContent>
+                <div className="h-72 w-full">
+                  {isValidChartData(data.barChart) ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={data.barChart}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 12 }}
+                          label={{ value: firstCatCol, position: 'insideBottom' }}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 12 }}
+                        />
+                        <Tooltip
+                          formatter={(value) => [`${value}`, firstNumCol]}
+                          contentStyle={{ 
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            borderRadius: '8px',
+                            padding: '10px',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                            border: '1px solid #f0f0f0'
+                          }}
+                        />
+                        <Legend />
+                        <Bar
+                          dataKey="value"
+                          name={firstNumCol}
+                          fill="#3b82f6"
+                          radius={[4, 4, 0, 0]}
+                          animationDuration={800}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full w-full border border-dashed border-gray-300 rounded-lg">
+                      <div className="text-center text-gray-500">
+                        <BarChart3 className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                        <p className="text-gray-600 font-medium">No bar chart data available</p>
+                        <p className="text-sm mt-2 max-w-md mx-auto">
+                          The data may not contain suitable categorical and numerical values for charting
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  </div>
+                </CardContent>
+              </Card>
+          )}
+          
+          {/* Line Chart */}
+          {selectedCharts.line && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center text-lg">
+                  <TrendingUp className="h-5 w-5 mr-2 text-emerald-500" />
+                  Line Chart
+                </CardTitle>
+                <CardDescription>
+                  {availableCharts.line 
+                    ? 'Time series or sequential data visualization'
+                    : 'No suitable time series data found'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-72 w-full">
+                  {isValidChartData(data.lineChart) ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={data.lineChart}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fontSize: 12 }}
+                          label={{ value: firstDateCol, position: 'insideBottom' }}
+                        />
+                        <YAxis
+                          tick={{ fontSize: 12 }}
+                          label={{ value: firstNumCol, angle: -90, position: 'insideLeft' }}
+                        />
+                        <Tooltip
+                          formatter={(value) => [`${value}`, firstNumCol]}
+                          contentStyle={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                            borderRadius: '8px',
+                            padding: '10px',
+                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                            border: '1px solid #f0f0f0'
+                          }}
+                        />
+                        <Legend />
+                        <Line
+                          type="monotone"
+                          dataKey="value"
+                          name={firstNumCol}
+                          stroke="#10b981"
+                          strokeWidth={2}
+                          dot={{ stroke: '#047857', strokeWidth: 2, r: 4, fill: 'white' }}
+                          activeDot={{ r: 6, stroke: '#047857', strokeWidth: 2, fill: '#10b981' }}
+                          animationDuration={1000}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full w-full border border-dashed border-gray-300 rounded-lg">
+                      <div className="text-center text-gray-500">
+                        <TrendingUp className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                        <p className="text-gray-600 font-medium">No line chart data available</p>
+                        <p className="text-sm mt-2 max-w-md mx-auto">
+                          The data may not contain suitable time series or sequential data for charting
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
           )}
+          
+          {/* Donut Chart */}
+          {/* {selectedCharts.donut && (
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="flex items-center text-lg">
+                  <PieChartIcon className="h-5 w-5 mr-2 text-amber-500" />
+                  Donut Chart
+                </CardTitle>
+                <CardDescription>
+                  {availableCharts.donut 
+                    ? 'Distribution and proportion visualization'
+                    : 'No suitable categorical data found'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-72 w-full">
+                  {isValidChartData(data.donutChart) ? (
+                    <DonutChart data={data.donutChart} />
+                  ) : (
+                    <div className="flex items-center justify-center h-full w-full border border-dashed border-gray-300 rounded-lg">
+                      <div className="text-center text-gray-500">
+                        <PieChartIcon className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                        <p className="text-gray-600 font-medium">No donut chart data available</p>
+                        <p className="text-sm mt-2 max-w-md mx-auto">
+                          The data may not contain suitable categorical values for distribution visualization
+                        </p>
+                  </div>
+                </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )} */}
         </div>
       )}
       
@@ -1469,121 +1599,6 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Automatic Chart Rendering */}
-      {showCharts && !error && !processingFile && (
-        <>
-          {/* Bar Chart */}
-          <Card className="mb-6">
-            <CardHeader><CardTitle>Bar Chart</CardTitle></CardHeader>
-            <CardContent>
-              <div className="h-64 w-full">
-                {(() => { console.log('[Component] Rendering Bar Chart with data:', data.barChart); return null; })()}
-                {isValidChartData(data.barChart) ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data.barChart}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip formatter={(value) => [`${value}`, 'Value']} />
-                      <Legend />
-                      <Bar 
-                        dataKey="value" 
-                        name="Value" 
-                        fill="#2563eb" 
-                        radius={[4, 4, 0, 0]} // rounded top corners
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex items-center justify-center h-full w-full border border-dashed border-gray-300 rounded-lg">
-                    <div className="text-center text-gray-500">
-                      <p>No bar chart data available</p>
-                      <p className="text-sm mt-2">The data may not contain suitable numerical values for charting</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-          
-          {/* Line Chart */}
-          <Card className="mb-6">
-            <CardHeader><CardTitle>Line Chart</CardTitle></CardHeader>
-            <CardContent>
-              <div className="h-64 w-full">
-                {(() => { console.log('[Component] Rendering Line Chart with data:', data.lineChart); return null; })()}
-                {isValidChartData(data.lineChart) ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={data.lineChart}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip formatter={(value) => [`${value}`, 'Value']} />
-                      <Legend />
-                      <Line 
-                        type="monotone" 
-                        dataKey="value" 
-                        name="Value" 
-                        stroke="#10b981" 
-                        activeDot={{ r: 8 }}
-                        strokeWidth={2}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex items-center justify-center h-full w-full border border-dashed border-gray-300 rounded-lg">
-                    <div className="text-center text-gray-500">
-                      <p>No line chart data available</p>
-                      <p className="text-sm mt-2">The data may not contain suitable time series data for charting</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-          
-          {/* Donut Chart */}
-          <Card className="mb-6">
-            <CardHeader><CardTitle>Donut Chart</CardTitle></CardHeader>
-            <CardContent>
-              <div className="h-64 w-full">
-                {(() => { console.log('[Component] Rendering Donut Chart with data:', data.donutChart); return null; })()}
-                {isValidChartData(data.donutChart) ? (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <PieChart>
-                      <Pie 
-                        data={data.donutChart} 
-                        dataKey="value" 
-                        nameKey="name" 
-                        cx="50%" 
-                        cy="50%" 
-                        innerRadius={40}
-                        outerRadius={80} 
-                        fill="#10b981" 
-                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                      >
-                        {data.donutChart.map((entry: { name: string; value: number }, index: number) => (
-                          <Cell key={`cell-${index}`} fill={['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'][index % 6]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(value) => [`${value}`, 'Value']} />
-                      <Legend />
-                    </PieChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="flex items-center justify-center h-full w-full border border-dashed border-gray-300 rounded-lg">
-                    <div className="text-center text-gray-500">
-                      <p>No categorical data available for donut chart</p>
-                      <p className="text-sm mt-2">The data may not contain suitable categorical values for charting</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </>
       )}
     </div>
   );
