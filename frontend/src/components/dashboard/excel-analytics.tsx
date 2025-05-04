@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, ChangeEvent, Fragment } from 'react';
+import React, { useState, useEffect, ChangeEvent, Fragment, useMemo } from 'react';
 import { parse as parseDate, isValid as isDateValid } from 'date-fns';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { createClient } from '@supabase/supabase-js';
-import { FileText, Download, Loader2, RefreshCw, FileSpreadsheet, BarChart3, PieChart as PieChartIcon, Table as TableIcon, X, AlertCircle, CheckCircle, TreeDeciduous, Lightbulb, Recycle, Droplet, TrendingUp, TrendingDown, ArrowUp, ArrowDown, Filter, Maximize, FileType } from 'lucide-react';
+import { FileText, Download, Loader2, RefreshCw, FileSpreadsheet, BarChart3, PieChart as PieChartIcon, Table as TableIcon, X, AlertCircle, CheckCircle, TreeDeciduous, Lightbulb, Recycle, Droplet, TrendingUp, TrendingDown, ArrowUp, ArrowDown, Filter, Maximize, FileType, Database } from 'lucide-react';
 import { 
   BarChart as BarChartComponent,
   Bar,
@@ -98,8 +98,8 @@ interface ExcelAnalyticsProps {
 }
 
 // Add this utility function near the top of the ExcelAnalytics component
-const isValidChartData = (data: any[]) => {
-  if (!Array.isArray(data) || data.length === 0) return false;
+const isValidChartData = (data: any[] | undefined) => {
+  if (!data || !Array.isArray(data) || data.length === 0) return false;
   
   // Check that at least one item has both name and value properties
   return data.some(item => 
@@ -746,8 +746,8 @@ const CalendarIcon = (props: any) => (
   </svg>
 );
 
-// Import the API functions
-import { fetchExcelData, fetchExcelFiles } from '@/lib/api/analytics';
+// Import the API functions and the new response interface
+import { fetchExcelData, fetchExcelFiles, ExcelAnalyticsResponse, ProcessedTable } from '@/lib/api/analytics';
 
 // Chart selection panel component
 function ChartSelectionPanel({ 
@@ -865,12 +865,12 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
   const [loading, setLoading] = useState(true);
   const [processingFile, setProcessingFile] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<any>({
-    barChart: [],
-    lineChart: [],
-    donutChart: [],
-    tableData: []
-  });
+  
+  // --- NEW State for API Response --- 
+  const [apiResponse, setApiResponse] = useState<ExcelAnalyticsResponse | null>(null);
+  const [selectedTableIndex, setSelectedTableIndex] = useState<number>(0);
+  // --- END NEW State --- 
+
   const [availableFiles, setAvailableFiles] = useState<{
     excel: FileInfo[];
     csv: FileInfo[];
@@ -881,43 +881,11 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
   const [selectedFile, setSelectedFile] = useState<string>('');
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
   const [fileLoading, setFileLoading] = useState(false);
-  const [parsedData, setParsedData] = useState<any>(null);
-  const [metadata, setMetadata] = useState<{
-    filename: string;
-    columns: string[];
-    numericalColumns: string[];
-    categoricalColumns: string[];
-    dateColumns: string[];
-    yearColumns: string[];
-  }>({
-    filename: '',
-    columns: [],
-    numericalColumns: [],
-    categoricalColumns: [],
-    dateColumns: [],
-    yearColumns: []
-  });
-  const [identifiedColumns, setIdentifiedColumns] = useState<{ categorical: string[]; numerical: string[] }>({
-    categorical: [],
-    numerical: []
-  });
-  const [chartData, setChartData] = useState<{
-    bar: any[];
-    pie: any[];
-  }>({
-    bar: [],
-    pie: []
-  });
+
   const [showCharts, setShowCharts] = useState(false);
   const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [selectedFileType, setSelectedFileType] = useState<'excel' | 'csv'>('excel');
-
-  // === State for User Chart Configuration ===
-  const [selectedChartType, setSelectedChartType] = useState<string>('Line'); // Default: Line
-  const [selectedXAxisCol, setSelectedXAxisCol] = useState<string>('');
-  const [selectedYAxisCol, setSelectedYAxisCol] = useState<string>('none'); // Changed from empty string to 'none'
-  // ==========================================
 
   // Add index to each file for reference when mapping
   const indexedExcelFiles = (files: Array<{name: string; path: string; size?: number; modified?: number}>, prefix: string = ''): FileInfo[] => {
@@ -930,6 +898,38 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
       indexKey: `${prefix}${index}`
     }));
   };
+
+  // --- Derive data for the selected table --- 
+  const selectedTable: ProcessedTable | null = useMemo(() => {
+    if (!apiResponse || !apiResponse.tables || apiResponse.tables.length === 0) {
+      return null;
+    }
+    // Ensure index is valid
+    const index = Math.min(Math.max(0, selectedTableIndex), apiResponse.tables.length - 1);
+    return apiResponse.tables[index];
+  }, [apiResponse, selectedTableIndex]);
+  
+  const parsedDataForPreview = useMemo(() => {
+    if (!selectedTable) return null;
+    return {
+      headers: selectedTable.tableData?.headers || [],
+      tableData: selectedTable.tableData?.rows || [], // Pass rows array
+      analytics: {}, // Placeholder, populate if needed
+      metadata: selectedTable.meta, // Pass the specific table metadata
+    };
+  }, [selectedTable]);
+
+  const tableMetadata = useMemo(() => selectedTable?.meta, [selectedTable]);
+  const tableChartData = useMemo(() => selectedTable?.chartData, [selectedTable]);
+  // --- END Derived Data ---
+
+  // --- Add logging for tableChartData ---
+  useEffect(() => {
+    if (tableChartData) {
+      console.log('[Component] Derived tableChartData:', JSON.stringify(tableChartData, null, 2));
+    }
+  }, [tableChartData]);
+  // --- End logging ---
 
   // Function to load available files directly from Supabase
   const loadAvailableFiles = async () => {
@@ -1023,139 +1023,134 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     }
   };
 
-  // Add chart visibility state
+  // --- Update chart availability based on selected table --- 
   const [availableCharts, setAvailableCharts] = useState({
     bar: false,
     line: false,
-    donut: false
+    donut: false,
+    scatter: false, // Added scatter
   });
-  
+
   const [selectedCharts, setSelectedCharts] = useState({
     bar: true,
     line: true,
-    donut: true
+    donut: true,
+    scatter: true, // Added scatter
   });
+  
+  // Update chart availability whenever the selected table changes
+  useEffect(() => {
+    if (selectedTable && selectedTable.chartData) {
+      const availability = {
+        bar: (selectedTable.chartData.barChart?.length ?? 0) > 0,
+        line: (selectedTable.chartData.lineChart?.length ?? 0) > 0,
+        donut: (selectedTable.chartData.donutChart?.length ?? 0) > 0,
+        scatter: (selectedTable.chartData.scatterPlot?.length ?? 0) > 0,
+      };
+      setAvailableCharts(availability);
+      // Optionally reset selected charts based on availability
+      setSelectedCharts(prev => ({
+        bar: availability.bar && prev.bar,
+        line: availability.line && prev.line,
+        donut: availability.donut && prev.donut,
+        scatter: availability.scatter && prev.scatter,
+      }));
+      console.log('[Component] Updated chart availability based on selected table:', availability);
+    } else {
+      // Reset if no table selected
+      const resetAvailability = { bar: false, line: false, donut: false, scatter: false };
+      setAvailableCharts(resetAvailability);
+      setSelectedCharts(resetAvailability);
+    }
+  }, [selectedTable]);
+  // --- END Chart Availability Update ---
 
-  // Function to fetch and process Excel file using backend ETL
+  // --- Updated function to fetch and process Excel file --- 
   const fetchExcelFileDirectly = async (fileName: string, fileIndex: number) => {
-    // Reset states
     setProcessingFile(true);
     setError(null);
-    setProcessingMessage('Analyzing via backend...');
+    setApiResponse(null); // Clear previous results
+    setSelectedTableIndex(0); // Reset table selection
     setShowCharts(false);
-    setParsedData(null);
-    
+    setProcessingMessage('Analyzing via backend...');
+
     try {
-      // Log before fetching
-      console.log(`Fetching data for file: ${fileName}`);
-      
-      const result = await fetchExcelData(fileName);
-      
-      // Log raw result data to debug chart issues
-      console.log('[Component] Raw result received from fetchExcelData:', JSON.stringify(result)); // Log full result
-      
-      // Process successful result
-      const chartData = {
-        barChart: Array.isArray(result.barChart) ? result.barChart : [],
-        lineChart: Array.isArray(result.lineChart) ? result.lineChart : [],
-        donutChart: Array.isArray(result.donutChart) ? result.donutChart : [],
-      };
-      
-      const metaData = {
-          filename: result.metadata?.filename || fileName,
-          columns: result.metadata?.columns || [],
-          numericalColumns: result.metadata?.numericalColumns || [],
-          categoricalColumns: result.metadata?.categoricalColumns || [],
-          dateColumns: result.metadata?.dateColumns || [],
-          yearColumns: result.metadata?.yearColumns || [],
+      console.log(`[Component] Fetching data for file: ${fileName}`);
+      const result = await fetchExcelData(fileName); // Call the updated API lib function
+      console.log('[Component] Received structured API response:', result);
+
+      // Check for errors reported by the backend ETL process
+      if (result.error) {
+        console.error(`[Component] Backend processing error for ${fileName}:`, result.message, result.errorDetails);
+        setError(`Backend error: ${result.message || 'Failed to process file.'}`);
+        setApiResponse(result); // Store response even if it has errors for potential display
+        setShowCharts(false);
+      } else if (result.tables && result.tables.length > 0) {
+        setApiResponse(result); // Store the successful structured response
+        setSelectedTableIndex(0); // Default to the first table
+        setShowCharts(true);
+        setSuccessMessage(`Successfully processed ${fileName}. Found ${result.tableCount} table(s).`);
+        // Clear success message after a delay
+        setTimeout(() => setSuccessMessage(null), 5000);
+      } else {
+        // Handle case where API call was ok, but no tables were found
+        console.warn(`[Component] No tables found in the response for ${fileName}.`);
+        setError('No data tables found in the selected file.');
+        setApiResponse(result); // Store response even if no tables
+        setShowCharts(false);
       }
 
-      const tableDisplayData = result.tableData || [];
-      
-      // Check which charts have valid data *before* setting state
-      // Use simple length check for now to ensure charts show if data exists
-      const chartAvailability = {
-        bar: chartData.barChart && chartData.barChart.length > 0,
-        line: chartData.lineChart && chartData.lineChart.length > 0, 
-        donut: chartData.donutChart && chartData.donutChart.length > 0
-      };
-      console.log('[Component] Determined chart availability (using length check):', chartAvailability);
-      
-      // Group state updates that depend on the fetched data
-      setAvailableCharts(chartAvailability);
-      setSelectedCharts({
-        bar: chartAvailability.bar,
-        line: chartAvailability.line,
-        donut: chartAvailability.donut
-      });
-      setData(chartData); // State for Recharts components
-      setParsedData({ // State for Data Preview table
-          headers: metaData.columns,
-          tableData: tableDisplayData,
-          analytics: {}, 
-      });
-      // Save metadata for dynamic chart labels
-      setMetadata(metaData);
-      setShowCharts(true); // Explicitly show charts section after data is processed
-      
-      // Log the state values *after* attempting to set them
-      // Note: Due to async nature, these logs might show values *before* re-render
-      console.log('[Component] Attempted state updates. availableCharts should be:', chartAvailability);
-      console.log('[Component] Attempted state updates. parsedData should have headers:', metaData.columns, 'and tableData length:', tableDisplayData.length);
-
     } catch (err: any) {
-      console.error('Error processing Excel file:', err);
-      setError(`Failed to analyze ${fileName}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      console.error('[Component] Error calling fetchExcelData:', err);
+      setError(`Failed to analyze ${fileName}: ${err.message || 'Unknown API error'}`);
       setShowCharts(false);
+      setApiResponse(null); // Clear response on frontend fetch error
     } finally {
       setProcessingFile(false);
       setProcessingMessage(null);
     }
   };
+  // --- END Updated Fetch Function ---
 
-  // Handle file selection
+  // Handle file selection (remains the same, but clears apiResponse)
   const handleFileChange = (value: string) => {
     console.log('File selected from dropdown:', value);
-    
-    // Find the selected file and its index
     const selectedFileObject = availableFiles.excel.find(file => file.name === value);
-    const fileIndex = selectedFileObject?.index || 0;
-    
-    // Just set the selected file without automatically analyzing
+    const fileIndex = selectedFileObject?.index ?? 0;
     setSelectedFile(value);
     setSelectedFileIndex(fileIndex);
-    
-    // Clear any existing data/charts when a new file is selected
     setShowCharts(false);
-    setParsedData(null);
-    setChartData({
-      bar: [],
-      pie: []
-    });
+    setApiResponse(null); // Clear previous results when file changes
+    setSelectedTableIndex(0);
+    setError(null); // Clear previous errors
   };
 
-  // Load files on component mount, but don't automatically analyze them
+  // Load files on mount (remains the same)
   useEffect(() => {
     loadAvailableFiles();
   }, []);
 
-  // Handle refresh
+  // Handle refresh (calls updated fetch function)
   const handleRefresh = () => {
-    fetchExcelFileDirectly(selectedFile, selectedFileIndex);
+    if (selectedFile) {
+      fetchExcelFileDirectly(selectedFile, selectedFileIndex);
+    }
   };
 
-  // Handle download
+  // Handle download (needs adaptation if we want to download specific table data)
   const handleDownload = () => {
-    if (!parsedData) return;
+    if (!parsedDataForPreview) return; // Use derived preview data
     
     // Create a JSON blob and trigger download
-    const dataStr = JSON.stringify(parsedData, null, 2);
+    const dataStr = JSON.stringify(parsedDataForPreview, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     
     const a = document.createElement('a');
     a.href = url;
-    a.download = `excel-analytics-${selectedFile}.json`;
+    // Include table index in filename if multiple tables exist
+    const tableSuffix = (apiResponse?.tableCount ?? 0) > 1 ? `_table${selectedTableIndex + 1}` : '';
+    a.download = `analytics-${selectedFile}${tableSuffix}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1175,41 +1170,29 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     colors: ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#4f46e5", "#be123c"]
   };
 
-  // Transform data for the DataTable component
-  const prepareTableData = () => {
-    if (!parsedData?.tableData || !Array.isArray(parsedData.tableData)) return [];
-    
-    return parsedData.tableData.map((item: Record<string, any>, index: number) => ({
-      id: String(index + 1),
-      ...item
-    }));
-  };
-
-  // Handle file type selection
+  // Handle file type selection (remains the same, but clears apiResponse)
   const handleFileTypeChange = (value: 'excel' | 'csv') => {
     console.log('File type changed to:', value);
     setSelectedFileType(value);
-    
-    // Reset selected file when switching file types
     setSelectedFile('');
     setSelectedFileIndex(0);
-    setParsedData(null);
+    setApiResponse(null); // Clear previous results
+    setSelectedTableIndex(0);
     setShowCharts(false);
+    setError(null);
     
-    // If there are files of the new type, select the first one
     const filesOfSelectedType = value === 'excel' ? availableFiles.excel : availableFiles.csv;
     if (filesOfSelectedType.length > 0) {
       setSelectedFile(filesOfSelectedType[0].name);
-      setSelectedFileIndex(filesOfSelectedType[0].index || 0);
+      setSelectedFileIndex(filesOfSelectedType[0].index ?? 0);
     } else {
-      setError(`No ${value.toUpperCase()} files found in the storage bucket. Upload ${value.toUpperCase()} files to the documents section first.`);
+      setError(`No ${value.toUpperCase()} files found in the storage bucket.`);
     }
   };
 
-  // Get current files based on selected type
   const currentFileList = selectedFileType === 'excel' ? availableFiles.excel : availableFiles.csv;
 
-  // Function to handle chart selection changes
+  // Handle chart selection changes (remains the same)
   const handleChartSelectionChange = (chartId: string, checked: boolean) => {
     setSelectedCharts(prev => ({
       ...prev,
@@ -1217,10 +1200,21 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     }));
   };
 
-  // Determine dynamic labels based on metadata
-  const firstCatCol = metadata.categoricalColumns[0] || '';
-  const firstNumCol = metadata.numericalColumns[0] || '';
-  const firstDateCol = metadata.dateColumns[0] || metadata.categoricalColumns[0] || '';
+  // --- Update dynamic labels based on selected table's metadata --- 
+  const firstCatCol = useMemo(() => tableMetadata?.categoricalColumns?.[0] || '', [tableMetadata]);
+  const firstNumCol = useMemo(() => tableMetadata?.numericalColumns?.[0] || '', [tableMetadata]);
+  const firstDateCol = useMemo(() => tableMetadata?.dateColumns?.[0] || tableMetadata?.categoricalColumns?.[0] || '', [tableMetadata]);
+  // --- END Dynamic Labels --- 
+
+  // --- Handle Table Selection Change ---
+  const handleTableSelectionChange = (indexStr: string) => {
+    const index = parseInt(indexStr, 10);
+    if (!isNaN(index) && apiResponse && index >= 0 && index < apiResponse.tableCount) {
+      console.log(`[Component] Table selection changed to index: ${index}`);
+      setSelectedTableIndex(index);
+    }
+  };
+  // --- END Table Selection --- 
 
   return (
     <div className={`space-y-8 ${className}`}>
@@ -1241,7 +1235,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
             )}
             
             <div className="flex flex-col space-y-4 md:flex-row md:space-y-0 md:space-x-4">
-              <div className="flex-1">
+              <div className="flex-1 space-y-4">
                 {/* Add file type selector */}
                 <div className="mb-4">
                   <Label htmlFor="file-type-select" className="mb-2 block text-gray-700 dark:text-gray-300 font-medium">File Type</Label>
@@ -1313,7 +1307,45 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                     Try refreshing the file list or check your network connection.
                   </p>
                 )}
-          </div>
+
+                {/* --- NEW Table Selector --- */} 
+                {apiResponse && apiResponse.tableCount > 1 && (
+                  <div>
+                    <Label htmlFor="table-select" className="mb-2 block text-gray-700 dark:text-gray-300 font-medium">
+                      Select Detected Table ({apiResponse.tableCount} found)
+                    </Label>
+                    <Select 
+                      value={String(selectedTableIndex)} 
+                      onValueChange={handleTableSelectionChange}
+                      disabled={processingFile}
+                    >
+                      <SelectTrigger id="table-select" className="w-full border-gray-200 dark:border-gray-700 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                        <SelectValue placeholder="Select a table to visualize" />
+                      </SelectTrigger>
+                      <SelectContent className="border-0 shadow-xl rounded-lg bg-white dark:bg-gray-800 backdrop-blur-sm">
+                        {apiResponse.tables.map((table, index) => (
+                          <SelectItem key={`table-${index}`} value={String(index)} className="rounded-md my-0.5 hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors duration-150">
+                            <div className="flex items-center">
+                              <Database className="h-4 w-4 mr-2 text-sky-600" />
+                              <span>{`Table ${index + 1}`}</span>
+                              {table.meta.excelRange && (
+                                <span className="ml-2 text-xs text-gray-500">
+                                  (Range: {table.meta.excelRange})
+                                </span>
+                              )}
+                              {table.processingStatus !== 'success' && (
+                                <Badge variant="destructive" className="ml-auto text-xs px-1.5 py-0.5">{table.processingStatus}</Badge>
+                              )}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {/* --- END Table Selector --- */} 
+
+              </div>
           
               <div className="flex items-end">
             <Button 
@@ -1358,7 +1390,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
       </Card>
       
       {/* Only show the visualization once processing is complete and we have data */}
-      {parsedData && showCharts && !error && !processingFile && (
+      {selectedTable && showCharts && !error && !processingFile && (
         <div className="mt-8">
           {/* Chart Selection Panel */}
           <ChartSelectionPanel 
@@ -1368,13 +1400,27 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
           />
 
           {/* Generic Heatmap Preview */}
-          <GenericHeatmapPreview parsedData={parsedData} />
+          {parsedDataForPreview && (
+            <GenericHeatmapPreview 
+              parsedData={{
+                headers: parsedDataForPreview.headers,
+                tableData: parsedDataForPreview.tableData,
+                metadata: tableMetadata || null // Pass metadata here too
+              }}
+            />
+          )}
 
           {/* EnhancedDataPreview */}
-          <EnhancedDataPreview
-            parsedData={parsedData}
-            handleDownload={handleDownload}
-          />
+          {parsedDataForPreview && (
+            <EnhancedDataPreview
+              parsedData={{
+                headers: parsedDataForPreview.headers,
+                tableData: parsedDataForPreview.tableData,
+                metadata: tableMetadata || null // Pass null if tableMetadata is undefined
+              }}
+              handleDownload={handleDownload}
+            />
+          )}
           
           {/* Bar Chart */}
           {selectedCharts.bar && (
@@ -1392,9 +1438,9 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                 </CardHeader>
                   <CardContent>
                 <div className="h-72 w-full">
-                  {isValidChartData(data.barChart) ? (
+                  {isValidChartData(tableChartData?.barChart) ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={data.barChart}>
+                      <BarChart data={tableChartData?.barChart || []}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis
                           dataKey="name"
@@ -1456,9 +1502,10 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
               </CardHeader>
               <CardContent>
                 <div className="h-72 w-full">
-                  {isValidChartData(data.lineChart) ? (
+                  {/* Check if tableChartData and lineChart exist and are valid */}
+                  {tableChartData && isValidChartData(tableChartData.lineChart) ? (
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={data.lineChart}>
+                      <LineChart data={tableChartData.lineChart}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                         <XAxis
                           dataKey="name"

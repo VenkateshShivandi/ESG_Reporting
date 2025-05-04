@@ -23,25 +23,27 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts"
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Download, BarChart2, LineChart as LineChartIcon, PieChart as PieChartIcon, Table as TableIcon, ArrowUpDown, AreaChart as AreaChartIcon, Circle } from "lucide-react"
+import { Download, BarChart2, LineChart as LineChartIcon, PieChart as PieChartIcon, Table as TableIcon, ArrowUpDown, AreaChart as AreaChartIcon, Circle, HelpCircle } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tooltip as ShadTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 // <<< Add formatNumber helper function here >>>
-const formatNumber = (num: number): string => {
-  if (isNaN(num)) return 'N/A'; // Handle non-numeric inputs gracefully
-  if (Math.abs(num) >= 1000000) {
-    return (num / 1000000).toFixed(1) + "M";
+const formatNumber = (num: number | string): string => {
+  const numericValue = typeof num === 'string' ? parseFloat(num.replace(/[^\d.-]/g, '')) : num;
+  if (isNaN(numericValue)) return 'N/A'; // Handle non-numeric inputs gracefully
+
+  if (Math.abs(numericValue) >= 1000000) {
+    return (numericValue / 1000000).toFixed(1) + "M";
   }
-  if (Math.abs(num) >= 1000) {
-    return (num / 1000).toFixed(1) + "k";
+  if (Math.abs(numericValue) >= 1000) {
+    return (numericValue / 1000).toFixed(1) + "k";
   }
-  if (Math.abs(num) < 1 && Math.abs(num) > 0) {
-    return num.toFixed(2);
+  if (Math.abs(numericValue) < 1 && Math.abs(numericValue) > 0) {
+    return numericValue.toFixed(2);
   }
-  return num.toFixed(0);
+  return numericValue.toFixed(0);
 };
 
 // Color palette for charts
@@ -58,151 +60,235 @@ const CHART_COLORS = [
 
 interface EnhancedDataPreviewProps {
   parsedData: {
-    headers: string[]
-    tableData: Record<string, any>[]
-  } | null
-  handleDownload: () => void
+    headers: string[];
+    tableData: Record<string, any>[];
+    metadata: {
+      columns?: string[];
+      numericalColumns?: string[];
+      categoricalColumns?: string[];
+      dateColumns?: string[];
+      yearColumns?: string[];
+    } | null;
+  } | null;
+  handleDownload: () => void;
 }
+
+// --- NEW Paginated Table Sub-component ---
+interface PaginatedTableProps {
+  headers: string[];
+  tableData: Record<string, any>[];
+}
+
+function PaginatedTable({ headers, tableData }: PaginatedTableProps) {
+  const [columnPage, setColumnPage] = useState(0);
+  const [rowPage, setRowPage] = useState(0);
+  const columnsPerPage = 5;
+  const rowsPerPage = 10;
+
+  const totalColumnHeaders = headers.length;
+  const totalRows = tableData.length;
+  
+  const totalColumnPages = Math.ceil(totalColumnHeaders / columnsPerPage);
+  const totalRowPages = Math.ceil(totalRows / rowsPerPage);
+
+  const currentColumns = headers.slice(columnPage * columnsPerPage, (columnPage + 1) * columnsPerPage);
+  const currentRows = tableData.slice(rowPage * rowsPerPage, (rowPage + 1) * rowsPerPage);
+
+  const handlePrevColumns = () => setColumnPage(prev => Math.max(0, prev - 1));
+  const handleNextColumns = () => setColumnPage(prev => Math.min(totalColumnPages - 1, prev + 1));
+  const handlePrevRows = () => setRowPage(prev => Math.max(0, prev - 1));
+  const handleNextRows = () => setRowPage(prev => Math.min(totalRowPages - 1, prev + 1));
+
+  return (
+    <>
+      <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center sticky top-0 z-10"> {/* Make controls sticky */}
+        <h3 className="font-medium text-sm whitespace-nowrap">Data Preview</h3> {/* Prevent wrapping */}
+        <div className="flex items-center gap-4">
+          {/* Column Pagination */}
+          {totalColumnHeaders > columnsPerPage && (
+            <div className="flex items-center gap-2">
+              <button onClick={handlePrevColumns} disabled={columnPage === 0} className={`text-xs px-2 py-1 rounded border ${columnPage === 0 ? 'text-gray-400 border-gray-200' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}>←</button>
+              <span className="text-xs text-gray-500 whitespace-nowrap">Cols {columnPage * columnsPerPage + 1}-{Math.min((columnPage + 1) * columnsPerPage, totalColumnHeaders)}</span>
+              <button onClick={handleNextColumns} disabled={columnPage >= totalColumnPages - 1} className={`text-xs px-2 py-1 rounded border ${columnPage >= totalColumnPages - 1 ? 'text-gray-400 border-gray-200' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}>→</button>
+            </div>
+          )}
+           {/* Row Pagination */}
+          {totalRows > rowsPerPage && (
+              <div className="flex items-center gap-2">
+                <button onClick={handlePrevRows} disabled={rowPage === 0} className={`text-xs px-2 py-1 rounded border ${rowPage === 0 ? 'text-gray-400 border-gray-200' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}>↑</button>
+                <span className="text-xs text-gray-500 whitespace-nowrap">Rows {rowPage * rowsPerPage + 1}-{Math.min((rowPage + 1) * rowsPerPage, totalRows)}</span>
+                <button onClick={handleNextRows} disabled={rowPage >= totalRowPages - 1} className={`text-xs px-2 py-1 rounded border ${rowPage >= totalRowPages - 1 ? 'text-gray-400 border-gray-200' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}>↓</button>
+              </div>
+          )}
+        </div>
+      </div>
+
+      <table className="w-full text-sm text-left text-gray-700 min-w-[600px]"> {/* Added min-width */}
+        <thead className="text-xs text-gray-800 uppercase bg-gray-100 sticky top-[49px] z-10"> {/* Make header sticky */}
+          <tr>
+            {currentColumns.map((header: string, index: number) => (
+              <th key={index} scope="col" className="px-3 py-2 border-b border-r border-gray-200 whitespace-nowrap"> {/* Prevent header wrapping */}
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {currentRows.length === 0 ? (
+            <tr>
+              <td colSpan={currentColumns.length || 1} className="text-center text-gray-500 py-4 border-b">
+                No data rows available.
+              </td>
+            </tr>
+          ) : (
+            currentRows.map((row: Record<string, any>, rowIndex: number) => (
+              <tr key={rowIndex} className={`${rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-b border-gray-200`}>
+                {currentColumns.map((header: string, colIndex: number) => (
+                  <td key={colIndex} className="px-3 py-1.5 border-r border-gray-200 whitespace-nowrap"> {/* Prevent cell wrapping */}
+                    {row[header]?.toString() || '-'}
+                  </td>
+                ))}
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+
+      <div className="py-2 px-4 text-center text-xs text-gray-500 border-t border-gray-200 bg-gray-50 rounded-b-md sticky bottom-0 z-10"> {/* Make footer sticky */}
+        {totalRows > rowsPerPage
+          ? `Showing rows ${rowPage * rowsPerPage + 1} to ${Math.min((rowPage + 1) * rowsPerPage, totalRows)} of ${totalRows}`
+          : `Showing all ${totalRows} rows`
+        }
+         {' | '}
+        {totalColumnHeaders > columnsPerPage
+          ? `Showing columns ${columnPage * columnsPerPage + 1} to ${Math.min((columnPage + 1) * columnsPerPage, totalColumnHeaders)} of ${totalColumnHeaders}`
+          : `Showing all ${totalColumnHeaders} columns`
+        }
+      </div>
+    </>
+  );
+}
+// --- END Paginated Table Sub-component ---
 
 export default function EnhancedDataPreview({ parsedData, handleDownload }: EnhancedDataPreviewProps) {
   const [activeTab, setActiveTab] = useState("bar")
-  const [xAxisField, setXAxisField] = useState<string | null>(null)
-  const [yAxisField, setYAxisField] = useState<string | null>(null)
-  const [pieField, setPieField] = useState<string | null>(null)
+  const [categoryField, setCategoryField] = useState<string | null>(null)
+  const [valueField, setValueField] = useState<string | null>(null)
   const [scatterXField, setScatterXField] = useState<string | null>(null)
   const [scatterYField, setScatterYField] = useState<string | null>(null)
-  const tabsContentContainerRef = useRef<HTMLDivElement>(null); // Ref for the container wrapping all TabsContent
+  const tabsContentContainerRef = useRef<HTMLDivElement>(null);
 
-  // Initialize selected fields when data is loaded
-  useMemo(() => {
-    if (parsedData?.headers && parsedData.headers.length > 0) {
-      // Set default X axis to the first column
-      setXAxisField(parsedData.headers[0])
+  const { potentialCategoryColumns, potentialValueColumns } = useMemo(() => {
+    const headers = parsedData?.headers || [];
+    return {
+      potentialCategoryColumns: headers,
+      potentialValueColumns: headers 
+    };
+  }, [parsedData]);
+
+  useEffect(() => {
+    if (parsedData?.tableData && parsedData.tableData.length > 0) {
+      const headers = parsedData.headers;
+      const defaultCategory = headers.length > 0 ? headers[0] : null;
+      if (!categoryField || !headers.includes(categoryField)) {
+          setCategoryField(defaultCategory);
+      }
+
+      const defaultValue = headers.length > 1 ? headers[1] : (headers.length > 0 ? headers[0] : null);
+      if (!valueField || !headers.includes(valueField)) {
+          setValueField(defaultValue);
+      }
       
-      // Try to find a numeric column for Y axis
-      const numericColumns = parsedData.headers.filter(header => {
-        if (parsedData.tableData.length === 0) return false
-        const value = parsedData.tableData[0][header]
-        return typeof value === 'number' || !isNaN(Number(value))
-      })
+      const defaultScatterX = headers.length > 0 ? headers[0] : null;
+      const defaultScatterY = headers.length > 1 ? headers[1] : defaultScatterX;
       
-      const firstNumeric = numericColumns.length > 0 ? numericColumns[0] : parsedData.headers[1] || parsedData.headers[0];
-      const secondNumeric = numericColumns.length > 1 ? numericColumns[1] : firstNumeric;
+      if (!scatterXField || !headers.includes(scatterXField)) {
+        setScatterXField(defaultScatterX);
+      }
+      if (!scatterYField || !headers.includes(scatterYField)) {
+        setScatterYField(defaultScatterY);
+      }
       
-      setYAxisField(firstNumeric)
-      setPieField(firstNumeric)
-      
-      // Set scatter plot fields to the first two numeric columns if available
-      setScatterXField(firstNumeric)
-      setScatterYField(secondNumeric)
+    } else {
+        setCategoryField(null);
+        setValueField(null);
+        setScatterXField(null);
+        setScatterYField(null);
     }
-  }, [parsedData])
+  }, [parsedData?.headers, parsedData?.tableData]);
 
-  // Prepare chart data - Use raw values for name
   const chartData = useMemo(() => {
-    if (!parsedData?.tableData || !xAxisField || !yAxisField) return []
+    if (!parsedData?.tableData || !categoryField || !valueField) {
+      return [];
+    }
     
     return parsedData.tableData.slice(0, 20).map(row => {
-      const yValue = typeof row[yAxisField] === 'number' 
-        ? row[yAxisField] 
-        : Number.parseFloat(String(row[yAxisField]).replace(/[^\d.-]/g, '')) || 0;
+      const valueRaw = row[valueField];
+      const value = typeof valueRaw === 'number'
+        ? valueRaw
+        : parseFloat(String(valueRaw || '0').replace(/[^\d.-]/g, '')) || 0;
         
-      return {
-        name: row[xAxisField]?.toString() || 'N/A', // <<< Use raw string value
-        value: yValue
-      }
-    })
-  }, [parsedData, xAxisField, yAxisField])
+      const name = row[categoryField]?.toString() || 'N/A';
 
-  // Prepare scatter plot data
+      return { name, value };
+    });
+  }, [parsedData, categoryField, valueField]);
+
   const scatterData = useMemo(() => {
     if (!parsedData?.tableData || !scatterXField || !scatterYField) return [];
     
-    // Safely access the data
-    const safeXField = scatterXField || '';
-    const safeYField = scatterYField || '';
-    const safeNameField = xAxisField || '';
-    
     return parsedData.tableData
-      .slice(0, 50) // Show more data points for scatter plot
+      .slice(0, 50)
       .map(row => {
-        // Safe access to the data fields
-        const xValue = typeof row[safeXField] === 'number' 
-          ? row[safeXField] 
-          : Number.parseFloat(String(row[safeXField] || '0').replace(/[^\d.-]/g, '')) || 0;
-          
-        const yValue = typeof row[safeYField] === 'number' 
-          ? row[safeYField] 
-          : Number.parseFloat(String(row[safeYField] || '0').replace(/[^\d.-]/g, '')) || 0;
-        
-        // Get a name for the data point (for tooltip)
-        const name = row[safeNameField]?.toString() || 'N/A';
-          
-        return {
-          x: xValue,
-          y: yValue,
-          name,
-          z: 10 // Size of dot
-        };
-      })
-      .filter(point => !isNaN(point.x) && !isNaN(point.y)); // Filter out invalid points
-  }, [parsedData, scatterXField, scatterYField, xAxisField]);
+        const xValueRaw = row[scatterXField];
+        const yValueRaw = row[scatterYField];
 
-  // Prepare pie chart data - Use raw values for name
+        const xValue = typeof xValueRaw === 'number'
+          ? xValueRaw
+          : parseFloat(String(xValueRaw || '0').replace(/[^\d.-]/g, '')) || 0;
+        const yValue = typeof yValueRaw === 'number'
+          ? yValueRaw
+          : parseFloat(String(yValueRaw || '0').replace(/[^\d.-]/g, '')) || 0;
+        
+        const nameField = categoryField || parsedData.headers[0];
+        const name = nameField && row[nameField] ? row[nameField].toString() : 'Point';
+          
+        return { x: xValue, y: yValue, name, z: 10 };
+      })
+      .filter(point => !isNaN(point.x) && !isNaN(point.y));
+  }, [parsedData, scatterXField, scatterYField, categoryField]);
+
   const pieChartData = useMemo(() => {
-    if (!parsedData?.tableData || !pieField || !xAxisField) return []
+    if (!parsedData?.tableData || !categoryField || !valueField) return [];
     
-    const groupedData: Record<string, number> = {}
+    const groupedData: Record<string, number> = {};
     
     parsedData.tableData.forEach(row => {
-      const key = row[xAxisField]?.toString() || 'N/A'; // <<< Use raw string value
-      const value = typeof row[pieField] === 'number' 
-        ? row[pieField] 
-        : Number.parseFloat(String(row[pieField]).replace(/[^\d.-]/g, '')) || 0;
+      const key = row[categoryField]?.toString() || 'N/A';
+      const valueRaw = row[valueField];
+      const value = typeof valueRaw === 'number'
+        ? valueRaw
+        : parseFloat(String(valueRaw || '0').replace(/[^\d.-]/g, '')) || 0;
         
-      if (groupedData[key]) {
-        groupedData[key] += value
-      } else {
-        groupedData[key] = value
+      if (!isNaN(value)) {
+        groupedData[key] = (groupedData[key] || 0) + value;
       }
-    })
+    });
     
     const totalValue = Object.values(groupedData).reduce((sum, val) => sum + val, 0);
     if (totalValue === 0) return [];
 
     return Object.entries(groupedData)
       .map(([name, value]) => ({
-        name, // <<< Raw name
+        name,
         value: parseFloat(((value / totalValue) * 100).toFixed(2)),
         absoluteValue: value
       }))
       .sort((a, b) => b.absoluteValue - a.absoluteValue)
-      .slice(0, 8)
-  }, [parsedData, xAxisField, pieField])
+      .slice(0, 8);
+  }, [parsedData, categoryField, valueField]);
 
-  // Check if we have valid data to display
-  const hasValidData = parsedData?.tableData && parsedData.tableData.length > 0
-
-  // New useEffect for logging widths
-  useEffect(() => {
-    if (tabsContentContainerRef.current) {
-      console.log('--- Tabs Overflow Debug ---');
-      const container = tabsContentContainerRef.current;
-      console.log('TabsContent Container clientWidth:', container.clientWidth);
-      console.log('TabsContent Container scrollWidth:', container.scrollWidth);
-
-      const children = container.children;
-      console.log('Number of TabsContent children:', children.length);
-      for (let i = 0; i < children.length; i++) {
-        const child = children[i] as HTMLElement;
-        console.log(
-          `TabContent ${i} - Value: ${child.getAttribute('data-state')}, scrollWidth: ${child.scrollWidth}, offsetWidth: ${child.offsetWidth}, Class: ${child.className}`
-        );
-      }
-      console.log('--- End Tabs Overflow Debug ---');
-    }
-    // Re-run when parsedData changes, as this dictates the content of the tabs
-  }, [parsedData]);
+  const hasValidData = parsedData?.tableData && parsedData.tableData.length > 0;
 
   return (
     <Card className="mb-6">
@@ -235,123 +321,88 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
         {hasValidData ? (
           <>
             <div className="flex flex-wrap gap-2 mb-4">
-                {activeTab !== "table" && activeTab !== "pie" && activeTab !== "scatter" && (
+              {activeTab !== 'scatter' && activeTab !== 'table' && (
                   <>
-                    <Select value={xAxisField || ""} onValueChange={setXAxisField}>
-                      <SelectTrigger className="w-[140px] h-9">
-                        <SelectValue placeholder="X-Axis" />
+                   <Select value={categoryField || ""} onValueChange={setCategoryField}>
+                     <SelectTrigger className="w-[160px] h-9">
+                       <div className="flex items-center">
+                         <span className="mr-1">🔠</span>
+                         <SelectValue placeholder="Category" />
+                       </div>
                       </SelectTrigger>
-                      <SelectContent 
-                        className="z-[200] min-w-[140px]"
-                        position="item-aligned"
-                        sideOffset={5}
-                        align="start"
-                      >
-                        {parsedData?.headers?.map(header => (
-                          <SelectItem key={`x-${header}`} value={header}>
-                            {header}
-                          </SelectItem>
+                     <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
+                       {potentialCategoryColumns.map(header => (
+                         <SelectItem key={`cat-${header}`} value={header}>{header}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     
-                    <Select value={yAxisField || ""} onValueChange={setYAxisField}>
-                      <SelectTrigger className="w-[140px] h-9">
-                        <SelectValue placeholder="Y-Axis" />
+                   <Select value={valueField || ""} onValueChange={setValueField}>
+                     <SelectTrigger className="w-[160px] h-9">
+                       <div className="flex items-center">
+                         <span className="mr-1">🔢</span>
+                         <SelectValue placeholder="Value" />
+                       </div>
                       </SelectTrigger>
-                      <SelectContent 
-                        className="z-[200] min-w-[140px]"
-                        position="item-aligned"
-                        sideOffset={5}
-                        align="start"
-                      >
-                        {parsedData?.headers?.map(header => (
-                          <SelectItem key={`y-${header}`} value={header}>
-                            {header}
-                          </SelectItem>
+                     <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
+                       {potentialValueColumns.map(header => (
+                         <SelectItem key={`val-${header}`} value={header}>{header}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+
+                    <TooltipProvider>
+                      <ShadTooltip delayDuration={100}>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-5 w-5 text-gray-400 cursor-help mt-2 ml-1" />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs bg-gray-800 text-white p-2 rounded text-xs">
+                          <p>Select a text/date column for categories and a number column for values.</p>
+                        </TooltipContent>
+                      </ShadTooltip>
+                    </TooltipProvider>
                   </>
                 )}
                 
-                {activeTab === "scatter" && (
+              {activeTab === 'scatter' && (
                   <>
                     <Select value={scatterXField || ""} onValueChange={setScatterXField}>
                       <SelectTrigger className="w-[160px] h-9">
-                        <SelectValue placeholder="X-Axis (Numeric)" />
+                       <div className="flex items-center">
+                         <span className="mr-1">X: 🔢</span>
+                         <SelectValue placeholder="X-Axis Value" />
+                       </div>
                       </SelectTrigger>
-                      <SelectContent 
-                        className="z-[200] min-w-[160px]"
-                        position="item-aligned"
-                        sideOffset={5}
-                        align="start"
-                      >
-                        {parsedData?.headers?.map(header => (
-                          <SelectItem key={`scatter-x-${header}`} value={header}>
-                            {header}
-                          </SelectItem>
+                    <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
+                      {potentialValueColumns.map(header => (
+                        <SelectItem key={`scatter-x-${header}`} value={header}>{header}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     
                     <Select value={scatterYField || ""} onValueChange={setScatterYField}>
                       <SelectTrigger className="w-[160px] h-9">
-                        <SelectValue placeholder="Y-Axis (Numeric)" />
+                       <div className="flex items-center">
+                         <span className="mr-1">Y: 🔢</span>
+                         <SelectValue placeholder="Y-Axis Value" />
+                       </div>
                       </SelectTrigger>
-                      <SelectContent 
-                        className="z-[200] min-w-[160px]"
-                        position="item-aligned"
-                        sideOffset={5}
-                        align="start"
-                      >
-                        {parsedData?.headers?.map(header => (
-                          <SelectItem key={`scatter-y-${header}`} value={header}>
-                            {header}
-                          </SelectItem>
+                     <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
+                      {potentialValueColumns.map(header => (
+                        <SelectItem key={`scatter-y-${header}`} value={header}>{header}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
-                  </>
-                )}
-                
-                {activeTab === "pie" && (
-                  <>
-                    <Select value={xAxisField || ""} onValueChange={setXAxisField}>
-                      <SelectTrigger className="w-[140px] h-9">
-                        <SelectValue placeholder="Categories" />
-                      </SelectTrigger>
-                      <SelectContent 
-                        className="z-[200] min-w-[140px]"
-                        position="item-aligned"
-                        sideOffset={5}
-                        align="start"
-                      >
-                        {parsedData?.headers?.map(header => (
-                          <SelectItem key={`pie-cat-${header}`} value={header}>
-                            {header}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    
-                    <Select value={pieField || ""} onValueChange={setPieField}>
-                      <SelectTrigger className="w-[140px] h-9">
-                        <SelectValue placeholder="Values" />
-                      </SelectTrigger>
-                      <SelectContent 
-                        className="z-[200] min-w-[140px]"
-                        position="item-aligned"
-                        sideOffset={5}
-                        align="start"
-                      >
-                        {parsedData?.headers?.map(header => (
-                          <SelectItem key={`pie-val-${header}`} value={header}>
-                            {header}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                   <TooltipProvider>
+                      <ShadTooltip delayDuration={100}>
+                        <TooltipTrigger asChild>
+                          <HelpCircle className="h-5 w-5 text-gray-400 cursor-help mt-2 ml-1" />
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs bg-gray-800 text-white p-2 rounded text-xs">
+                          <p>Select two number columns for the scatter plot axes.</p>
+                        </TooltipContent>
+                      </ShadTooltip>
+                    </TooltipProvider>
                   </>
                 )}
               </div>
@@ -360,23 +411,23 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
               <TabsList>
                   <TabsTrigger value="bar" className="flex items-center">
                     <BarChart2 className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Bar Chart</span>
+                    <span className="hidden sm:inline">Bar</span>
                   </TabsTrigger>
                   <TabsTrigger value="line" className="flex items-center">
                     <LineChartIcon className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Line Chart</span>
+                    <span className="hidden sm:inline">Line</span>
                   </TabsTrigger>
                   <TabsTrigger value="area" className="flex items-center">
                     <AreaChartIcon className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Area Chart</span>
+                    <span className="hidden sm:inline">Area</span>
                   </TabsTrigger>
                   <TabsTrigger value="pie" className="flex items-center">
                     <PieChartIcon className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Pie Chart</span>
+                    <span className="hidden sm:inline">Pie</span>
                   </TabsTrigger>
                   <TabsTrigger value="scatter" className="flex items-center">
                     <Circle className="h-4 w-4 mr-2" />
-                    <span className="hidden sm:inline">Scatter Plot</span>
+                    <span className="hidden sm:inline">Scatter</span>
                   </TabsTrigger>
                   <TabsTrigger value="table" className="flex items-center">
                     <TableIcon className="h-4 w-4 mr-2" />
@@ -384,37 +435,37 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                   </TabsTrigger>
               </TabsList>
               
-              <div ref={tabsContentContainerRef} className="border rounded-md p-1">
+              <div ref={tabsContentContainerRef} className="border rounded-md p-1 mt-2">
               <TabsContent value="bar" className="mt-0">
                 <div className="h-[400px] w-full">
+                  {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={chartData}
-                      margin={{ top: 20, right: 30, left: 20, bottom: 70 }} // Keep bottom margin for angled labels
+                        margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
                     >
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis 
                         dataKey="name" 
                         angle={-45} 
                         textAnchor="end"
-                        height={70} // Ensure height accommodates angled labels
-                        tick={{ fontSize: 11 }} // Slightly smaller font size
-                        label={{ value: xAxisField, position: 'insideBottom', dy: 10, fontSize: 12 }} // <<< Keep dynamic X-axis label
+                          height={70}
+                          tick={{ fontSize: 11 }}
+                          label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
                       />
                       <YAxis 
                         tick={{ fontSize: 11 }} 
-                        label={{ value: yAxisField, angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }} // <<< Keep dynamic Y-axis label
-                        scale="log"
-                        domain={[1, 'auto']}
+                          label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                        domain={['auto', 'auto']}
                         allowDataOverflow={true}
                         tickFormatter={(value) => formatNumber(value)}
                       />
                       <Tooltip 
                         formatter={(value, name, props) => [
-                          `${Number(value).toLocaleString('es-ES')}`, 
-                          yAxisField || 'Value' // Tooltip value label is correct
+                            `${formatNumber(value as number)}`,
+                            valueField || 'Value'
                         ]}
-                        labelFormatter={(label) => label} // Tooltip category label is correct
+                          labelFormatter={(label) => label}
                         contentStyle={{ 
                           backgroundColor: 'rgba(255, 255, 255, 0.95)',
                           borderRadius: '8px',
@@ -424,23 +475,29 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                         }}
                       />
                       <Legend 
-                        verticalAlign="top" // Move legend to top
+                          verticalAlign="top"
                         wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
                       />
                       <Bar 
                         dataKey="value" 
-                        name={yAxisField || "Value"} // Legend name is correct
+                          name={valueField || "Value"}
                         fill={CHART_COLORS[0]} 
                         radius={[4, 4, 0, 0]} 
                         maxBarSize={60}
                       />
                     </BarChart>
                   </ResponsiveContainer>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-gray-500">
+                      Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
+                    </div>
+                  )}
                 </div>
               </TabsContent>
               
               <TabsContent value="line" className="mt-0">
                  <div className="h-[400px] w-full">
+                  {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart
                       data={chartData}
@@ -453,20 +510,19 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                         textAnchor="end"
                         height={70}
                         tick={{ fontSize: 11 }}
-                        label={{ value: xAxisField, position: 'insideBottom', dy: 10, fontSize: 12 }} // <<< Keep dynamic X-axis label
+                          label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
                       />
                       <YAxis 
                         tick={{ fontSize: 11 }}
-                        label={{ value: yAxisField, angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }} // <<< Keep dynamic Y-axis label
-                        scale="log"
-                        domain={[1, 'auto']}
+                          label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                        domain={['auto', 'auto']}
                         allowDataOverflow={true}
                         tickFormatter={(value) => formatNumber(value)}
                       />
                       <Tooltip 
                         formatter={(value, name, props) => [
-                          `${Number(value).toLocaleString('es-ES')}`,
-                          yAxisField || 'Value'
+                            `${formatNumber(value as number)}`,
+                            valueField || 'Value'
                         ]}
                         labelFormatter={(label) => label}
                         contentStyle={{ 
@@ -478,13 +534,13 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                         }}
                       />
                       <Legend 
-                        verticalAlign="top" // Move legend to top
+                          verticalAlign="top"
                         wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
                       />
                       <Line 
                         type="monotone" 
                         dataKey="value" 
-                        name={yAxisField || "Value"} // Legend name is correct
+                          name={valueField || "Value"}
                         stroke={CHART_COLORS[0]} 
                         strokeWidth={2}
                         dot={{ r: 4 }}
@@ -492,11 +548,17 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                       />
                     </LineChart>
                   </ResponsiveContainer>
+                  ) : (
+                     <div className="flex items-center justify-center h-full text-gray-500">
+                       Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
+                     </div>
+                  )}
                 </div>             
               </TabsContent>
               
               <TabsContent value="area" className="mt-0">
                  <div className="h-[400px] w-full">
+                   {chartData.length > 0 ? (
                    <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
                       data={chartData}
@@ -509,20 +571,19 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                         textAnchor="end"
                         height={70}
                         tick={{ fontSize: 11 }}
-                        label={{ value: xAxisField, position: 'insideBottom', dy: 10, fontSize: 12 }} // <<< Keep dynamic X-axis label
+                          label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
                       />
                       <YAxis 
                         tick={{ fontSize: 11 }}
-                        label={{ value: yAxisField, angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }} // <<< Keep dynamic Y-axis label
-                        scale="log"
-                        domain={[1, 'auto']}
+                          label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                        domain={['auto', 'auto']}
                         allowDataOverflow={true}
                         tickFormatter={(value) => formatNumber(value)}
                       />
                       <Tooltip 
                         formatter={(value, name, props) => [
-                          `${Number(value).toLocaleString('es-ES')}`,
-                          yAxisField || 'Value'
+                            `${formatNumber(value as number)}`,
+                            valueField || 'Value'
                         ]}
                         labelFormatter={(label) => label}
                         contentStyle={{ 
@@ -534,36 +595,38 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                         }}
                       />
                       <Legend 
-                        verticalAlign="top" // Move legend to top
+                          verticalAlign="top"
                         wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
                       />
                       <Area 
                         type="monotone" 
                         dataKey="value" 
-                        name={yAxisField || "Value"} // Legend name is correct
+                          name={valueField || "Value"}
                         stroke={CHART_COLORS[0]} 
                         fill={CHART_COLORS[0]} 
                         fillOpacity={0.3}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
+                  ) : (
+                     <div className="flex items-center justify-center h-full text-gray-500">
+                       Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
+                     </div>
+                  )}
                 </div>             
               </TabsContent>
               
               <TabsContent value="pie" className="mt-0">
                 <div className="h-[400px] w-full">
-                  {(() => { 
-                      console.log("[Pie Tab] Rendering pie chart with data:", pieChartData);
-                      return null; 
-                  })()}
+                  {pieChartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <PieChart margin={{ top: 20, right: 40, bottom: 60, left: 40 }}> // Added margins
+                      <PieChart margin={{ top: 20, right: 40, bottom: 60, left: 40 }}>
                       <Pie
                         data={pieChartData}
                         cx="50%"
                         cy="50%"
                         labelLine={false} 
-                        outerRadius={100} // Reduced outer radius further
+                          outerRadius={100}
                         innerRadius={50}  
                         fill="#8884d8"
                         dataKey="value"
@@ -576,61 +639,55 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                       </Pie>
                       <Tooltip 
                         formatter={(value, name, props) => [
-                          `${props.payload?.absoluteValue.toLocaleString('es-ES')} (${(value as number).toFixed(1)}%)`, 
-                          pieField || 'Value'
+                            `${formatNumber(props.payload?.absoluteValue)} (${(value as number).toFixed(1)}%)`,
+                            valueField || 'Value'
                         ]}
                         labelFormatter={(label) => label}
                       />
                       <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', marginTop: '15px' }} /> 
                     </PieChart>
                   </ResponsiveContainer>
+                  ) : (
+                     <div className="flex items-center justify-center h-full text-gray-500">
+                       Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
+                     </div>
+                  )}
                 </div>
               </TabsContent>
               
                 <TabsContent value="scatter" className="mt-0">
                   <div className="h-[400px] w-full">
+                    {scatterData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                       <ScatterChart
-                        margin={{
-                          top: 20,
-                          right: 30,
-                          bottom: 70,
-                          left: 20
-                        }}
+                          margin={{ top: 20, right: 30, bottom: 70, left: 20 }}
                       >
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis
                           type="number"
                           dataKey="x"
                           name={scatterXField || "X"}
-                          label={{ 
-                            value: scatterXField, 
-                            position: 'insideBottom', 
-                            dy: 10,
-                            fontSize: 12 
-                          }}
+                            label={{ value: scatterXField || 'X-Axis', position: 'insideBottom', dy: 10, fontSize: 12 }}
                           tick={{ fontSize: 11 }}
+                            tickFormatter={(value) => formatNumber(value)}
                         />
                         <YAxis
                           type="number"
                           dataKey="y"
                           name={scatterYField || "Y"}
-                          label={{ 
-                            value: scatterYField, 
-                            angle: -90, 
-                            position: 'insideLeft', 
-                            dx: -5,
-                            fontSize: 12 
-                          }}
+                            label={{ value: scatterYField || 'Y-Axis', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
                           tick={{ fontSize: 11 }}
                           tickFormatter={(value) => formatNumber(value)}
                         />
                         <Tooltip
                           formatter={(value, name, props) => {
-                            if (name === 'x') return [`${Number(value).toLocaleString('es-ES')}`, scatterXField || 'X'];
-                            if (name === 'y') return [`${Number(value).toLocaleString('es-ES')}`, scatterYField || 'Y'];
-                            return [value, name];
+                               const pointName = props.payload?.name || 'Point';
+                               const xVal = formatNumber(props.payload?.x);
+                               const yVal = formatNumber(props.payload?.y);
+                               return [`X: ${xVal}, Y: ${yVal}`, pointName];
                           }}
+                             labelFormatter={(label) => ''}
+                             cursor={{ strokeDasharray: '3 3' }}
                           contentStyle={{ 
                             backgroundColor: 'rgba(255, 255, 255, 0.95)',
                             borderRadius: '8px',
@@ -642,6 +699,7 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                         <Legend 
                           verticalAlign="top" 
                           wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
+                            payload={[{ value: `${scatterXField || 'X'} vs ${scatterYField || 'Y'}`, color: CHART_COLORS[0] }]}
                         />
                         <Scatter
                           name={`${scatterXField || 'X'} vs ${scatterYField || 'Y'}`}
@@ -650,99 +708,18 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                         />
                       </ScatterChart>
                     </ResponsiveContainer>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-gray-500">
+                        Please select two Number columns for the X and Y axes.
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
                 
                 <TabsContent value="table" className="mt-0">
-                <div className="border border-gray-200 rounded-md">
-                    {/* State for column pagination */}
-                  {(() => { 
-                      console.log("[Table Tab][HTML] Rendering table with data:", parsedData?.tableData);
-                      // Use the existing useState hook
-                      const [columnPage, setColumnPage] = useState(0);
-                      const columnsPerPage = 5;
-                      const totalColumnPages = parsedData?.headers ? Math.ceil(parsedData.headers.length / columnsPerPage) : 0;
-                      
-                      // Get current columns to display
-                      const currentColumns = parsedData?.headers ? 
-                        parsedData.headers.slice(columnPage * columnsPerPage, (columnPage + 1) * columnsPerPage) : 
-                        [];
-                      
-                      const handlePrevColumns = () => {
-                        setColumnPage(prev => (prev > 0 ? prev - 1 : prev));
-                      };
-                      
-                      const handleNextColumns = () => {
-                        setColumnPage(prev => (prev < totalColumnPages - 1 ? prev + 1 : prev));
-                      };
-                      
-                      return (
-                        <>
-                        <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-                          <h3 className="font-medium text-sm">Data Preview</h3>
-                          {parsedData?.headers && parsedData.headers.length > columnsPerPage && (
-                            <div className="flex items-center gap-2">
-                              <button 
-                                onClick={handlePrevColumns} 
-                                disabled={columnPage === 0}
-                                className={`text-xs px-2 py-1 rounded border ${columnPage === 0 ? 'text-gray-400 border-gray-200' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                              >
-                                ← Prev
-                              </button>
-                              <span className="text-xs text-gray-500">
-                                Columns {columnPage * columnsPerPage + 1}-{Math.min((columnPage + 1) * columnsPerPage, parsedData.headers.length)} of {parsedData.headers.length}
-                              </span>
-                              <button 
-                                onClick={handleNextColumns} 
-                                disabled={columnPage >= totalColumnPages - 1}
-                                className={`text-xs px-2 py-1 rounded border ${columnPage >= totalColumnPages - 1 ? 'text-gray-400 border-gray-200' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                              >
-                                Next →
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        <table className="w-full text-sm text-left text-gray-700">
-                    <thead className="text-xs text-gray-800 uppercase bg-gray-100">
-                      <tr>
-                              {currentColumns.map((header: string, index: number) => (
-                          <th key={index} scope="col" className="px-3 py-2 border-b border-r border-gray-200">
-                            {header}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(!parsedData?.tableData || parsedData.tableData.length === 0) ? (
-                          <tr>
-                                    <td colSpan={currentColumns.length || 1} className="text-center text-gray-500 py-4 border-b">
-                                  No data rows available.
-                              </td>
-                          </tr>
-                      ) : (
-                                parsedData.tableData.slice(0, 20).map((row: Record<string, any>, rowIndex: number) => (
-                            <tr key={rowIndex} className={`${rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-b border-gray-200`}>
-                                    {currentColumns.map((header: string, colIndex: number) => (
-                                      <td key={colIndex} className="px-3 py-1.5 border-r border-gray-200">
-                                  {row[header]?.toString() || '-'}
-                                </td>
-                              ))}
-                            </tr>
-                          ))
-                      )}
-                    </tbody>
-                  </table>
-
-                    <div className="py-2 px-4 text-center text-xs text-gray-500 border-t border-gray-200 bg-gray-50 rounded-b-md">
-                          {parsedData?.tableData?.length > 20 
-                            ? `${parsedData.tableData.length - 20} more rows not shown (displaying first 20)` 
-                            : `Showing all ${parsedData?.tableData?.length || 0} rows`
-                          }
-                    </div>
-                        </>
-                      );
-                    })()}
+                <div className="border border-gray-200 rounded-md overflow-x-auto"> {/* Added overflow-x-auto */}
+                   {/* Use the new sub-component */}
+                   <PaginatedTable headers={parsedData?.headers || []} tableData={parsedData?.tableData || []} />
                 </div>
               </TabsContent>
             </div>
@@ -752,7 +729,7 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
           <div className="flex flex-col items-center justify-center h-[300px] bg-gray-50 rounded-md border border-dashed border-gray-200">
             <BarChart2 className="h-12 w-12 text-gray-300 mb-3" />
             <p className="text-gray-500 text-center">No data available for visualization</p>
-            <p className="text-gray-400 text-sm text-center mt-1">Upload a file to see beautiful charts</p>
+            <p className="text-gray-400 text-sm text-center mt-1">Upload a file or select processed data</p>
           </div>
         )}
       </CardContent>

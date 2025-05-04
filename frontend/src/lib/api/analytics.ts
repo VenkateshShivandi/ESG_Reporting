@@ -2,6 +2,52 @@ import { getAuthToken } from '../auth';
 
 const API_BASE_URL = 'http://localhost:5050';
 
+// Define the missing interfaces
+export interface ProcessedTable {
+  id: number;
+  range: string;
+  data: any[];
+  meta: {
+    columns: string[];
+    numericalColumns: string[];
+    categoricalColumns: string[];
+    dateColumns: string[];
+    yearColumns: string[];
+    excelRange?: string;
+  };
+  stats: {
+    rowCount: number;
+    columnCount: number;
+    processingTime: number;
+    isTruncated: boolean;
+    displayedRows: number;
+  };
+  chartData: {
+    barChart: Array<{name: string; value: number}>;
+    lineChart: Array<{name: string; value: number}>;
+    donutChart: Array<{name: string; value: number}>;
+    scatterPlot?: Array<any>;
+  };
+  tableData?: {
+    headers: string[];
+    rows: any[];
+  };
+  processingStatus?: string;
+}
+
+export interface ExcelAnalyticsResponse {
+  tables: ProcessedTable[];
+  tableCount: number;
+  fileMetadata: {
+    filename: string;
+    duration: number;
+  };
+  error: boolean;
+  errorType?: string;
+  message?: string;
+  errorDetails?: any;
+}
+
 // Get available data chunks list
 export async function fetchDataChunks() {
   try {
@@ -173,7 +219,7 @@ export async function generateReport(reportConfig: {
 }
 
 // Get Excel data for analytics visualization
-export async function fetchExcelData(fileName?: string): Promise<any> {
+export async function fetchExcelData(fileName?: string): Promise<ExcelAnalyticsResponse> {
   if (!fileName) {
     console.error('fetchExcelData called without fileName');
     throw new Error('No file name provided');
@@ -209,42 +255,75 @@ export async function fetchExcelData(fileName?: string): Promise<any> {
     // Log the raw data received from API
     console.log('[API] Raw data received from /api/analytics/excel-data:', data);
     
-    // Correctly map the actual top-level fields from the backend response
-    const result = {
-      // Chart data is top-level in the response
-      barChart: data.barChart || [], 
-      lineChart: data.lineChart || [], 
-      donutChart: data.donutChart || [], 
+    // Return the data in the expected format
+    if (data.tables && Array.isArray(data.tables)) {
+      // If the API already returns data in the expected ExcelAnalyticsResponse format
+      console.log('[API] Response already in expected format');
+      return data as ExcelAnalyticsResponse;
+    } else {
+      // For backward compatibility, convert legacy format to new ExcelAnalyticsResponse format
+      console.log('[API] Converting legacy format to new ExcelAnalyticsResponse format');
       
-      // Table data is top-level 'tableData' in the response
-      tableData: data.tableData || [], // Corrected mapping from 'tableData'
+      // Create a single processed table from legacy format
+      const processedTable: ProcessedTable = {
+        id: 0,
+        range: 'A1:Z1000', // Default range
+        data: data.tableData || [],
+        meta: {
+          columns: data.metadata?.columns || [],
+          numericalColumns: data.metadata?.numericalColumns || [],
+          categoricalColumns: data.metadata?.categoricalColumns || [],
+          dateColumns: data.metadata?.dateColumns || [],
+          yearColumns: data.metadata?.yearColumns || []
+        },
+        stats: data.stats || {
+          rowCount: 0,
+          columnCount: 0,
+          processingTime: 0,
+          isTruncated: false,
+          displayedRows: 0
+        },
+        chartData: {
+          barChart: data.barChart || [],
+          lineChart: data.lineChart || [],
+          donutChart: data.donutChart || []
+        },
+        tableData: {
+          headers: data.metadata?.columns || [],
+          rows: data.tableData || []
+        },
+        processingStatus: 'success'
+      };
       
-      // Metadata is top-level 'metadata'
-      metadata: {
-        filename: data.metadata?.filename || fileName, 
-        columns: data.metadata?.columns || [],
-        numericalColumns: data.metadata?.numericalColumns || [],
-        categoricalColumns: data.metadata?.categoricalColumns || [],
-        dateColumns: data.metadata?.dateColumns || [], 
-        yearColumns: data.metadata?.yearColumns || []
-      },
+      // Create the response structure
+      const response: ExcelAnalyticsResponse = {
+        tables: [processedTable],
+        tableCount: 1,
+        fileMetadata: {
+          filename: data.metadata?.filename || fileName,
+          duration: data.stats?.duration || 0
+        },
+        error: false,
+        message: 'Legacy data format converted successfully'
+      };
       
-      // Stats is top-level 'stats'
-      stats: data.stats || {
-        rowCount: 0,
-        columnCount: 0,
-        duration: 0
-      }
-    };
-    
-    // Log the structured result being returned to the component
-    console.log('[API] Returning structured result:', result);
-    
-    return result;
+      return response;
+    }
   } catch (error) {
     console.error('Error in fetchExcelData:', error);
-    // Re-throw the error so the component can handle it
-    throw error;
+    // Return error in the proper format
+    return {
+      tables: [],
+      tableCount: 0,
+      fileMetadata: {
+        filename: fileName || 'unknown',
+        duration: 0
+      },
+      error: true,
+      errorType: 'api_error',
+      message: error instanceof Error ? error.message : 'Unknown error fetching Excel data',
+      errorDetails: error
+    };
   }
 }
 

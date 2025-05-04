@@ -36,6 +36,7 @@ from typing import List, Dict, Any, Optional, Union, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy import Column, Integer, String, DateTime, Text
+import traceback
 
 # Load environment variables
 load_dotenv(".env.local")
@@ -275,79 +276,58 @@ def list_tree():
 
 
 @app.route("/api/upload-file", methods=["POST"])
-@require_auth
 def upload_file():
-    """Upload a file to a specific path."""
-    try:
-        app.logger.info("📞 API Call - upload_file")
-        if "file" not in request.files:
-            return jsonify({"error": "No file part"}), 400
+    """
+    Endpoint to upload a file directly to Supabase storage.
+    """
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part in the request"}), 400
 
-        file = request.files["file"]
-        path = request.form.get("path", "")
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
 
-        if file.filename == "":
-            return jsonify({"error": "No selected file"}), 400
+    if file:
+        try:
+            # Ensure filename is secure
+            filename = secure_filename(file.filename)
+            print(f"Attempting to upload file: {filename}")
 
-        # Use the original filename, just make it secure
-        filename = secure_filename(file.filename)
+            # Read file content into memory
+            file_content = file.read()
+            file.seek(0) # Reset file pointer if needed elsewhere
 
-        # Get file size from request headers or calculate it
-        file_size = request.content_length
-        if not file_size or file_size == 0:
-            # If content_length is not in headers, calculate from file
-            file.seek(0, 2)  # Seek to end of file
-            file_size = file.tell()  # Get current position (file size)
-            file.seek(0)  # Reset to beginning of file
-
-        # Read the file data
-        file_data = file.read()
-
-        # Upload to Supabase with original filename
-        file_path = os.path.join(path, filename) if path else filename
-        response = supabase.storage.from_("documents").upload(
-            file_path, file_data, file_options={"contentType": file.content_type}
-        )
-
-        file_type = str(file.content_type)  # Ensure it's text type
-        uploaded_at = (
-            datetime.now().replace(tzinfo=None).isoformat()
-        )  # Remove timezone info
-
-        response = (
-            supabase.schema("public")
-            .rpc(
-                "manage_document_metadata",
-                {
-                    "p_action": "create",
-                    "p_user_id": request.user["id"],
-                    "p_file_name": filename,
-                    "p_file_type": file_type,
-                    "p_uploaded_at": uploaded_at,
-                    "p_size": str(file_size),
-                    "p_file_path": file_path,
-                },
+            # Upload to Supabase storage
+            res = supabase.storage.from_('documents').upload(
+                path=filename,
+                file=file_content,
+                file_options={"content-type": file.content_type, "upsert": "true"}
             )
-            .execute()
-        )
 
-        app.logger.info(f"📥 API Response: {response}")
+            print(f"Supabase upload response status: {res.status_code}")
 
-        # Return the file path as the ID since Supabase storage doesn't return an ID
-        return (
-            jsonify(
-                {
-                    "fileId": file_path,
-                    "name": filename,
-                    "path": path.split("/") if path else [],
-                }
-            ),
-            200,
-        )
-    except Exception as e:
-        # Reverted error logging and response
-        app.logger.error(f"❌ API Error in upload_file: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+            # Check status code for success
+            if 200 <= res.status_code < 300:
+                return jsonify({"message": f"File '{filename}' uploaded successfully."}), 200
+            else:
+                # Attempt to parse error from Supabase response
+                error_details = "Unknown Supabase error"
+                try:
+                    error_json = res.json()
+                    error_details = error_json.get('message', error_details)
+                except Exception:
+                    pass # Ignore parsing errors
+                print(f"Supabase upload failed with status {res.status_code}: {error_details}")
+                return jsonify({"error": f"Failed to upload file to storage. Status: {res.status_code}. Details: {error_details}"}), res.status_code
+
+        except Exception as e:
+            # Log the detailed exception
+            traceback.print_exc()
+            # Return a generic server error message
+            return jsonify({"error": f"An unexpected error occurred during file upload: {str(e)}"}), 500
+    else:
+        # This case should ideally be caught by earlier checks
+        return jsonify({"error": "File processing failed unexpectedly."}), 500
 
 
 @app.route("/api/process-file", methods=["POST"])
@@ -2086,11 +2066,13 @@ def get_excel_data():
     """
     Process Excel/CSV file directly from Supabase storage and return the processed data.
     Uses robust_etl utility for advanced file parsing, layout detection, and data transformation.
+    Returns a structured response with potentially multiple detected tables.
     """
     try:
         file_name = request.args.get("file_name")
         
         if not file_name:
+            app.logger.warning("Missing file_name parameter in get_excel_data")
             return jsonify({"error": "Missing file_name parameter"}), 400
             
         app.logger.info(f"API Call - get_excel_data for file: {file_name}")
@@ -2103,75 +2085,92 @@ def get_excel_data():
             file_data = download_response
             ext = file_name.split(".")[-1].lower() if "." in file_name else ""
             
-            is_valid_extension = ext in ["xlsx", "xls", "csv", "xlsb", "tsv"]
-            
-            if not is_valid_extension:
+            # Basic check for supported extensions (can be expanded)
+            supported_extensions = {"xlsx", "xls", "csv", "xlsb", "tsv"}
+            if ext not in supported_extensions:
+                app.logger.warning(f"Unsupported file type requested: {ext}")
                 return jsonify({"error": f"Unsupported file type: {ext}. Only Excel and CSV files are supported."}), 400
                 
             app.logger.info(f"Downloaded {len(file_data)} bytes for {file_name}")
             
         except Exception as download_error:
-            app.logger.error(f"❌ Failed to download file from Supabase storage '{file_name}': {str(download_error)}")
-            if "not found" in str(download_error).lower():
-                return jsonify({"error": f"File not found in storage: {file_name}"}), 404
+            # More specific error handling for Supabase Storage
+            error_message = str(download_error)
+            status_code = 500
+            if "NotFound" in error_message or "does not exist" in error_message: 
+                status_code = 404
+                error_message = f"File not found in storage: {file_name}"
             else:
-                return jsonify({"error": f"Error downloading file from storage: {str(download_error)}"}), 500
+                error_message = f"Error downloading file from storage: {error_message}"
+            
+            app.logger.error(f"❌ Failed to download file from Supabase storage '{file_name}': {error_message}")
+            return jsonify({"error": error_message}), status_code
                 
         # 2. Process the file using robust_etl utility
         try:
             from utils.robust_etl import etl_to_chart_payload
             import io
             
-            # Use our robust ETL utility to process the file
-            # Pass the original filename to ensure correct extension detection
-            etl_response = etl_to_chart_payload(io.BytesIO(file_data), original_filename=file_name)
+            # Use BytesIO to treat the downloaded bytes as a file
+            file_stream = io.BytesIO(file_data)
+            file_stream.seek(0) # Ensure stream position is at the beginning
             
-            # Restructure the response to match the expected frontend structure
-            # The frontend expects barChart, lineChart, donutChart and tableData directly in the response
-            response_payload = {
-                # Charts directly in response
-                "barChart": etl_response.get("chartData", {}).get("barChart", []),
-                "lineChart": etl_response.get("chartData", {}).get("lineChart", []),
-                "donutChart": etl_response.get("chartData", {}).get("donutChart", []),
-                # Table data
-                "tableData": etl_response.get("data", []),
-                # Metadata
-                "metadata": {
-                    "filename": file_name,
-                    "columns": etl_response.get("meta", {}).get("columns", []),
-                    "categoricalColumns": etl_response.get("meta", {}).get("categoricalColumns", []),
-                    "numericalColumns": etl_response.get("meta", {}).get("numericalColumns", []),
-                    "timeColumns": etl_response.get("meta", {}).get("timeColumns", []),
-                    "yearColumns": etl_response.get("meta", {}).get("yearColumns", [])
-                },
-                # Stats
-                "stats": etl_response.get("stats", {})
-            }
+            # Call our robust ETL utility
+            # Pass the original filename to ensure correct extension detection within ETL
+            etl_response = etl_to_chart_payload(fp=file_stream, original_filename=file_name)
             
-            app.logger.info(f"Successfully processed {file_name} using robust ETL")
-            # Log the full payload before sending
-            try:
-                import json
-                payload_str = json.dumps(response_payload, indent=2, default=str) # Use default=str for non-serializable types
-                app.logger.debug(f"Payload being sent to frontend for {file_name}:\n{payload_str}")
-            except Exception as log_e:
-                app.logger.error(f"Failed to log payload: {str(log_e)}")
-                app.logger.debug(f"Raw payload (may contain non-serializable types): {response_payload}")
+            # Close the stream
+            file_stream.close()
+            
+            app.logger.info(f"Successfully processed {file_name} using robust ETL. Detected tables: {etl_response.get('tableCount', 0)}")
+            
+            # Log the full payload before sending (optional, for debugging)
+            # try:
+            #     import json
+            #     payload_str = json.dumps(etl_response, indent=2, default=str) # Use default=str for non-serializable types
+            #     app.logger.debug(f"Payload being sent to frontend for {file_name}:\n{payload_str}")
+            # except Exception as log_e:
+            #     app.logger.error(f"Failed to log payload: {str(log_e)}")
+            #     app.logger.debug(f"Raw payload (may contain non-serializable types): {etl_response}")
                 
-            return jsonify(response_payload), 200
+            # Return the structured response directly from the ETL function
+            # Determine status code based on whether ETL reported an error
+            status_code = 500 if etl_response.get("error") else 200
+            return jsonify(etl_response), status_code
             
         except ValueError as ve:
-            # Handle validation errors from ETL utility
-            app.logger.error(f"❌ Error processing file {file_name}: {str(ve)}")
-            return jsonify({"error": f"File processing error: {str(ve)}"}), 400
+            # Handle validation errors specifically from ETL utility
+            app.logger.error(f"❌ File processing validation error for {file_name}: {str(ve)}")
+            # Return the error in the standard ETL response format
+            error_payload = {
+                "tables": [],
+                "tableCount": 0,
+                "fileMetadata": {"filename": file_name, "duration": 0},
+                "error": True,
+                "errorType": "etl_validation",
+                "message": f"File processing error: {str(ve)}",
+                "errorDetails": str(ve)
+            }
+            return jsonify(error_payload), 400 # Bad Request for validation issues
             
         except Exception as e:
-            app.logger.error(f"❌ Error processing file {file_name}: {str(e)}")
-            return jsonify({"error": f"Error processing file: {str(e)}"}), 500
+            app.logger.error(f"❌ Unhandled error during ETL processing for {file_name}: {str(e)}", exc_info=True) # Log traceback
+            # Return the error in the standard ETL response format
+            error_payload = {
+                "tables": [],
+                "tableCount": 0,
+                "fileMetadata": {"filename": file_name, "duration": 0},
+                "error": True,
+                "errorType": "etl_runtime",
+                "message": f"Internal server error during ETL processing: {str(e)}",
+                "errorDetails": traceback.format_exc() # Include traceback in details for debugging
+            }
+            return jsonify(error_payload), 500
             
     except Exception as e:
-        app.logger.error(f"❌ API Error in get_excel_data: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        app.logger.error(f"❌ API Error in get_excel_data (outer try): {str(e)}", exc_info=True)
+        # Generic API error response
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 
 @app.route("/api/analytics/excel-files", methods=["GET"])
@@ -2220,5 +2219,73 @@ def get_excel_files():
         return jsonify({"error": str(e)}), 500
 
 
+# <<< NEW ENDPOINT FOR SPREADSHEET ANALYSIS >>>
+@app.route("/api/analyze-sheet", methods=["POST"])
+# @require_auth # Temporarily disable auth for easier testing if needed, re-enable later
+def analyze_sheet():
+    """Analyzes an uploaded Excel/CSV file for table data and chart payloads."""
+    logger = app.logger # Use Flask app logger
+    logger.info("📞 API Call - analyze_sheet")
+
+    if "file" not in request.files:
+        logger.warning("No file part in request.")
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files["file"]
+
+    if file.filename == "":
+        logger.warning("No selected file.")
+        return jsonify({"error": "No selected file"}), 400
+
+    filename = secure_filename(file.filename)
+    logger.info(f"Received file for analysis: {filename}")
+
+    # Check for allowed extensions (optional but recommended)
+    allowed_extensions = {'.xlsx', '.xls', '.csv'}
+    file_ext = os.path.splitext(filename)[1].lower()
+    if file_ext not in allowed_extensions:
+        logger.warning(f"Invalid file type received: {file_ext}")
+        return jsonify({"error": f"Invalid file type. Allowed: {allowed_extensions}"}), 400
+
+    try:
+        # Read file content into BytesIO for ETL processing
+        file_content = file.read()
+        file_stream = io.BytesIO(file_content)
+        
+        # Ensure stream position is at the beginning
+        file_stream.seek(0)
+
+        # Import the ETL function locally to avoid circular dependencies if any
+        from utils.robust_etl import etl_to_chart_payload
+        
+        logger.info(f"Calling etl_to_chart_payload for {filename}")
+        # Call the refactored ETL function
+        etl_result = etl_to_chart_payload(fp=file_stream, original_filename=filename)
+        
+        # Close the stream
+        file_stream.close()
+        
+        logger.info(f"ETL completed for {filename}. Processed tables: {etl_result.get('tableCount', 0)}")
+        # Return the result from the ETL function
+        # The ETL function now includes error details in its return structure
+        status_code = 500 if etl_result.get("error") else 200
+        return jsonify(etl_result), status_code
+
+    except Exception as e:
+        logger.error(f"❌ API Error in analyze_sheet: {str(e)}", exc_info=True)
+        # Construct error response consistent with ETL function's error format
+        error_payload = {
+            "tables": [],
+            "tableCount": 0,
+            "fileMetadata": {"filename": filename, "duration": 0}, # Duration not applicable here
+            "error": True,
+            "errorType": "api_error",
+            "message": f"API error during analysis: {str(e)}",
+            "errorDetails": str(e)
+        }
+        return jsonify(error_payload), 500
+
+
 if __name__ == "__main__":
-    app.run(debug=True, port=5050)
+    # Use HOST='0.0.0.0' to make accessible outside Docker container if needed
+    app.run(host='0.0.0.0', debug=True, port=5050) 

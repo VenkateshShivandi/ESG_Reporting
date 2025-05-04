@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState, useEffect } from "react"
+import { useMemo, useState, useEffect, useRef } from "react"
 import { Card } from "@/components/ui/card"
 import { BarChart2, ChevronLeft, ChevronRight } from "lucide-react" // Use a generic icon and navigation icons
 import { Button } from "@/components/ui/button" // Import Button component
@@ -10,6 +10,13 @@ interface GenericHeatmapPreviewProps {
   parsedData: {
     headers: string[]
     tableData: Record<string, any>[]
+    metadata: {
+      columns?: string[]
+      numericalColumns?: string[]
+      categoricalColumns?: string[]
+      dateColumns?: string[]
+      yearColumns?: string[]
+    } | null
   } | null
 }
 
@@ -69,8 +76,40 @@ export default function GenericHeatmapPreview({ parsedData }: GenericHeatmapPrev
   const cardsPerPage = 10; // Show 10 cards per page
   
   // Add state for column selection
-  const [selectedCategoryField, setSelectedCategoryField] = useState<string>("");
-  const [selectedValueField, setSelectedValueField] = useState<string>("");
+  const [selectedCategoryField, setSelectedCategoryField] = useState<string | null>(null);
+  const [selectedValueField, setSelectedValueField] = useState<string | null>(null);
+
+  const tabsContentContainerRef = useRef<HTMLDivElement>(null);
+
+  // Derive potential columns for selectors - MODIFIED
+  const { potentialCategoryColumns, potentialValueColumns } = useMemo(() => {
+    const headers = parsedData?.headers || [];
+    // NOW: Both dropdowns get ALL headers
+    return {
+      potentialCategoryColumns: headers,
+      potentialValueColumns: headers
+    };
+  }, [parsedData]);
+
+  // Initialize selected fields - Simplified Defaults
+  useEffect(() => {
+    if (parsedData?.headers && parsedData.headers.length > 0) {
+      const headers = parsedData.headers;
+      // Default category to first header
+      const defaultCategory = headers[0];
+      if (!selectedCategoryField || !headers.includes(selectedCategoryField)) {
+        setSelectedCategoryField(defaultCategory);
+      }
+      // Default value to second header if exists, else first
+      const defaultValue = headers.length > 1 ? headers[1] : (headers.length > 0 ? headers[0] : null);
+      if (!selectedValueField || !headers.includes(selectedValueField)) {
+        setSelectedValueField(defaultValue);
+      }
+    } else {
+      setSelectedCategoryField(null);
+      setSelectedValueField(null);
+    }
+  }, [parsedData?.headers, selectedCategoryField, selectedValueField]); // Add state vars to dependency array
 
   const heatmapData = useMemo(() => {
     if (!parsedData?.tableData || parsedData.tableData.length === 0 || !parsedData.headers || parsedData.headers.length < 2) {
@@ -194,17 +233,6 @@ export default function GenericHeatmapPreview({ parsedData }: GenericHeatmapPrev
 
   }, [parsedData, selectedCategoryField, selectedValueField]);
 
-  // Set initial field selections when data changes or auto-detection happens
-  useEffect(() => {
-    if (heatmapData.categoryField && !selectedCategoryField) {
-      setSelectedCategoryField(heatmapData.categoryField);
-    }
-    
-    if (heatmapData.valueField && !selectedValueField) {
-      setSelectedValueField(heatmapData.valueField);
-    }
-  }, [heatmapData.categoryField, heatmapData.valueField, selectedCategoryField, selectedValueField]);
-
   // Reset pagination when selection changes
   useEffect(() => {
     setCurrentPage(0);
@@ -255,44 +283,24 @@ export default function GenericHeatmapPreview({ parsedData }: GenericHeatmapPrev
       {/* Field selection controls */}
       {parsedData?.headers && parsedData.headers.length > 0 && (
         <div className="flex flex-wrap gap-3 mb-4 relative">
-          <Select 
-            value={selectedCategoryField} 
-            onValueChange={setSelectedCategoryField}
-          >
-            <SelectTrigger className="w-[180px] h-9 bg-slate-800 border-slate-700 text-slate-300">
-              <SelectValue placeholder="Category Field" />
+          <Select value={selectedCategoryField || ''} onValueChange={setSelectedCategoryField}>
+            <SelectTrigger className="w-[160px] h-8 text-xs bg-slate-700 border-slate-600 text-slate-200">
+              <SelectValue placeholder="Select Category" />
             </SelectTrigger>
-            <SelectContent 
-              className="bg-slate-800 border-slate-700 text-slate-300 z-[100] min-w-[180px]" 
-              position="popper"
-              sideOffset={5}
-              align="start"
-            >
-              {parsedData.headers.map(header => (
-                <SelectItem key={`cat-${header}`} value={header} className="hover:bg-slate-700 focus:bg-slate-700 focus:text-white">
-                  {header}
-                </SelectItem>
+            <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
+              {potentialCategoryColumns.map(header => (
+                <SelectItem key={`cat-${header}`} value={header}>{header}</SelectItem>
               ))}
             </SelectContent>
           </Select>
 
-          <Select 
-            value={selectedValueField} 
-            onValueChange={setSelectedValueField}
-          >
-            <SelectTrigger className="w-[180px] h-9 bg-slate-800 border-slate-700 text-slate-300">
-              <SelectValue placeholder="Value Field" />
+          <Select value={selectedValueField || ''} onValueChange={setSelectedValueField}>
+            <SelectTrigger className="w-[160px] h-8 text-xs bg-slate-700 border-slate-600 text-slate-200">
+              <SelectValue placeholder="Select Value" />
             </SelectTrigger>
-            <SelectContent 
-              className="bg-slate-800 border-slate-700 text-slate-300 z-[100] min-w-[180px]" 
-              position="popper"
-              sideOffset={5}
-              align="start"
-            >
-              {parsedData.headers.map(header => (
-                <SelectItem key={`val-${header}`} value={header} className="hover:bg-slate-700 focus:bg-slate-700 focus:text-white">
-                  {header}
-                </SelectItem>
+            <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
+              {potentialValueColumns.map(header => (
+                <SelectItem key={`val-${header}`} value={header}>{header}</SelectItem>
               ))}
             </SelectContent>
           </Select>

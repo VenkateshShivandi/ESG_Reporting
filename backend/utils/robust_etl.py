@@ -25,6 +25,8 @@ from pathlib import Path
 from flask import current_app # Import current_app to access logger
 import logging
 import csv # <<< Add import for csv module
+from scipy.ndimage import label, find_objects # <<< Add scipy imports
+import string # <<< Add import for string
 
 # Set up a default logger for use outside of Flask context
 default_logger = logging.getLogger('robust_etl')
@@ -57,10 +59,16 @@ POLARS_THRESHOLD = 500 * 1024 * 1024  # 500 MB
 NUMERIC_UNIQUE_RATIO = 0.9
 CATEGORICAL_MAX_UNIQUE = 50
 MAX_JSON_ROWS = 1000  # Maximum rows to include in JSON response
-ENABLE_CACHE = True  # Global toggle for caching
+ENABLE_CACHE = False  # Global toggle for caching
 CACHE_DIR = "cache/etl"  # Relative to current directory
 CACHE_EXPIRY = 60 * 60 * 24  # Cache expiry in seconds (24 hours)
 FILE_SIZE_THRESHOLD = 100 * 1024 * 1024  # 100MB threshold for using polars
+
+# --- Block Filtering Constants (NEW) ---
+# Document rationale during tuning phase
+MIN_BLOCK_ROWS = 2      # Minimum rows for a block to be considered a table
+MIN_BLOCK_COLS = 2      # Minimum columns for a block to be considered a table
+MIN_BLOCK_DENSITY = 0.3 # Minimum ratio of non-empty cells within block bounds
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CACHING FUNCTIONS
@@ -188,190 +196,237 @@ def _cache_result(cache_key, payload):
         return False
 
 # ─────────────────────────────────────────────────────────────────────────────
-# PUBLIC API
+# PUBLIC API - REFACTORED FOR MULTI-TABLE PROCESSING
 # ─────────────────────────────────────────────────────────────────────────────
-def _nan_to_none(data):
+def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None = None) -> dict:
     """
-    Convert NaN, infinite, and None values to None for JSON serialization.
+    ETL pipeline converts various file types to a standardized payload,
+    detecting and processing multiple tables within a single sheet/file.
     
     Args:
-        data: List of dictionaries or dictionary to clean
+        fp: Path to the input file or BytesIO object.
+        original_filename: Original filename with extension (for accurate type detection).
         
     Returns:
-        Cleaned data with NaN/inf/None values converted to None
-    """
-    if isinstance(data, dict):
-        return {k: None if pd.isna(v) or (isinstance(v, float) and (np.isinf(v) or np.isneginf(v))) else v 
-                for k, v in data.items()}
-    elif isinstance(data, list):
-        return [_nan_to_none(item) if isinstance(item, dict) else None if pd.isna(item) else item 
-                for item in data]
-    else:
-        return None if pd.isna(data) else data
-
-
-def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None = None, sample_nrows=None) -> dict:
-    """
-    ETL pipeline that converts various file types to a standardized chart payload.
-    
-    Args:
-        fp: Path to the input file or BytesIO object
-        original_filename: Original filename with extension (for accurate type detection)
-        sample_nrows: Number of rows to sample (None = all rows)
-        
-    Returns:
-        A dictionary containing chart data and metadata suitable for JSON serialization
+        Dict containing results for potentially multiple tables:
+        {
+            "tables": [ { "id": int, "range": str, "data": list, "meta": dict,
+                          "stats": dict, "chartData": dict }, ... ],
+            "tableCount": int,
+            "fileMetadata": { "filename": str, "duration": float },
+            "error": bool,
+            "errorType": str | None,
+            "message": str | None
+        }
     """
     start_time = time.time()
     logger = get_logger()
-    
-    def create_error_response(message: str, error_type: str = "general", details: str | dict = None) -> dict:
+    logger.info(f"Starting multi-table ETL process for: {original_filename or 'memory stream'}")
+
+    # --- Caching Logic (Adapted) ---
+    cache_key = _generate_cache_key(fp, original_filename, None)
+    cached_result = _get_cached_result(cache_key)
+    if cached_result:
+        logger.info("Returning cached multi-table result.")
+        cached_result.setdefault('fileMetadata', {}).setdefault('duration', time.time() - start_time)
+        return cached_result
+    # --- End Caching Logic ---
+
+    # --- Prepare Response Structure ---
+    final_result = {
+        "tables": [],
+        "tableCount": 0,
+        "fileMetadata": {"filename": original_filename},
+        "error": False,
+        "errorType": None,
+        "message": None
+    }
+
+    # Nested helper for cleaner error structure
+    def create_error_payload(message: str, error_type: str = "general", details: str | dict = None) -> dict:
         duration = time.time() - start_time
-        error_payload = {
+        logger.error(f"ETL Error: Type={error_type}, Msg={message}, Details={details}")
+        return {
+            "tables": [],
+            "tableCount": 0,
+            "fileMetadata": {"filename": original_filename, "duration": duration},
             "error": True,
             "errorType": error_type,
             "message": message,
-            "duration": duration
+            "errorDetails": details
         }
-        if details:
-            error_payload["errorDetails"] = details
-        logger.info(f"Creating error response: Type={error_type}, Msg={message}, Details: {details}")
-        return error_payload
-    
+
     try:
-        logger.debug("Starting ETL process")
-        # Basic validation
-        if isinstance(fp, io.BytesIO):
-            fp.seek(0)
-            if not fp.read(1):
-                fp.seek(0)
-                return create_error_response("Input file is empty", "empty_file")
-            fp.seek(0)
-        elif isinstance(fp, str):
-            if not os.path.exists(fp):
-                return create_error_response(f"File not found: {fp}", "file_not_found")
-            if os.path.getsize(fp) == 0:
-                return create_error_response("Input file is empty", "empty_file")
+        # 1. Load Raw Data
+        logger.debug("Step 1: Loading raw dataframe...")
+        df_raw = _load_dataframe(fp, original_filename)
+        if df_raw is None:
+             return create_error_payload("Failed to load raw data.", "load_error")
+        logger.debug(f"Raw data loaded, shape: {df_raw.shape}")
+
+        # 2. Find Potential Data Blocks
+        logger.debug("Step 2: Finding data blocks...")
+        initial_blocks = _find_data_blocks(df_raw)
+        if not initial_blocks:
+            logger.warning("No potential data blocks found in the raw data.")
+            final_result['fileMetadata']['duration'] = time.time() - start_time
+            final_result['message'] = "No data tables found after initial block detection."
+            _cache_result(cache_key, final_result) # Cache even if no tables found
+            return final_result
+
+        # 3. Filter and Refine Blocks
+        logger.debug("Step 3: Filtering and refining blocks...")
+        validated_blocks = _filter_and_refine_blocks(initial_blocks)
+        if not validated_blocks:
+            logger.warning("No blocks remained after filtering and refinement.")
+            final_result['fileMetadata']['duration'] = time.time() - start_time
+            final_result['message'] = "No valid data tables found after filtering noise/irrelevant blocks."
+            _cache_result(cache_key, final_result) # Cache even if no tables found
+            return final_result
+
+        # 4. Process Each Validated Block
+        logger.debug(f"Step 4: Processing {len(validated_blocks)} validated blocks...")
+        processed_tables_payload = []
+        for i, block in enumerate(validated_blocks):
+            table_id = i
+            block_start_time = time.time()
+            excel_range = "N/A" # Default range
+            try:
+                slice_obj = block['slice']
+                excel_range = _slice_to_excel_range(slice_obj)
+                logger.info(f"--- Processing Table Block {table_id} (Label: {block['label']}, Range: {excel_range}) ---")
+
+                block_data = block['data']
+                header_idx = block['header_idx']
+                logger.debug(f"Block {table_id}: Header Index Relative to Block = {header_idx}")
+
+                # 4a. Construct Final DataFrame
+                logger.debug(f"Block {table_id}: Constructing table DataFrame...")
+                if header_idx >= len(block_data):
+                    raise ValueError(f"Header index {header_idx} is out of bounds for block data with length {len(block_data)}")
+                
+                header_row = block_data.iloc[header_idx]
+                data_values = block_data.values[header_idx+1:]
+                if data_values.size == 0: 
+                     table_df = pd.DataFrame(columns=header_row)
+                elif data_values.ndim == 1:
+                     table_df = pd.DataFrame(data_values.reshape(1, -1), columns=header_row)
+                else:
+                     table_df = pd.DataFrame(data_values, columns=header_row)
+                     
+                table_df = table_df.reset_index(drop=True)
+
+                # Check emptiness *after* DataFrame creation
+                if table_df.empty and header_idx == len(block_data) - 1:
+                    logger.warning(f"Block {table_id}: Constructed DataFrame is empty (only header row found). Skipping.")
+                    continue
+                logger.debug(f"Block {table_id}: Constructed shape: {table_df.shape}")
+
+                # 4b. Clean Table DataFrame
+                logger.debug(f"Block {table_id}: Cleaning...")
+                table_df = _clean_dataframe(table_df)
+                if table_df.empty:
+                    logger.warning(f"Block {table_id}: DataFrame became empty after cleaning. Skipping.")
+                    continue
+                logger.debug(f"Block {table_id}: Cleaned shape: {table_df.shape}")
+
+                # 4c. Classify Columns
+                logger.debug(f"Block {table_id}: Classifying columns...")
+                column_types = _classify_columns(table_df)
+
+                # 4d. Build Chart Payloads
+                logger.debug(f"Block {table_id}: Building chart payloads...")
+                chart_data = _build_chart_payloads(table_df, column_types)
+
+                # 4e. Calculate Stats
+                logger.debug(f"Block {table_id}: Calculating stats...")
+                is_truncated = len(table_df) > MAX_JSON_ROWS
+                table_data_json = table_df.head(MAX_JSON_ROWS).to_dict(orient="records")
+                stats = {
+                    "rowCount": len(table_df),
+                    "columnCount": len(table_df.columns),
+                    "processingTime": time.time() - block_start_time,
+                    "isTruncated": is_truncated,
+                    "displayedRows": len(table_data_json)
+                }
+
+                # 4f. Assemble Payload
+                table_payload = {
+                    "id": table_id,
+                    "range": excel_range,
+                    "data": _nan_to_none(table_data_json), 
+                    "meta": {
+                        "columns": table_df.columns.tolist(),
+                        "numericalColumns": column_types.get("numericalColumns", []),
+                        "categoricalColumns": column_types.get("categoricalColumns", []),
+                        "dateColumns": column_types.get("dateColumns", []),
+                        "yearColumns": column_types.get("yearColumns", []),
+                        "excelRange": excel_range
+                    },
+                    "stats": stats,
+                    "chartData": chart_data,
+                    "tableData": {
+                        "headers": table_df.columns.tolist(),
+                        "rows": _nan_to_none(table_df.head(MAX_JSON_ROWS).to_dict(orient='records'))
+                    },
+                    "processingStatus": "success"
+                }
+                processed_tables_payload.append(table_payload)
+                logger.info(f"--- Finished Processing Table Block {table_id} --- Success --- Duration: {stats['processingTime']:.2f}s")
+
+            # THIS except block needs to be aligned with the try block above
+            except Exception as block_error: 
+                logger.error(
+                    f"--- Error Processing Table Block {table_id} (Label: {block.get('label', 'N/A')}, Range: {excel_range}) ---",
+                    exc_info=True
+                )
+                continue  # Continue to next block
+
+        # 5. Finalize Response
+        logger.debug("Step 5: Finalizing response...")
+        final_result["tables"] = processed_tables_payload
+        final_result["tableCount"] = len(processed_tables_payload)
+        if not processed_tables_payload and validated_blocks: # Check if we had blocks but they all failed
+            final_result["message"] = "Found potential tables, but errors occurred during processing for all of them."
+            logger.warning(final_result["message"])
+        elif not processed_tables_payload: # No blocks passed validation
+             final_result["message"] = "No valid data tables found."
+             logger.warning(final_result["message"])
         else:
-            return create_error_response("Invalid input type for fp", "invalid_input")
+             final_result["message"] = f"Successfully processed {final_result['tableCount']} table(s)."
+             logger.info(final_result["message"])
 
-        # Load the data
-        try:
-            logger.debug("Attempting to load dataframe")
-            df = _load_dataframe(fp, original_filename)
-            # We already check for empty file content, so df None/empty should mean parsing issue
-            if df is None or df.empty:
-                logger.warning("Load resulted in None or empty dataframe, likely parsing issue")
-                return create_error_response("Failed to parse data from file", "invalid_format")
-            logger.debug("Dataframe loaded successfully")
-        except pd.errors.EmptyDataError as e:
-            logger.warning(f"Caught EmptyDataError: {str(e)}")
-            return create_error_response(str(e), "empty_file")
-        except pd.errors.ParserError as e:
-            logger.error(f"Caught ParserError during load: {str(e)}")
-            return create_error_response(f"Failed to parse file: {str(e)}", "invalid_format", details=str(e))
-        except FileNotFoundError as e:
-            logger.error(f"Caught FileNotFoundError during load: {str(e)}")
-            return create_error_response(str(e), "file_not_found")
-        except Exception as e:
-            error_details = f"{type(e).__name__}: {str(e)}"
-            logger.error(f"Caught general Exception during load: {error_details}", exc_info=True)
-            return create_error_response("Failed to load data", "load_error", details=error_details)
+        final_result["fileMetadata"]["duration"] = time.time() - start_time
 
-        # Sample if requested
-        if sample_nrows is not None and sample_nrows < len(df):
-            logger.debug(f"Sampling dataframe to {sample_nrows} rows")
-            df = df.sample(n=sample_nrows, random_state=42)
-        
-        # Clean the data
-        try:
-            logger.debug("Attempting to clean dataframe")
-            df = _clean_dataframe(df)
-            logger.debug("Dataframe cleaned successfully")
-        except Exception as e:
-            error_details = f"{type(e).__name__}: {str(e)}"
-            logger.error(f"Caught Exception during clean: {error_details}", exc_info=True)
-            return create_error_response("Failed to clean data", "clean_error", details=error_details)
-            
-        # Attempt to melt if it looks like wide time-series data
-        try:
-            logger.debug("Attempting to melt dataframe")
-            df, was_melted = _melt_time_series(df)
-            if was_melted:
-                logger.info("Dataframe was melted from wide format.")
-            else:
-                logger.debug("Melting not applied or needed.")
-        except Exception as e:
-            logger.warning(f"Melting attempt failed (continuing): {type(e).__name__}: {str(e)}")
-            pass
-        
-        # Classify columns (after potential melting)
-        try:
-            logger.debug("Attempting to classify columns")
-            column_types = _classify_columns(df)
-            logger.debug("Columns classified successfully")
-        except Exception as e:
-            error_details = f"{type(e).__name__}: {str(e)}"
-            logger.error(f"Caught Exception during classify: {error_details}", exc_info=True)
-            return create_error_response("Failed to classify columns", "classification_error", details=error_details)
-        
-        # Build chart payloads
-        try:
-            logger.debug("Attempting to build chart payloads")
-            chart_data = _build_chart_payloads(df, column_types)
-            logger.debug("Chart payloads built successfully")
-        except Exception as e:
-            error_details = f"{type(e).__name__}: {str(e)}"
-            logger.error(f"Caught Exception during build charts: {error_details}", exc_info=True)
-            return create_error_response("Failed to build chart data", "chart_error", details=error_details)
-        
-        # Calculate stats
-        logger.debug("Calculating stats")
-        stats = {
-            "rowCount": len(df),
-            "columnCount": len(df.columns),
-            "duration": time.time() - start_time
-        }
-        
-        # Return success payload
-        logger.info("ETL process completed successfully")
-        
-        # Prepare final metadata
-        final_meta = {
-            "filename": original_filename,
-            "columns": df.columns.tolist(), # Use final cleaned columns
-            "numericalColumns": column_types.get("numericalColumns", []),
-            "categoricalColumns": column_types.get("categoricalColumns", []),
-            "dateColumns": column_types.get("dateColumns", []),
-            "yearColumns": column_types.get("yearColumns", []),
-            # Add other meta info if needed
-        }
-        
-        return {
-            "data": _nan_to_none(df.to_dict(orient="records")),
-            "meta": final_meta, # Use the prepared meta dictionary
-            "stats": stats,
-            "chartData": chart_data
-        }
+        # Cache the successful result (even if no tables were processed)
+        _cache_result(cache_key, final_result)
+
+        return final_result
         
     except Exception as e:
-        error_details = f"{type(e).__name__}: {str(e)}"
-        logger.error(f"Caught UNEXPECTED Exception in outer block: {error_details}", exc_info=True)
-        return create_error_response("ETL pipeline failed unexpectedly", "pipeline_error", details=error_details)
+        # Catch-all for unexpected errors in the main orchestration
+        return create_error_payload("ETL pipeline failed unexpectedly.", "pipeline_error", details=f"{type(e).__name__}: {str(e)}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 1  EXTRACT
 # ─────────────────────────────────────────────────────────────────────────────
 def _load_dataframe(fp: str | io.BytesIO, original_filename: str | None = None) -> pd.DataFrame | None:
     """
-    Load a DataFrame from various file types, automatically detecting the header row and handling multiple sheets.
+    Load a DataFrame from various file types. Reads raw data first for potential
+    multi-block detection before applying header detection.
     
     Args:
         fp: File path or BytesIO object
         original_filename: Original filename with extension (for type detection)
         
     Returns:
-        pandas DataFrame or None if loading fails
+        pandas DataFrame with header correctly applied, or None if loading fails.
+        NOTE: This function is now intended to return a SINGLE processed DataFrame,
+              assuming the calling context (etl_to_chart_payload) will handle
+              block detection using the raw data *before* calling this refinement.
+              This function's primary role is now header application.
+              HOWEVER, for now, let's make it return the *raw* df for block detection.
+              *** TEMPORARY CHANGE: Will return df_raw for now ***
         
     Raises:
         FileNotFoundError: If file path does not exist
@@ -381,17 +436,16 @@ def _load_dataframe(fp: str | io.BytesIO, original_filename: str | None = None) 
     logger = get_logger()
     file_type = 'unknown'
     ext = ''
-    MAX_ROWS_FOR_HEURISTIC = 25 # Read slightly more for heuristic
+    # MAX_ROWS_FOR_HEURISTIC = 25 # No longer needed here as we read full raw data first
 
     try:
         # Determine file type and extension
         if isinstance(fp, io.BytesIO):
-            # Need to check content because BytesIO has no filename inherent type
             ext = _infer_extension(fp, original_filename)
             if ext == '.xlsx': file_type = 'excel'
             elif ext in ['.csv', '.txt']: file_type = 'csv'
-            else: file_type = 'unknown' # Could be binary or other non-parsable memory stream
-            fp.seek(0) # Ensure we are at the start
+            else: file_type = 'unknown'
+            fp.seek(0)
         elif isinstance(fp, str):
             if not os.path.exists(fp):
                 raise FileNotFoundError(f"File not found: {fp}")
@@ -400,97 +454,110 @@ def _load_dataframe(fp: str | io.BytesIO, original_filename: str | None = None) 
             ext = os.path.splitext(fp)[1].lower()
             if ext == '.xlsx': file_type = 'excel'
             elif ext in ['.csv', '.txt']: file_type = 'csv'
-            else: file_type = 'unknown' # Treat other file extensions as unknown for now
+            else: file_type = 'unknown'
 
-        logger.info(f"Loading dataframe. Determined file type: {file_type}, extension: {ext}")
+        logger.info(f"Loading dataframe (raw). Type: {file_type}, Ext: {ext}")
 
-        # --- Load based on type --- 
+        # --- Load RAW data first (header=None) --- 
+        df_raw = None
         if file_type == 'excel':
             excel_file = None
             try:
                 excel_file = pd.ExcelFile(fp)
                 sheet_names = excel_file.sheet_names
-                logger.debug(f"Excel file opened. Found sheets: {sheet_names}")
+                logger.debug(f"Excel file opened. Sheets: {sheet_names}")
                 
                 target_sheet_name = None
-                df_head_for_heuristic = None
-                
-                # Find the first suitable sheet for analysis
+                # Find the first sheet with *any* potential content for raw read
                 for sheet_name in sheet_names:
                     try:
-                        logger.debug(f"Checking sheet: '{sheet_name}'")
-                        # Read head WITH header=None to analyze for header row later
-                        df_head = excel_file.parse(sheet_name=sheet_name, header=None, nrows=MAX_ROWS_FOR_HEURISTIC)
-                        # Check if sheet has meaningful content
-                        if not df_head.empty and not df_head.isna().all().all():
-                            logger.info(f"Selected sheet '{sheet_name}' for processing.")
+                        # Quick check if sheet has *any* data before full raw read
+                        df_peek = excel_file.parse(sheet_name=sheet_name, header=None, nrows=5)
+                        if not df_peek.empty and not df_peek.isna().all().all():
                             target_sheet_name = sheet_name
-                            df_head_for_heuristic = df_head
-                            break # Use the first good sheet found
+                            logger.info(f"Selected sheet '{target_sheet_name}' for raw processing.")
+                            break 
                         else:
-                            logger.debug(f"Skipping empty or all-NaN sheet: '{sheet_name}'")
+                            logger.debug(f"Skipping empty/all-NaN sheet for raw read: '{sheet_name}'")
                     except Exception as sheet_err:
-                        logger.warning(f"Could not read head of sheet '{sheet_name}': {sheet_err}")
-                        continue # Try next sheet
+                        logger.warning(f"Could not peek sheet '{sheet_name}': {sheet_err}")
+                        continue
                         
-                if not target_sheet_name or df_head_for_heuristic is None:
-                    logger.error("No suitable sheet found in Excel file.")
+                if not target_sheet_name:
+                    logger.error("No suitable sheet found for raw data extraction.")
                     raise pd.errors.ParserError("Excel file contains no sheets with data.")
 
-                # Find the header index using the heuristic on the selected sheet's head
-                header_idx = _find_real_header_index(df_head_for_heuristic)
+                # Read the full selected sheet RAW
+                logger.debug(f"Reading full sheet '{target_sheet_name}' raw (header=None)")
+                df_raw = excel_file.parse(
+                    sheet_name=target_sheet_name, 
+                    header=None, 
+                    keep_default_na=False, 
+                    na_values=['']
+                )
                 
-                # Read the full selected sheet using the determined header index
-                logger.debug(f"Reading full sheet '{target_sheet_name}' with header index: {header_idx}")
-                return excel_file.parse(sheet_name=target_sheet_name, header=header_idx)
-                
+            # Correctly placed finally block
             finally:
-                # Ensure ExcelFile is closed if it was opened
                 if excel_file: 
                     try:
                         excel_file.close()
                     except Exception:
+                        logger.warning("Exception ignored during excel_file.close()")
                         pass # Ignore errors during close
                         
         elif file_type == 'csv':
-            # Reset BytesIO if needed before reading head
             if isinstance(fp, io.BytesIO): fp.seek(0)
+            encoding = _detect_encoding(fp)
+            delimiter = _detect_delimiter(fp, encoding)
+            logger.debug(f"CSV Params: encoding='{encoding}', delimiter='{repr(delimiter)}'")
             
-            # Read head first for heuristic
-            # Detect encoding and delimiter *before* reading head if possible
-            encoding = _detect_encoding(fp) # Resets seek(0) if BytesIO
-            delimiter = _detect_delimiter(fp, encoding) # Resets seek(0) if BytesIO
-            logger.debug(f"Detected CSV params: encoding='{encoding}', delimiter='{repr(delimiter)}'")
-            
-            df_head_for_heuristic = pd.read_csv(fp, header=None, nrows=MAX_ROWS_FOR_HEURISTIC, sep=delimiter, encoding=encoding)
-            
-            # Reset BytesIO again before full read
+            # Read full file RAW
+            logger.debug("Reading full CSV raw (header=None)")
             if isinstance(fp, io.BytesIO): fp.seek(0)
-            
-            # Find header index
-            header_idx = _find_real_header_index(df_head_for_heuristic)
-            
-            # Read full file using detected parameters and header index
-            logger.debug(f"Reading full CSV with header index: {header_idx}")
-            return _read_csv(fp, encoding=encoding, sep=delimiter, header=header_idx)
+            # Use _read_csv for consistency checks, but force header=None initially
+            df_raw = _read_csv(
+                fp, 
+                encoding=encoding, 
+                sep=delimiter, 
+                header=None, 
+                keep_default_na=False, 
+                na_values=['']
+            )
             
         else:
-            # Handle unknown file types
-            logger.error(f"Cannot load dataframe: Unsupported file type '{ext}' for {original_filename or 'memory stream'}")
+            logger.error(f"Cannot load raw data: Unsupported type '{ext}'")
             raise pd.errors.ParserError(f"Unsupported file type: {ext}")
 
-    except FileNotFoundError as e:
-        logger.error(f"File not found error in _load_dataframe: {str(e)}")
-        raise
-    except pd.errors.EmptyDataError as e:
-        logger.warning(f"EmptyDataError in _load_dataframe: {str(e)}")
-        raise
-    except pd.errors.ParserError as e:
-        logger.error(f"ParserError in _load_dataframe: {str(e)}")
-        raise # Re-raise to be caught by the caller
+        # --- Basic Validation of Raw Data ---
+        if df_raw is None or df_raw.empty:
+             logger.error("Raw data loading resulted in None or empty DataFrame.")
+             raise pd.errors.ParserError("Failed to load raw data from file.")
+        
+        logger.info(f"Successfully loaded raw data, shape: {df_raw.shape}")
+
+        # *** TEMPORARY RETURN FOR BLOCK PROCESSING ***
+        # The main ETL function will now use this df_raw to find blocks.
+        # A separate function will later apply header detection to individual blocks.
+        return df_raw
+        # *** END TEMPORARY RETURN ***
+
+        # --- OLD LOGIC (Commented out for now) ---
+        # # Find the header index using the heuristic on the raw data head
+        # header_idx = _find_real_header_index(df_raw.head(MAX_ROWS_FOR_HEURISTIC)) # Run heuristic on raw head
+        # logger.debug(f"Applying header index {header_idx} based on raw data heuristic.")
+        
+        # # Construct final DataFrame with header applied
+        # final_df = pd.DataFrame(df_raw.values[header_idx+1:], columns=df_raw.iloc[header_idx])
+        # final_df = final_df.reset_index(drop=True)
+        # logger.info(f"Applied header, final DataFrame shape for this block: {final_df.shape}")
+        # return final_df
+        # --- END OLD LOGIC ---
+
+    except (FileNotFoundError, pd.errors.EmptyDataError, pd.errors.ParserError) as e:
+        logger.error(f"Caught known error in _load_dataframe: {type(e).__name__}: {str(e)}")
+        raise # Re-raise specific known errors
     except Exception as e:
         logger.error(f"Unexpected error in _load_dataframe: {type(e).__name__}: {str(e)}", exc_info=True)
-        # Raise as ParserError for consistent handling in the main ETL function
         raise pd.errors.ParserError(f"Failed to load dataframe due to unexpected error: {str(e)}")
 
 def _read_csv(fp, encoding='utf-8', **kwargs) -> pd.DataFrame:
@@ -631,10 +698,158 @@ def _read_excel_with_polars(fp, ext):
             os.unlink(temp.name)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HEADER DETECTION HELPER
+# BLOCK DETECTION (NEW)
+# ─────────────────────────────────────────────────────────────────────────────
+def _find_data_blocks(df_raw: pd.DataFrame) -> list[dict]:
+    """
+    Identifies contiguous blocks of non-empty cells in a raw DataFrame.
+
+    Args:
+        df_raw: DataFrame loaded with header=None and keep_default_na=False.
+
+    Returns:
+        List of dictionaries, each representing a potential data block:
+        [{'label': int, 'slice': tuple[slice, slice], 'data': pd.DataFrame}, ...]
+    """
+    logger = get_logger()
+    if df_raw.empty:
+        logger.warning("_find_data_blocks received an empty DataFrame.")
+        return []
+
+    # Create a boolean mask where True indicates a cell with content
+    non_empty_mask = df_raw.notna() & (df_raw != '')
+    logger.debug(f"Created non-empty mask with shape {non_empty_mask.shape}")
+
+    # Label connected components (islands) of non-empty cells
+    # Structure defines connectivity (adjacent cells, including diagonals if needed)
+    # Default structure considers orthogonal neighbors (connectivity=1)
+    labeled_array, num_features = label(non_empty_mask)
+    logger.info(f"Found {num_features} potential data blocks using connected components.")
+
+    if num_features == 0:
+        return []
+
+    # Find the bounding boxes (slices) for each labeled feature
+    slices = find_objects(labeled_array)
+    
+    blocks = []
+    for i, slice_obj in enumerate(slices):
+        if slice_obj is None: # Should not happen if num_features > 0, but check anyway
+            continue
+        
+        label_id = i + 1 # find_objects returns slices indexed by label_id - 1
+        # Extract the data for this block using the slice
+        block_data = df_raw.iloc[slice_obj].copy() # Use .copy()!
+        
+        # Basic check: ensure extracted block isn't unexpectedly empty
+        if block_data.empty:
+             logger.warning(f"Skipping empty block extracted for label {label_id} at slice {slice_obj}")
+             continue
+
+        blocks.append({
+            'label': label_id,
+            'slice': slice_obj, # tuple of slice objects (rows, columns)
+            'data': block_data
+        })
+        logger.debug(f"Extracted block {label_id} with shape {block_data.shape} at slice {slice_obj}")
+
+    logger.info(f"Extracted {len(blocks)} raw data blocks.")
+    return blocks
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BLOCK FILTERING & REFINEMENT (NEW)
+# ─────────────────────────────────────────────────────────────────────────────
+def _filter_and_refine_blocks(blocks: list[dict]) -> list[dict]:
+    """
+    Filters raw blocks based on size, density, and header quality.
+    Adds the detected header index to valid blocks.
+
+    Args:
+        blocks: List of block dictionaries from _find_data_blocks.
+
+    Returns:
+        List of validated block dictionaries, including 'header_idx'.
+    """
+    logger = get_logger()
+    validated_blocks = []
+
+    # Define MIN constants here if not global, or ensure they are accessible
+    MIN_BLOCK_ROWS = 2
+    MIN_BLOCK_COLS = 2
+    MIN_BLOCK_DENSITY = 0.3
+
+    for block in blocks:
+        label = block['label']
+        slice_obj = block['slice']
+        block_data = block['data']
+        rows, cols = block_data.shape
+        # Create a user-friendly slice representation for logging
+        slice_repr = f"rows {slice_obj[0].start}:{slice_obj[0].stop}, cols {slice_obj[1].start}:{slice_obj[1].stop}"
+
+        # 1. Filter by Size
+        if rows < MIN_BLOCK_ROWS or cols < MIN_BLOCK_COLS:
+            logger.info(
+                f"Block {label} discarded: Size ({rows}x{cols}) below threshold "
+                f"({MIN_BLOCK_ROWS}x{MIN_BLOCK_COLS}). Slice: {slice_repr}"
+            )
+            continue
+
+        # 2. Filter by Density
+        # Use notna() as we load with keep_default_na=False, na_values=['']
+        # Empty strings are considered content, only actual NaNs are counted as empty
+        non_empty_count = block_data.notna().sum().sum()
+        total_cells = rows * cols
+        density = non_empty_count / total_cells if total_cells > 0 else 0
+        if density < MIN_BLOCK_DENSITY:
+            logger.info(
+                f"Block {label} discarded: Density ({density:.2f}) below threshold "
+                f"({MIN_BLOCK_DENSITY}). Slice: {slice_repr}"
+            )
+            continue
+
+        # 3. Header Detection & Quality Check
+        try:
+            # Note: _find_real_header_index works on relative row indices within the block_data
+            header_idx = _find_real_header_index(block_data)
+
+            # Basic Quality Check: Ensure header is found within the block's rows
+            if header_idx < 0 or header_idx >= rows:
+                 logger.info(
+                    f"Block {label} discarded: Invalid header index ({header_idx}) found " 
+                    f"relative to block shape ({rows}x{cols}). Slice: {slice_repr}"
+                 )
+                 continue
+            
+            # Additional Quality Check: Ensure header row isn't the *last* row (needs data below)
+            if header_idx == rows - 1:
+                 logger.info(
+                     f"Block {label} discarded: Header index ({header_idx}) is the last row. "
+                     f"No data found below header. Slice: {slice_repr}"
+                 )
+                 continue
+                 
+            # Optional: Add more checks here based on header score if needed later
+
+        except Exception as e:
+            logger.warning(
+                f"Block {label} discarded: Error during header detection: {e}. Slice: {slice_repr}",
+                exc_info=True # Log traceback for header detection errors
+            )
+            continue
+        
+        # If all checks passed, add header_idx and keep the block
+        block['header_idx'] = header_idx 
+        validated_blocks.append(block)
+        logger.debug(f"Block {label} validated. Shape: {rows}x{cols}, Density: {density:.2f}, Header Index: {header_idx}. Slice: {slice_repr}")
+
+    logger.info(f"Validated {len(validated_blocks)} out of {len(blocks)} initial blocks.")
+    return validated_blocks
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HEADER DETECTION HELPER (Existing)
 # ─────────────────────────────────────────────────────────────────────────────
 def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
-    """Analyze first rows of a given DataFrame snippet to find the best candidate for the header row index."""
+    """Analyze first rows of a given DataFrame snippet to find the best candidate for the header row index. Returns the 0-based relative index."""
     logger = get_logger()
     # <<< Explicitly set level to DEBUG for this function >>>
     original_level = logger.level
@@ -644,8 +859,9 @@ def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
     logger.debug(f"Running refined header detection heuristic on dataframe snippet with shape: {df_head.shape}")
     best_score = -float('inf') # Use -inf for proper comparison
     second_best_score = -float('inf')
-    header_idx = 0 # Default to first row (index 0)
-    second_header_idx = 0
+    # Default to relative index 0
+    relative_header_idx = 0
+    second_relative_header_idx = 0
 
     # Ensure we don't check more rows than available
     rows_to_analyze = min(len(df_head), max_rows_to_check)
@@ -653,22 +869,26 @@ def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
         logger.warning("Header detection received empty DataFrame snippet, defaulting to 0.")
         return 0
         
-    logger.debug(f"Refined header detection analyzing first {rows_to_analyze} rows:")
-    
-    # Compile patterns once
+    # --- Compile patterns and define keywords --- ADDED BACK
     header_keywords = {'id', 'name', 'date', 'value', 'total', 'sum', 'category', 'type', 'status', 'descripción', 'fecha', 'nombre', 'código'}
     summary_keywords = {'total', 'sum', 'subtotal', 'sub total', 'grand total'}
     # Regex for typical header patterns (allows single words, CamelCase, snake_case, UPPER_CASE, avoids pure numbers/long text)
     header_pattern = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*|[A-Z][A-Z0-9_]*)$') 
     short_len_threshold = 25 # Allow slightly longer headers
+    # --- END ADDED BACK ---
+
+    # --- Reset index for relative iteration ---
+    df_head_relative = df_head.head(rows_to_analyze).reset_index(drop=True)
+    logger.debug(f"Refined header detection analyzing first {len(df_head_relative)} relative rows:")
 
     # Store scores for ambiguity check later
     row_scores = {}
 
-    for i, row in df_head.head(rows_to_analyze).iterrows():
-        logger.debug("Inside header detection loop, row %s", i)
+    # Iterate using relative index (idx)
+    for idx, row in df_head_relative.iterrows():
+        logger.debug("Inside header detection loop, relative row %s", idx)
         if row.isnull().all(): 
-            row_scores[i] = -100 # Heavily penalize fully empty rows
+            row_scores[idx] = -100 # Heavily penalize fully empty rows
             continue 
 
         # --- Initialize Scores & Metrics ---
@@ -685,7 +905,7 @@ def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
         
         # Avoid division by zero
         if non_null_count == 0: 
-            row_scores[i] = -50 # Penalize rows with no non-null content slightly less than fully empty
+            row_scores[idx] = -50 # Penalize rows with no non-null content slightly less than fully empty
             continue 
 
         # --- Scoring Heuristics --- 
@@ -695,15 +915,15 @@ def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
         if non_null_ratio > 0.7:
             components["non_null"] = non_null_ratio * 1.5 # Increased bonus for being mostly full
         elif non_null_ratio < 0.4 and num_cells > 3: 
-            # Only penalize low non-null ratio if it DOESN'T look like a text header
-            string_ratio_for_penalty_check = string_count / non_null_count # Recalculate here for clarity
-            if string_ratio_for_penalty_check < 0.6: # If it's sparse AND not mostly strings
-                logger.debug(f"Applying non_null penalty to row {i} (ratio={non_null_ratio:.2f}, string_ratio={string_ratio_for_penalty_check:.2f})")
-                components["non_null"] = -3 # Apply penalty
-            else:
-                logger.debug(f"Skipping non_null penalty for row {i} despite low ratio ({non_null_ratio:.2f}) due to high string ratio ({string_ratio_for_penalty_check:.2f})")
-                # Otherwise, it might be a sparse header, don't penalize based on non-null alone
-                pass 
+            # --- ADJUSTMENT 1: Reduce penalty if *any* strings exist --- 
+            # Original check: string_ratio_for_penalty_check < 0.6
+            if string_count > 0: # If at least one string exists, reduce penalty
+                 logger.debug(f"Applying reduced non_null penalty (-1) to relative row {idx} (ratio={non_null_ratio:.2f}, strings>0)")
+                 components["non_null"] = -1 # Reduced penalty
+            else: # If sparse AND no strings, apply original penalty
+                 logger.debug(f"Applying full non_null penalty (-3) to relative row {idx} (ratio={non_null_ratio:.2f}, no strings)")
+                 components["non_null"] = -3 # Original penalty
+            # --- END ADJUSTMENT 1 ---
 
         # 2. String ratio (Higher weight)
         string_ratio = string_count / non_null_count
@@ -716,8 +936,8 @@ def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
              components["numeric_penalty"] -= 5 # Increased penalty
 
         # 4. Heterogeneity/Transition Score (Compare with next row)
-        if i + 1 < rows_to_analyze:
-            next_row = df_head.iloc[i+1]
+        if idx + 1 < len(df_head_relative): # Use relative index check
+            next_row = df_head_relative.iloc[idx+1]
             if not next_row.isnull().all():
                 next_non_null = next_row.notna().sum()
                 if next_non_null > 0:
@@ -737,13 +957,15 @@ def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
                components["summary_penalty"] = -6 # Increased penalty
         except IndexError: pass 
 
-        # 6. Positional Bias (Reduced)
-        components["positional"] = max(0, 1.0 - i * 0.4) 
+        # 6. Positional Bias (Reduced) - Use relative idx
+        components["positional"] = max(0, 1.0 - idx * 0.4)
         
         # 7. Keyword Hints Bonus
         row_str_lower = ' '.join(str(x).lower() for x in row if isinstance(x, str))
         if any(keyword in row_str_lower for keyword in header_keywords):
-            components["keyword"] = 0.5 
+            # --- ADJUSTMENT 2: Increase Keyword Bonus --- 
+            components["keyword"] = 1.0 # Increased from 0.5
+            # --- END ADJUSTMENT 2 ---
             
         # 8. Header Pattern Bonus
         pattern_bonus_count = 0
@@ -752,33 +974,35 @@ def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
              if header_pattern.match(cell_str) and len(cell_str) < short_len_threshold:
                  pattern_bonus_count += 1
         if num_cells > 0:
-             components["pattern"] = (pattern_bonus_count / num_cells) * 2 # Scale bonus by fraction of cells matching
+             # --- ADJUSTMENT 3: Increase Pattern Bonus Multiplier --- 
+             components["pattern"] = (pattern_bonus_count / num_cells) * 3 # Increased from 2
+             # --- END ADJUSTMENT 3 ---
 
         # Calculate final score for the row
         score = sum(components.values())
-        row_scores[i] = score
+        row_scores[idx] = score # Store score against relative index
 
         # --- Log Per-Row Details ---
         log_content = row.iloc[:5].apply(lambda x: str(x)[:20]).to_dict() # Truncate cell content for logs
         logger.debug(
-            f"Row {i}: Score={score:.2f} | Components: { {k: f'{v:.2f}' for k, v in components.items()} } | Content: {log_content}"
+            f"Relative Row {idx}: Score={score:.2f} | Components: { {k: f'{v:.2f}' for k, v in components.items()} } | Content: {log_content}"
         )
 
-        # Update best and second best scores
+        # Update best and second best scores using relative index
         if score > best_score:
             second_best_score = best_score
-            second_header_idx = header_idx
+            second_relative_header_idx = relative_header_idx # Store previous best relative index
             best_score = score
-            header_idx = i
+            relative_header_idx = idx # Store current best relative index
         elif score > second_best_score:
             second_best_score = score
-            second_header_idx = i
+            second_relative_header_idx = idx # Store current second best relative index
 
-    # --- Final Decision & Ambiguity Check ---
-    final_header_idx = header_idx # Start with the best scoring index
+    # --- Final Decision & Ambiguity Check (using relative indices) ---
+    final_relative_idx = relative_header_idx # Start with the best scoring relative index
 
     # Check for ambiguity only if we have a valid second best score and the best score isn't strongly negative
-    if second_header_idx != header_idx and best_score > -5 and second_best_score > -float('inf'):
+    if second_relative_header_idx != relative_header_idx and best_score > -5 and second_best_score > -float('inf'):
         # Use relative difference if best_score is positive, absolute difference otherwise
         score_diff = best_score - second_best_score
         ambiguity_threshold_relative = 0.10 # 10% relative threshold
@@ -792,20 +1016,21 @@ def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
 
         if is_ambiguous:
             logger.warning(
-                f"Header detection ambiguity: Row {header_idx} (Score: {best_score:.2f}) vs "
-                f"Row {second_header_idx} (Score: {second_best_score:.2f}). Scores are close."
+                f"Header detection ambiguity: Relative Row {relative_header_idx} (Score: {best_score:.2f}) vs "
+                f"Relative Row {second_relative_header_idx} (Score: {second_best_score:.2f}). Scores are close."
             )
-            # Default to the *earlier* row index in case of ambiguity
-            final_header_idx = min(header_idx, second_header_idx)
-            logger.warning(f"Defaulting to earlier ambiguous row index: {final_header_idx}")
+            # Default to the *earlier* relative row index in case of ambiguity
+            final_relative_idx = min(relative_header_idx, second_relative_header_idx)
+            logger.warning(f"Defaulting to earlier ambiguous relative row index: {final_relative_idx}")
         else:
              logger.debug("Scores sufficiently distinct, choosing best score.")
 
-    logger.info(f"Refined Header Detection Result: Chose index={final_header_idx} (Best Score: {row_scores.get(final_header_idx, 'N/A'):.2f})")
+    # Log the final relative index
+    logger.info(f"Refined Header Detection Result: Chose relative index={final_relative_idx} (Best Score: {row_scores.get(final_relative_idx, 'N/A'):.2f})")
     # <<< Restore original level >>>
     logger.setLevel(original_level)
     # <<< END restore original level >>>
-    return int(final_header_idx)
+    return int(final_relative_idx) # Return the relative 0-based index
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2  TRANSFORM
@@ -876,7 +1101,7 @@ def _clean_dataframe(df):
     #     logger.debug(f"DataFrame shape after dropping 'No.' column(s): {df.shape}")
 
     # --- Drop fully empty columns ---
-
+    
     # Convert any datetime-like columns to datetime
     for col in df.columns:
         try:
@@ -1588,3 +1813,49 @@ def _coerce_numeric_columns(df):
         # Use errors='coerce' to force numeric type, converting errors to NaN
         df[c] = pd.to_numeric(cleaned, errors="coerce")
     return df
+
+# ─────────────────────────────────────────────────────────────────────────────
+# UTILITY HELPERS (Existing and New)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _slice_to_excel_range(slice_obj: tuple[slice, slice]) -> str:
+    """
+    Converts a tuple of numpy slice objects to an Excel-style range string (e.g., \"A1:C10\").
+
+    Args:
+        slice_obj: Tuple containing row slice and column slice.
+
+    Returns:
+        Excel-style range string.
+    """
+    row_slice, col_slice = slice_obj
+    
+    # Convert 0-based column index to Excel column letter (A, B, ..., Z, AA, AB, ...)
+    def col_to_excel(col_idx): # col_idx is 0-based
+        col_num = col_idx + 1
+        excel_col = "" # Ensure this and subsequent lines are indented correctly
+        while col_num > 0:
+            col_num, remainder = divmod(col_num - 1, 26)
+            excel_col = string.ascii_uppercase[remainder] + excel_col
+        return excel_col
+
+    # Slice start/stop are 0-based, Excel rows/cols are 1-based
+    start_col_excel = col_to_excel(col_slice.start)
+    end_col_excel = col_to_excel(col_slice.stop - 1) # slice.stop is exclusive
+    start_row_excel = row_slice.start + 1
+    end_row_excel = row_slice.stop # slice.stop is exclusive, matches last row number
+
+    # Simplified return statement
+    return start_col_excel + str(start_row_excel) + ':' + end_col_excel + str(end_row_excel)
+
+def _nan_to_none(data):
+    """Recursively replace NaN values with None for JSON compatibility."""
+    if isinstance(data, dict):
+        return {k: _nan_to_none(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [_nan_to_none(item) for item in data]
+    elif isinstance(data, float) and math.isnan(data):
+        return None
+    elif pd.isna(data): # Handle pandas NaT etc.
+        return None
+    return data
