@@ -68,7 +68,7 @@ FILE_SIZE_THRESHOLD = 100 * 1024 * 1024  # 100MB threshold for using polars
 # Document rationale during tuning phase
 MIN_BLOCK_ROWS = 2      # Minimum rows for a block to be considered a table
 MIN_BLOCK_COLS = 2      # Minimum columns for a block to be considered a table
-MIN_BLOCK_DENSITY = 0.3 # Minimum ratio of non-empty cells within block bounds
+MIN_BLOCK_DENSITY = 0.25 # Minimum ratio of non-empty cells within block bounds (Lowered from 0.3)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # CACHING FUNCTIONS
@@ -404,6 +404,8 @@ def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None 
         return final_result
         
     except Exception as e:
+        # --- FIX: Get logger within this exception scope --- 
+        logger = get_logger()
         # Catch-all for unexpected errors in the main orchestration
         return create_error_payload("ETL pipeline failed unexpectedly.", "pipeline_error", details=f"{type(e).__name__}: {str(e)}")
 
@@ -612,7 +614,14 @@ def _read_csv(fp, encoding='utf-8', **kwargs) -> pd.DataFrame:
             logger.debug("Attempting to read CSV with strict error checking")
             if isinstance(fp, io.BytesIO):
                 fp.seek(0)  # Reset position
-            df = pd.read_csv(fp, encoding=encoding, on_bad_lines='error', sep=delimiter, **kwargs)
+            
+            # --- FIX: Remove explicit 'sep' from kwargs before spreading --- 
+            kwargs_for_pandas = kwargs.copy()
+            if 'sep' in kwargs_for_pandas:
+                 del kwargs_for_pandas['sep']
+            # --- END FIX ---
+            
+            df = pd.read_csv(fp, encoding=encoding, on_bad_lines='error', sep=delimiter, **kwargs_for_pandas)
         except Exception as e:
             logger.warning(f"Initial CSV read failed: {type(e).__name__}: {str(e)}")
             if isinstance(fp, io.BytesIO):
@@ -776,7 +785,7 @@ def _filter_and_refine_blocks(blocks: list[dict]) -> list[dict]:
     # Define MIN constants here if not global, or ensure they are accessible
     MIN_BLOCK_ROWS = 2
     MIN_BLOCK_COLS = 2
-    MIN_BLOCK_DENSITY = 0.3
+    MIN_BLOCK_DENSITY = 0.25
 
     for block in blocks:
         label = block['label']
@@ -1563,6 +1572,9 @@ def _build_chart_payloads(df, meta):
 # ─────────────────────────────────────────────────────────────────────────────
 def _detect_delimiter(fp: str | io.BytesIO, encoding: str) -> str:
     """Detect the delimiter of a CSV file using csv.Sniffer."""
+    # --- FIX: Define logger within this function's scope --- 
+    logger = get_logger()
+    # --- END FIX ---
     sample_bytes = b''
     try:
         if isinstance(fp, io.BytesIO):

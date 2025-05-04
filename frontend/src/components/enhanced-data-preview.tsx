@@ -123,17 +123,14 @@ function PaginatedTable({ headers, tableData }: PaginatedTableProps) {
         </div>
       </div>
 
-      <table className="w-full text-sm text-left text-gray-700 min-w-[600px]"> {/* Added min-width */}
-        <thead className="text-xs text-gray-800 uppercase bg-gray-100 sticky top-[49px] z-10"> {/* Make header sticky */}
-          <tr>
+      {/* Ensure no whitespace directly inside table/thead */}
+      <table className="w-full text-sm text-left text-gray-700 min-w-[600px]"><thead className="text-xs text-gray-800 uppercase bg-gray-100 sticky top-[49px] z-10"><tr>
             {currentColumns.map((header: string, index: number) => (
               <th key={index} scope="col" className="px-3 py-2 border-b border-r border-gray-200 whitespace-nowrap"> {/* Prevent header wrapping */}
                 {header}
               </th>
             ))}
-          </tr>
-        </thead>
-        <tbody>
+          </tr></thead><tbody>
           {currentRows.length === 0 ? (
             <tr>
               <td colSpan={currentColumns.length || 1} className="text-center text-gray-500 py-4 border-b">
@@ -144,15 +141,14 @@ function PaginatedTable({ headers, tableData }: PaginatedTableProps) {
             currentRows.map((row: Record<string, any>, rowIndex: number) => (
               <tr key={rowIndex} className={`${rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-b border-gray-200`}>
                 {currentColumns.map((header: string, colIndex: number) => (
-                  <td key={colIndex} className="px-3 py-1.5 border-r border-gray-200 whitespace-nowrap"> {/* Prevent cell wrapping */}
+                  <td key={colIndex} className="px-3 py-1.5 border-r border-gray-200 whitespace-normal break-words"> {/* Allow wrapping and break words */}
                     {row[header]?.toString() || '-'}
                   </td>
                 ))}
               </tr>
             ))
           )}
-        </tbody>
-      </table>
+        </tbody></table>
 
       <div className="py-2 px-4 text-center text-xs text-gray-500 border-t border-gray-200 bg-gray-50 rounded-b-md sticky bottom-0 z-10"> {/* Make footer sticky */}
         {totalRows > rowsPerPage
