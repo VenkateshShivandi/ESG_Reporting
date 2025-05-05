@@ -202,53 +202,60 @@ def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None 
     """
     ETL pipeline converts various file types to a standardized payload,
     detecting and processing multiple tables within a single sheet/file.
+    Handles multiple sheets in Excel files.
     
     Args:
         fp: Path to the input file or BytesIO object.
         original_filename: Original filename with extension (for accurate type detection).
         
     Returns:
-        Dict containing results for potentially multiple tables:
+        Dict containing results grouped by sheet:
         {
-            "tables": [ { "id": int, "range": str, "data": list, "meta": dict,
-                          "stats": dict, "chartData": dict }, ... ],
-            "tableCount": int,
+            "sheets": {
+                "SheetName1": { "tables": [...], "tableCount": int, "error": bool, "message": str|None },
+                "SheetName2": { ... }
+            },
+            "sheetOrder": ["SheetName1", "SheetName2"],
             "fileMetadata": { "filename": str, "duration": float },
-            "error": bool,
+            "error": bool, // Overall pipeline error flag
             "errorType": str | None,
             "message": str | None
         }
     """
     start_time = time.time()
     logger = get_logger()
-    logger.info(f"Starting multi-table ETL process for: {original_filename or 'memory stream'}")
+    logger.info(f"Starting multi-SHEET/multi-table ETL process for: {original_filename or 'memory stream'}")
 
-    # --- Caching Logic (Adapted) ---
+    # --- Caching Logic (Should ideally include sheet names if applicable) ---
+    # For now, caching remains at the file level. Multi-sheet processing might make caching less effective
+    # unless the key incorporates sheet information or we cache per sheet.
+    # Let's disable cache for multi-sheet for simplicity during development.
+    ENABLE_CACHE = False # Temporarily disable caching
     cache_key = _generate_cache_key(fp, original_filename, None)
     cached_result = _get_cached_result(cache_key)
     if cached_result:
-        logger.info("Returning cached multi-table result.")
+        logger.info("Returning cached multi-table result (caching might be disabled).")
         cached_result.setdefault('fileMetadata', {}).setdefault('duration', time.time() - start_time)
         return cached_result
     # --- End Caching Logic ---
 
     # --- Prepare Response Structure ---
     final_result = {
-        "tables": [],
-        "tableCount": 0,
+        "sheets": {},
+        "sheetOrder": [],
         "fileMetadata": {"filename": original_filename},
         "error": False,
         "errorType": None,
         "message": None
     }
 
-    # Nested helper for cleaner error structure
+    # Nested helper for cleaner error structure (remains the same)
     def create_error_payload(message: str, error_type: str = "general", details: str | dict = None) -> dict:
         duration = time.time() - start_time
         logger.error(f"ETL Error: Type={error_type}, Msg={message}, Details={details}")
         return {
-            "tables": [],
-            "tableCount": 0,
+            "sheets": {},
+            "sheetOrder": [],
             "fileMetadata": {"filename": original_filename, "duration": duration},
             "error": True,
             "errorType": error_type,
@@ -257,152 +264,261 @@ def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None 
         }
 
     try:
-        # 1. Load Raw Data
-        logger.debug("Step 1: Loading raw dataframe...")
-        df_raw = _load_dataframe(fp, original_filename)
-        if df_raw is None:
-             return create_error_payload("Failed to load raw data.", "load_error")
-        logger.debug(f"Raw data loaded, shape: {df_raw.shape}")
-
-        # 2. Find Potential Data Blocks
-        logger.debug("Step 2: Finding data blocks...")
-        initial_blocks = _find_data_blocks(df_raw)
-        if not initial_blocks:
-            logger.warning("No potential data blocks found in the raw data.")
-            final_result['fileMetadata']['duration'] = time.time() - start_time
-            final_result['message'] = "No data tables found after initial block detection."
-            _cache_result(cache_key, final_result) # Cache even if no tables found
-            return final_result
-
-        # 3. Filter and Refine Blocks
-        logger.debug("Step 3: Filtering and refining blocks...")
-        validated_blocks = _filter_and_refine_blocks(initial_blocks)
-        if not validated_blocks:
-            logger.warning("No blocks remained after filtering and refinement.")
-            final_result['fileMetadata']['duration'] = time.time() - start_time
-            final_result['message'] = "No valid data tables found after filtering noise/irrelevant blocks."
-            _cache_result(cache_key, final_result) # Cache even if no tables found
-            return final_result
-
-        # 4. Process Each Validated Block
-        logger.debug(f"Step 4: Processing {len(validated_blocks)} validated blocks...")
-        processed_tables_payload = []
-        for i, block in enumerate(validated_blocks):
-            table_id = i
-            block_start_time = time.time()
-            excel_range = "N/A" # Default range
-            try:
-                slice_obj = block['slice']
-                excel_range = _slice_to_excel_range(slice_obj)
-                logger.info(f"--- Processing Table Block {table_id} (Label: {block['label']}, Range: {excel_range}) ---")
-
-                block_data = block['data']
-                header_idx = block['header_idx']
-                logger.debug(f"Block {table_id}: Header Index Relative to Block = {header_idx}")
-
-                # 4a. Construct Final DataFrame
-                logger.debug(f"Block {table_id}: Constructing table DataFrame...")
-                if header_idx >= len(block_data):
-                    raise ValueError(f"Header index {header_idx} is out of bounds for block data with length {len(block_data)}")
-                
-                header_row = block_data.iloc[header_idx]
-                data_values = block_data.values[header_idx+1:]
-                if data_values.size == 0: 
-                     table_df = pd.DataFrame(columns=header_row)
-                elif data_values.ndim == 1:
-                     table_df = pd.DataFrame(data_values.reshape(1, -1), columns=header_row)
-                else:
-                     table_df = pd.DataFrame(data_values, columns=header_row)
-                     
-                table_df = table_df.reset_index(drop=True)
-
-                # Check emptiness *after* DataFrame creation
-                if table_df.empty and header_idx == len(block_data) - 1:
-                    logger.warning(f"Block {table_id}: Constructed DataFrame is empty (only header row found). Skipping.")
-                    continue
-                logger.debug(f"Block {table_id}: Constructed shape: {table_df.shape}")
-
-                # 4b. Clean Table DataFrame
-                logger.debug(f"Block {table_id}: Cleaning...")
-                table_df = _clean_dataframe(table_df)
-                if table_df.empty:
-                    logger.warning(f"Block {table_id}: DataFrame became empty after cleaning. Skipping.")
-                    continue
-                logger.debug(f"Block {table_id}: Cleaned shape: {table_df.shape}")
-
-                # 4c. Classify Columns
-                logger.debug(f"Block {table_id}: Classifying columns...")
-                column_types = _classify_columns(table_df)
-
-                # 4d. Build Chart Payloads
-                logger.debug(f"Block {table_id}: Building chart payloads...")
-                chart_data = _build_chart_payloads(table_df, column_types)
-
-                # 4e. Calculate Stats
-                logger.debug(f"Block {table_id}: Calculating stats...")
-                is_truncated = len(table_df) > MAX_JSON_ROWS
-                table_data_json = table_df.head(MAX_JSON_ROWS).to_dict(orient="records")
-                stats = {
-                    "rowCount": len(table_df),
-                    "columnCount": len(table_df.columns),
-                    "processingTime": time.time() - block_start_time,
-                    "isTruncated": is_truncated,
-                    "displayedRows": len(table_data_json)
-                }
-
-                # 4f. Assemble Payload
-                table_payload = {
-                    "id": table_id,
-                    "range": excel_range,
-                    "data": _nan_to_none(table_data_json), 
-                    "meta": {
-                        "columns": table_df.columns.tolist(),
-                        "numericalColumns": column_types.get("numericalColumns", []),
-                        "categoricalColumns": column_types.get("categoricalColumns", []),
-                        "dateColumns": column_types.get("dateColumns", []),
-                        "yearColumns": column_types.get("yearColumns", []),
-                        "excelRange": excel_range
-                    },
-                    "stats": stats,
-                    "chartData": chart_data,
-                    "tableData": {
-                        "headers": table_df.columns.tolist(),
-                        "rows": _nan_to_none(table_df.head(MAX_JSON_ROWS).to_dict(orient='records'))
-                    },
-                    "processingStatus": "success"
-                }
-                processed_tables_payload.append(table_payload)
-                logger.info(f"--- Finished Processing Table Block {table_id} --- Success --- Duration: {stats['processingTime']:.2f}s")
-
-            # THIS except block needs to be aligned with the try block above
-            except Exception as block_error: 
-                logger.error(
-                    f"--- Error Processing Table Block {table_id} (Label: {block.get('label', 'N/A')}, Range: {excel_range}) ---",
-                    exc_info=True
-                )
-                continue  # Continue to next block
-
-        # 5. Finalize Response
-        logger.debug("Step 5: Finalizing response...")
-        final_result["tables"] = processed_tables_payload
-        final_result["tableCount"] = len(processed_tables_payload)
-        if not processed_tables_payload and validated_blocks: # Check if we had blocks but they all failed
-            final_result["message"] = "Found potential tables, but errors occurred during processing for all of them."
-            logger.warning(final_result["message"])
-        elif not processed_tables_payload: # No blocks passed validation
-             final_result["message"] = "No valid data tables found."
-             logger.warning(final_result["message"])
+        # --- Determine File Type and Get Sheet Names --- 
+        file_type = 'unknown'
+        sheet_names = []
+        excel_file = None # Keep track of the opened ExcelFile object
+        
+        if isinstance(fp, io.BytesIO):
+            ext = _infer_extension(fp, original_filename)
+            fp.seek(0) # Ensure position is at start
+            if ext == '.xlsx': 
+                file_type = 'excel'
+                try:
+                    excel_file = pd.ExcelFile(fp) # Keep it open
+                    sheet_names = excel_file.sheet_names
+                    logger.info(f"Detected Excel file with sheets: {sheet_names}")
+                except Exception as excel_err:
+                    return create_error_payload(f"Failed to open Excel file stream: {excel_err}", "load_error")
+            elif ext in ['.csv', '.txt']:
+                file_type = 'csv'
+                sheet_names = ["Sheet1"] # Dummy sheet name for CSV
+                logger.info("Detected CSV file stream.")
+            else:
+                return create_error_payload(f"Unsupported file type in stream: {ext}", "load_error")
+        elif isinstance(fp, str):
+            if not os.path.exists(fp):
+                raise FileNotFoundError(f"File not found: {fp}")
+            if os.path.getsize(fp) == 0:
+                raise pd.errors.EmptyDataError("File is empty")
+            ext = os.path.splitext(fp)[1].lower()
+            if ext == '.xlsx': 
+                file_type = 'excel'
+                try:
+                    excel_file = pd.ExcelFile(fp) # Keep it open
+                    sheet_names = excel_file.sheet_names
+                    logger.info(f"Detected Excel file '{original_filename}' with sheets: {sheet_names}")
+                except Exception as excel_err:
+                    return create_error_payload(f"Failed to open Excel file '{original_filename}': {excel_err}", "load_error")
+            elif ext in ['.csv', '.txt']:
+                file_type = 'csv'
+                sheet_names = ["Sheet1"]
+                logger.info(f"Detected CSV file: {original_filename}")
+            else:
+                return create_error_payload(f"Unsupported file type: {ext}", "load_error")
         else:
-             final_result["message"] = f"Successfully processed {final_result['tableCount']} table(s)."
-             logger.info(final_result["message"])
+             return create_error_payload("Invalid input type for fp.", "load_error")
+             
+        if not sheet_names:
+            return create_error_payload("No sheets found or file could not be read.", "load_error")
+            
+        final_result["sheetOrder"] = sheet_names
+        # --- End Sheet Name Acquisition ---
+        
+        # --- Main Try Block for Overall Processing ---
+        try:
+            # --- Loop through each sheet ---
+            overall_success = True
+            for sheet_name in sheet_names:
+                logger.info(f"===== Processing Sheet: '{sheet_name}' ====")
+                sheet_result = {
+                    "tables": [],
+                    "tableCount": 0,
+                    "error": False,
+                    "message": None
+                }
+                # --- Try block for individual sheet processing ---
+                try:
+                    # 1. Load Raw Data for the CURRENT sheet
+                    logger.debug(f"Sheet '{sheet_name}': Step 1: Loading raw dataframe...")
+                    df_raw = _load_raw_sheet_data(fp, file_type, sheet_name, excel_file)
+                    if df_raw is None:
+                        sheet_result["error"] = True
+                        sheet_result["message"] = "Failed to load raw data for this sheet."
+                        final_result["sheets"][sheet_name] = sheet_result
+                        logger.error(f"Sheet '{sheet_name}': Failed to load raw data.")
+                        overall_success = False
+                        continue
+                    logger.debug(f"Sheet '{sheet_name}': Raw data loaded, shape: {df_raw.shape}")
 
-        final_result["fileMetadata"]["duration"] = time.time() - start_time
+                    # 2. Find Potential Data Blocks within the sheet
+                    logger.debug(f"Sheet '{sheet_name}': Step 2: Finding data blocks...")
+                    initial_blocks = _find_data_blocks(df_raw)
+                    if not initial_blocks:
+                        logger.warning(f"Sheet '{sheet_name}': No potential data blocks found.")
+                        sheet_result["message"] = "No potential data blocks found in this sheet."
+                        final_result["sheets"][sheet_name] = sheet_result
+                        continue
 
-        # Cache the successful result (even if no tables were processed)
-        _cache_result(cache_key, final_result)
+                    # 3. Filter and Refine Blocks within the sheet
+                    logger.debug(f"Sheet '{sheet_name}': Step 3: Filtering and refining blocks...")
+                    validated_blocks = _filter_and_refine_blocks(initial_blocks)
+                    if not validated_blocks:
+                        logger.warning(f"Sheet '{sheet_name}': No blocks remained after filtering.")
+                        sheet_result["message"] = "No valid data tables found after filtering noise."
+                        final_result["sheets"][sheet_name] = sheet_result
+                        continue
 
+                    # 4. Process Each Validated Block within the sheet
+                    logger.debug(f"Sheet '{sheet_name}': Step 4: Processing {len(validated_blocks)} validated blocks...")
+                    processed_tables_payload = []
+                    for i, block in enumerate(validated_blocks):
+                        table_id = i
+                        block_start_time = time.time()
+                        excel_range = "N/A"
+                        # --- Try block for individual block processing ---
+                        try:
+                            slice_obj = block['slice']
+                            excel_range = _slice_to_excel_range(slice_obj)
+                            logger.info(f"Sheet '{sheet_name}': --- Processing Table Block {table_id} (Label: {block['label']}, Range: {excel_range}) ---")
+
+                            block_data = block['data']
+                            header_idx = block['header_idx']
+                            logger.debug(f"Block {table_id}: Header Index Relative to Block = {header_idx}")
+
+                            # 4a. Construct Final DataFrame
+                            logger.debug(f"Block {table_id}: Constructing table DataFrame...")
+                            if header_idx >= len(block_data):
+                                raise ValueError(f"Header index {header_idx} is out of bounds for block data with length {len(block_data)}")
+
+                            header_row = block_data.iloc[header_idx]
+                            data_values = block_data.values[header_idx+1:]
+                            if data_values.size == 0:
+                                table_df = pd.DataFrame(columns=header_row)
+                            elif data_values.ndim == 1:
+                                table_df = pd.DataFrame(data_values.reshape(1, -1), columns=header_row)
+                            else:
+                                table_df = pd.DataFrame(data_values, columns=header_row)
+
+                            table_df = table_df.reset_index(drop=True)
+
+                            # Check emptiness *after* DataFrame creation
+                            if table_df.empty and header_idx == len(block_data) - 1:
+                                logger.warning(f"Block {table_id}: Constructed DataFrame is empty (only header row found). Skipping.")
+                                continue
+                            logger.debug(f"Block {table_id}: Constructed shape: {table_df.shape}")
+
+                            # 4b. Clean Table DataFrame
+                            logger.debug(f"Block {table_id}: Cleaning...")
+                            table_df = _clean_dataframe(table_df)
+                            if table_df.empty:
+                                logger.warning(f"Block {table_id}: DataFrame became empty after cleaning. Skipping.")
+                                continue
+                            logger.debug(f"Block {table_id}: Cleaned shape: {table_df.shape}")
+
+                            # 4c. Classify Columns
+                            logger.debug(f"Block {table_id}: Classifying columns...")
+                            column_types = _classify_columns(table_df)
+
+                            # 4d. Build Chart Payloads
+                            logger.debug(f"Block {table_id}: Building chart payloads...")
+                            chart_data = _build_chart_payloads(table_df, column_types)
+
+                            # 4e. Calculate Stats
+                            logger.debug(f"Block {table_id}: Calculating stats...")
+                            is_truncated = len(table_df) > MAX_JSON_ROWS
+                            table_data_json = table_df.head(MAX_JSON_ROWS).to_dict(orient="records")
+                            stats = {
+                                "rowCount": len(table_df),
+                                "columnCount": len(table_df.columns),
+                                "processingTime": time.time() - block_start_time,
+                                "isTruncated": is_truncated,
+                                "displayedRows": len(table_data_json)
+                            }
+
+                            # 4f. Assemble Payload for this table
+                            table_payload = {
+                                "id": table_id,
+                                "range": excel_range,
+                                "data": _nan_to_none(table_data_json),
+                                "meta": {
+                                    "columns": table_df.columns.tolist(),
+                                    "numericalColumns": column_types.get("numericalColumns", []),
+                                    "categoricalColumns": column_types.get("categoricalColumns", []),
+                                    "dateColumns": column_types.get("dateColumns", []),
+                                    "yearColumns": column_types.get("yearColumns", []),
+                                    "excelRange": excel_range
+                                },
+                                "stats": stats,
+                                "chartData": chart_data,
+                                "tableData": {
+                                    "headers": table_df.columns.tolist(),
+                                    "rows": _nan_to_none(table_df.head(MAX_JSON_ROWS).to_dict(orient='records'))
+                                },
+                                "processingStatus": "success"
+                            }
+                            processed_tables_payload.append(table_payload)
+                            logger.info(f"Sheet '{sheet_name}': --- Finished Processing Table Block {table_id} --- Success --- Duration: {stats['processingTime']:.2f}s")
+                        except Exception as block_process_error:
+                            logger.error(
+                                f"Sheet '{sheet_name}': --- UNEXPECTED Error during Table Block {table_id} processing ---: {block_process_error}",
+                                exc_info=True
+                            )
+                            overall_success = False
+                            processed_tables_payload.append({
+                                "id": table_id,
+                                "range": excel_range,
+                                "error": True,
+                                "message": f"Error processing block: {str(block_process_error)}",
+                                "processingStatus": "error"
+                            })
+                            continue
+                    # 5. Finalize SHEET Response
+                    logger.debug(f"Sheet '{sheet_name}': Step 5: Finalizing sheet response...")
+                    sheet_result["tables"] = processed_tables_payload
+                    sheet_result["tableCount"] = sum(1 for t in processed_tables_payload if not t.get('error'))
+                    if not processed_tables_payload and validated_blocks:
+                        sheet_result["message"] = "Found potential tables, but errors occurred during processing for all of them."
+                        logger.warning(f"Sheet '{sheet_name}': {sheet_result['message']}")
+                    elif not processed_tables_payload:
+                        sheet_result["message"] = "No valid data tables found in this sheet."
+                        logger.warning(f"Sheet '{sheet_name}': {sheet_result['message']}")
+                    else:
+                        sheet_result["message"] = f"Successfully processed {sheet_result['tableCount']} table(s) in this sheet."
+                        logger.info(f"Sheet '{sheet_name}': {sheet_result['message']}")
+                except Exception as sheet_process_error:
+                    logger.error(f"===== UNEXPECTED Error processing sheet '{sheet_name}': {type(sheet_process_error).__name__}: {sheet_process_error} ====", exc_info=True)
+                    sheet_result["error"] = True
+                    sheet_result["message"] = f"Unexpected error processing sheet: {str(sheet_process_error)}"
+                    overall_success = False
+                # Store the result for this sheet (successful or caught error)
+                if sheet_name not in final_result["sheets"]:
+                    final_result["sheets"][sheet_name] = sheet_result
+                logger.info(f"===== Finished Sheet: '{sheet_name}' ====")
+            # Calculate successful tables and log before we potentially return
+            successful_tables_count = sum(sheet_data.get('tableCount', 0) for sheet_data in final_result["sheets"].values())
+            logger.info(f"Successfully processed {original_filename} using robust ETL. Found {successful_tables_count} valid tables across {len(sheet_names)} sheets.")
+        except Exception as e:
+            # Main exception handler for overall processing
+            logger = get_logger() # Ensure logger is defined here too
+            # Close excel file if open on error
+            if excel_file:
+                try:
+                    excel_file.close()
+                except Exception:
+                    pass
+            # Use create_error_payload for consistent error structure
+            return create_error_payload("ETL pipeline failed unexpectedly during sheet processing.", "pipeline_error", details=f"{type(e).__name__}: {str(e)}")
+        finally:
+            # Always close Excel file if open
+            if excel_file:
+                try:
+                    excel_file.close()
+                    logger.info("Closed Excel file object.")
+                except Exception:
+                    pass
+            # Set overall message based on processing outcome
+            if overall_success:
+                final_result["message"] = f"Successfully processed {len(sheet_names)} sheet(s)."
+            else:
+                final_result["message"] = f"Processed {len(sheet_names)} sheet(s) with some errors."
+                final_result["error"] = True
+            final_result["fileMetadata"]["duration"] = time.time() - start_time
+            _cache_result(cache_key, final_result) # Cache the multi-sheet result
+        # Return the final result after all processing
         return final_result
         
+    # --- Outer try/except for initial setup errors ---
     except Exception as e:
         # --- FIX: Get logger within this exception scope --- 
         logger = get_logger()
@@ -414,109 +530,51 @@ def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None 
 # ─────────────────────────────────────────────────────────────────────────────
 def _load_dataframe(fp: str | io.BytesIO, original_filename: str | None = None) -> pd.DataFrame | None:
     """
-    Load a DataFrame from various file types. Reads raw data first for potential
-    multi-block detection before applying header detection.
-    
-    Args:
-        fp: File path or BytesIO object
-        original_filename: Original filename with extension (for type detection)
-        
-    Returns:
-        pandas DataFrame with header correctly applied, or None if loading fails.
-        NOTE: This function is now intended to return a SINGLE processed DataFrame,
-              assuming the calling context (etl_to_chart_payload) will handle
-              block detection using the raw data *before* calling this refinement.
-              This function's primary role is now header application.
-              HOWEVER, for now, let's make it return the *raw* df for block detection.
-              *** TEMPORARY CHANGE: Will return df_raw for now ***
-        
-    Raises:
-        FileNotFoundError: If file path does not exist
-        pd.errors.EmptyDataError: If file is empty
-        pd.errors.ParserError: If file format is invalid or cannot be parsed
+    DEPRECATED: Use _load_raw_sheet_data instead for multi-sheet handling.
+    Original function to load a DataFrame, now superseded.
     """
     logger = get_logger()
-    file_type = 'unknown'
-    ext = ''
-    # MAX_ROWS_FOR_HEURISTIC = 25 # No longer needed here as we read full raw data first
+    logger.warning("DEPRECATED FUNCTION CALL: _load_dataframe. Use _load_raw_sheet_data.")
+    # For backward compatibility or simple cases, maybe load the first sheet?
+    # Or simply return None? Let's return None to enforce using the new function.
+    return None
 
+def _load_raw_sheet_data(fp: str | io.BytesIO, file_type: str, sheet_name: str, excel_file: pd.ExcelFile | None) -> pd.DataFrame | None:
+    """
+    Loads raw data from a specific sheet of an Excel file or a CSV file.
+    Uses header=None and keep_default_na=False initially for block detection.
+    
+    Args:
+        fp: File path or BytesIO stream.
+        file_type: 'excel' or 'csv'.
+        sheet_name: Name of the sheet to load (used for Excel, ignored for CSV).
+        excel_file: Pre-opened pandas ExcelFile object (for Excel only).
+        
+    Returns:
+        pandas DataFrame containing raw data, or None on failure.
+    """
+    logger = get_logger()
+    
     try:
-        # Determine file type and extension
-        if isinstance(fp, io.BytesIO):
-            ext = _infer_extension(fp, original_filename)
-            if ext == '.xlsx': file_type = 'excel'
-            elif ext in ['.csv', '.txt']: file_type = 'csv'
-            else: file_type = 'unknown'
-            fp.seek(0)
-        elif isinstance(fp, str):
-            if not os.path.exists(fp):
-                raise FileNotFoundError(f"File not found: {fp}")
-            if os.path.getsize(fp) == 0:
-                raise pd.errors.EmptyDataError("File is empty")
-            ext = os.path.splitext(fp)[1].lower()
-            if ext == '.xlsx': file_type = 'excel'
-            elif ext in ['.csv', '.txt']: file_type = 'csv'
-            else: file_type = 'unknown'
-
-        logger.info(f"Loading dataframe (raw). Type: {file_type}, Ext: {ext}")
-
-        # --- Load RAW data first (header=None) --- 
-        df_raw = None
         if file_type == 'excel':
-            excel_file = None
-            try:
-                excel_file = pd.ExcelFile(fp)
-                sheet_names = excel_file.sheet_names
-                logger.debug(f"Excel file opened. Sheets: {sheet_names}")
-                
-                target_sheet_name = None
-                # Find the first sheet with *any* potential content for raw read
-                for sheet_name in sheet_names:
-                    try:
-                        # Quick check if sheet has *any* data before full raw read
-                        df_peek = excel_file.parse(sheet_name=sheet_name, header=None, nrows=5)
-                        if not df_peek.empty and not df_peek.isna().all().all():
-                            target_sheet_name = sheet_name
-                            logger.info(f"Selected sheet '{target_sheet_name}' for raw processing.")
-                            break 
-                        else:
-                            logger.debug(f"Skipping empty/all-NaN sheet for raw read: '{sheet_name}'")
-                    except Exception as sheet_err:
-                        logger.warning(f"Could not peek sheet '{sheet_name}': {sheet_err}")
-                        continue
-                        
-                if not target_sheet_name:
-                    logger.error("No suitable sheet found for raw data extraction.")
-                    raise pd.errors.ParserError("Excel file contains no sheets with data.")
-
-                # Read the full selected sheet RAW
-                logger.debug(f"Reading full sheet '{target_sheet_name}' raw (header=None)")
-                df_raw = excel_file.parse(
-                    sheet_name=target_sheet_name, 
-                    header=None, 
-                    keep_default_na=False, 
-                    na_values=['']
-                )
-                
-            # Correctly placed finally block
-            finally:
-                if excel_file: 
-                    try:
-                        excel_file.close()
-                    except Exception:
-                        logger.warning("Exception ignored during excel_file.close()")
-                        pass # Ignore errors during close
-                        
+            if excel_file is None:
+                logger.error("ExcelFile object is required for loading Excel sheet data.")
+                return None
+            logger.debug(f"Reading Excel sheet '{sheet_name}' raw (header=None)")
+            df_raw = excel_file.parse(
+            sheet_name=sheet_name, 
+                header=None, 
+                keep_default_na=False, 
+            na_values=[''] # Tre    at only empty strings as NA initially
+            )
         elif file_type == 'csv':
             if isinstance(fp, io.BytesIO): fp.seek(0)
             encoding = _detect_encoding(fp)
             delimiter = _detect_delimiter(fp, encoding)
             logger.debug(f"CSV Params: encoding='{encoding}', delimiter='{repr(delimiter)}'")
             
-            # Read full file RAW
             logger.debug("Reading full CSV raw (header=None)")
             if isinstance(fp, io.BytesIO): fp.seek(0)
-            # Use _read_csv for consistency checks, but force header=None initially
             df_raw = _read_csv(
                 fp, 
                 encoding=encoding, 
@@ -525,42 +583,22 @@ def _load_dataframe(fp: str | io.BytesIO, original_filename: str | None = None) 
                 keep_default_na=False, 
                 na_values=['']
             )
-            
         else:
-            logger.error(f"Cannot load raw data: Unsupported type '{ext}'")
-            raise pd.errors.ParserError(f"Unsupported file type: {ext}")
+            logger.error(f"_load_raw_sheet_data: Unsupported file type '{file_type}'")
+            return None
 
         # --- Basic Validation of Raw Data ---
         if df_raw is None or df_raw.empty:
-             logger.error("Raw data loading resulted in None or empty DataFrame.")
-             raise pd.errors.ParserError("Failed to load raw data from file.")
+            logger.warning(f"Raw data loading for sheet '{sheet_name}' resulted in None or empty DataFrame.")
+            # Return None, let the caller handle sheet-specific error message
+            return None 
         
-        logger.info(f"Successfully loaded raw data, shape: {df_raw.shape}")
-
-        # *** TEMPORARY RETURN FOR BLOCK PROCESSING ***
-        # The main ETL function will now use this df_raw to find blocks.
-        # A separate function will later apply header detection to individual blocks.
+        logger.info(f"Successfully loaded raw data for sheet '{sheet_name}', shape: {df_raw.shape}")
         return df_raw
-        # *** END TEMPORARY RETURN ***
-
-        # --- OLD LOGIC (Commented out for now) ---
-        # # Find the header index using the heuristic on the raw data head
-        # header_idx = _find_real_header_index(df_raw.head(MAX_ROWS_FOR_HEURISTIC)) # Run heuristic on raw head
-        # logger.debug(f"Applying header index {header_idx} based on raw data heuristic.")
         
-        # # Construct final DataFrame with header applied
-        # final_df = pd.DataFrame(df_raw.values[header_idx+1:], columns=df_raw.iloc[header_idx])
-        # final_df = final_df.reset_index(drop=True)
-        # logger.info(f"Applied header, final DataFrame shape for this block: {final_df.shape}")
-        # return final_df
-        # --- END OLD LOGIC ---
-
-    except (FileNotFoundError, pd.errors.EmptyDataError, pd.errors.ParserError) as e:
-        logger.error(f"Caught known error in _load_dataframe: {type(e).__name__}: {str(e)}")
-        raise # Re-raise specific known errors
     except Exception as e:
-        logger.error(f"Unexpected error in _load_dataframe: {type(e).__name__}: {str(e)}", exc_info=True)
-        raise pd.errors.ParserError(f"Failed to load dataframe due to unexpected error: {str(e)}")
+        logger.error(f"Unexpected error loading raw data for sheet '{sheet_name}': {type(e).__name__}: {str(e)}", exc_info=True)
+        return None
 
 def _read_csv(fp, encoding='utf-8', **kwargs) -> pd.DataFrame:
     """
@@ -1399,172 +1437,117 @@ def _build_chart_payloads(df, meta):
     date = meta.get("dateColumns", [])
     year = meta.get("yearColumns", []) # Get year columns from meta
     
-    # Initialize with empty arrays to ensure consistent structure
-    bar_data = []
-    line_data = []
-    donut_data = []
-    
     logger.debug(f"Building chart payloads with: Categorical={cat}, Numerical={num}, Date={date}, Year={year}")
 
-    # --- Heuristic Column Selection ---
-    def find_preferred_col(cols, preferences, default_index=0):
-        if not cols: return None
-        cols_lower = [str(c).lower() for c in cols]
-        for pref in preferences:
-            try:
-                idx = cols_lower.index(pref.lower())
-                return cols[idx]
-            except ValueError:
-                continue
-        # Fallback
-        if default_index < len(cols):
-            return cols[default_index]
-        return cols[0] # Absolute fallback
+    bar_chart_data = []
+    line_chart_data = []
+    donut_chart_data = []
 
-    cat_prefs = ['nom_loc', 'name', 'category', 'location', 'type', 'month', 'mes', 'description', 'descripción']
-    num_prefs = ['pobtot', 'value', 'total', 'count', 'amount', 'consumo (kwh)', 'consumo']
-    
-    # Select columns using heuristic
-    cat_col = find_preferred_col(cat, cat_prefs)
-    num_col = find_preferred_col(num, num_prefs)
-    time_col = find_preferred_col(date + year, []) # Prefer date, then year, then first if available
+    # --- Heuristic Selection --- 
+    # Prioritize date/year for time axis, then categorical
+    time_col = date[0] if date else (year[0] if year else None)
+    # Prioritize first categorical for grouping/labeling
+    cat_col = cat[0] if cat else None
+    # Prioritize first numerical for values
+    num_col = num[0] if num else None
 
     logger.debug(f"Selected columns using heuristic: Category='{cat_col}', Numerical='{num_col}', Time='{time_col}'")
-    # --- End Heuristic Column Selection ---
 
-    # Generate bar chart data if we have selected categorical and numerical columns
-    if cat_col and num_col:
-        # logger.debug(f"Selected for Bar Chart: cat_col='{cat_col}', num_col='{num_col}'") # Redundant with log above
-        logger.debug(f"Attempting to build Bar Chart using cat='{cat_col}' and num='{num_col}'")
+    # Ensure DataFrame columns are strings
+    df.columns = df.columns.astype(str)
+
+    # --- Bar Chart (Categorical vs Numerical) ---
+    if cat_col and num_col and cat_col in df.columns and num_col in df.columns:
         try:
-            # Ensure the selected columns exist in the DataFrame
-            if cat_col not in df.columns or num_col not in df.columns:
-                 logger.error(f"Selected columns '{cat_col}' or '{num_col}' not found in DataFrame columns: {df.columns.tolist()}")
-                 raise ValueError("Selected columns not found in DataFrame")
-                 
-            grouped = df.groupby(cat_col)[num_col].sum()
-            logger.debug(f"Bar Chart - Grouped data:\n{grouped.head().to_string()}")
-            bar_data = (
-                grouped
-                .reset_index() # Index is now 'cat_col' name
-                .rename(columns={cat_col: "name", num_col: "value"}) # Rename for consistency
-                .replace({np.nan: None})
-                .to_dict("records")
-            )
-            bar_data = [
-                {
-                    "name": str(item.get("name", "Unknown")), 
-                    "value": float(item.get("value", 0)) if item.get("value") is not None else 0
-                } 
-                for item in bar_data
-            ]
-            if len(bar_data) > 15:
-                bar_data = sorted(bar_data, key=lambda x: x["value"], reverse=True)[:15]
-                logger.debug(f"Limited bar chart to top 15 items (from {len(grouped)}) ")
+            # Attempt conversion to numeric, coercing errors
+            numeric_series = pd.to_numeric(df[num_col], errors='coerce')
+            # Group by categorical column and sum the numeric values
+            grouped = df.groupby(cat_col)[num_col].agg(lambda x: pd.to_numeric(x, errors='coerce').sum()).reset_index()
+            # Sort by value descending and take top N (e.g., 20)
+            top_n = grouped.nlargest(20, num_col)
+            bar_chart_data = top_n.rename(columns={cat_col: 'name', num_col: 'value'}).to_dict('records')
         except Exception as e:
-            logger.error(f"Error generating bar chart data: {str(e)}", exc_info=True) # Add exc_info
-            bar_data = []
+            logger.warning(f"Could not generate bar chart data: {e}")
+            bar_chart_data = []
     else:
-        logger.debug("Skipping Bar Chart: Insufficient categorical or numerical columns after heuristic selection.")
+        logger.debug(f"Skipping Bar Chart: Missing required columns (Need Category: '{cat_col}', Numerical: '{num_col}')")
 
-    # Generate line chart data using the heuristically selected time and numerical columns
-    if time_col and num_col: 
+    # --- Line Chart (Time vs Numerical) ---
+    if time_col and num_col and time_col in df.columns and num_col in df.columns:
         try:
-            # Group and prepare data based on the time column
-            if time_col not in df.columns or num_col not in df.columns:
-                 logger.error(f"Selected columns '{time_col}' or '{num_col}' not found for Line Chart in DataFrame columns: {df.columns.tolist()}")
-                 raise ValueError("Selected columns not found for Line Chart")
-                 
-            df_copy = df.copy()
-            if time_col in date:
-                df_copy[time_col] = pd.to_datetime(df_copy[time_col], errors='coerce')
-                df_copy = df_copy.sort_values(time_col)
-                # Format date for display if it's a date column
-                df_copy["display_time"] = df_copy[time_col].dt.strftime('%Y-%m-%d') 
-            else: # Assumed to be Year or other non-date time column
-                df_copy[time_col] = df_copy[time_col].astype(str)
-                # Use the column directly for display if not a date
-                df_copy["display_time"] = df_copy[time_col]
-                # Try sorting numerically if possible, otherwise string sort
-                try:
-                     df_copy = df_copy.sort_values(by=[pd.to_numeric(df_copy[time_col]), num_col], errors='ignore')
-                except:
-                     df_copy = df_copy.sort_values(by=[time_col, num_col])
+            # Convert time column to datetime, coercing errors
+            time_series = pd.to_datetime(df[time_col], errors='coerce')
+            # Convert numerical column to numeric, coercing errors
+            numeric_series = pd.to_numeric(df[num_col], errors='coerce')
+            
+            # Create temporary DataFrame with valid time and numeric data
+            temp_df = pd.DataFrame({'time': time_series, 'value': numeric_series}).dropna()
 
-            # Group by the original time column, aggregate the numerical column
-            grouped = df_copy.groupby("display_time")[num_col].sum()
+            if not temp_df.empty:
+                # Sort by time
+                temp_df = temp_df.sort_values(by='time')
+                # Format time for display (e.g., YYYY-MM-DD or YYYY-MM if applicable)
+                if time_series.dt.day.nunique() > 1 or time_series.dt.month.nunique() == 1: 
+                     temp_df['display_time'] = temp_df['time'].dt.strftime('%Y-%m-%d')
+                else:
+                    temp_df['display_time'] = temp_df['time'].dt.strftime('%Y-%m')
                 
-            logger.debug(f"Line Chart - Grouped data:\n{grouped.head().to_string()}")
-            line_data = (
-                grouped
-                .reset_index() # Index is now 'display_time'
-                .rename(columns={"display_time": "name", num_col: "value"}) # Rename for consistency
-                .replace({np.nan: None})
-                .to_dict("records")
-            )
-            line_data = [
-                {
-                    "name": str(item.get("name", "")),
-                    "value": float(item.get("value", 0)) if item.get("value") is not None else 0
-                }
-                for item in line_data
-            ]
-            
-            # Sorting is handled during grouping/preparation now
-            
+                # Group by display time if needed (e.g., summing values per month/day)
+                # For simplicity, assuming one value per time point if sorted correctly
+                # If aggregation is needed: grouped_line = temp_df.groupby('display_time')['value'].sum().reset_index()
+                grouped_line = temp_df # Use sorted data directly if no aggregation needed
+                
+                logger.debug(f"Line Chart - Grouped data:\n{grouped_line.head()}")
+                line_chart_data = grouped_line.rename(columns={'display_time': 'name', 'value': 'value'})[['name', 'value']].to_dict('records')
+            else:
+                 logger.debug("Skipping Line Chart: No valid time/numeric pairs found after conversion.")
+                 line_chart_data = []
         except Exception as e:
-            logger.error(f"Error generating line chart data: {str(e)}", exc_info=True) # Add exc_info
-            line_data = []
+            logger.warning(f"Could not generate line chart data: {e}")
+            line_chart_data = []
     else:
-        logger.debug(f"Skipping Line Chart: No suitable time or numerical column found after heuristic selection. Time: '{time_col}', Num: '{num_col}'")
+        logger.debug(f"Skipping Line Chart: Missing required columns (Need Time: '{time_col}', Numerical: '{num_col}')")
 
-    # Generate donut chart data using the heuristically selected categorical column
-    if cat_col: 
-        logger.debug(f"Building Donut Chart distribution using cat='{cat_col}'")
+    # --- Donut Chart (Categorical Distribution Summing Numerical) ---
+    if cat_col and num_col and cat_col in df.columns and num_col in df.columns:
         try:
-            if cat_col not in df.columns:
-                 logger.error(f"Selected column '{cat_col}' not found for Donut Chart in DataFrame columns: {df.columns.tolist()}")
-                 raise ValueError("Selected column not found for Donut Chart")
-            
-            # Ensure the numerical column exists for summing
-            if not num_col or num_col not in df.columns:
-                 logger.error(f"Numerical column '{num_col}' needed for donut sum not found.")
-                 raise ValueError("Numerical column for donut sum not found")
-                 
-            # Sum the numerical column per category instead of counting rows
-            grouped = df.groupby(cat_col)[num_col].sum()
-            logger.debug(f"Donut Chart - Grouped Sum data:\n{grouped.head().to_string()}")
-            donut_data = (
-                grouped
-                .reset_index() # Index is now 'cat_col' name
-                .rename(columns={cat_col: "name", num_col: "value"}) # Rename grouped columns
-                .replace({np.nan: None})
-                .to_dict("records")
-            )
-            # Format to standard name/value list
-            donut_data = [
-                {"name": str(item.get("name", "Unknown")), "value": float(item.get("value", 0)) if item.get("value") is not None else 0}
-                for item in donut_data
-            ]
-            # If more than top 10 categories, aggregate the rest into 'Other'
-            if len(donut_data) > 10:
-                # Sort by value before taking top 10 + Other
-                donut_data = sorted(donut_data, key=lambda x: x['value'], reverse=True)
-                others_value = sum(item["value"] for item in donut_data[10:])
-                donut_data = donut_data[:10] + [{"name": "Other", "value": others_value}]
-        except Exception as e:
-            logger.error(f"Error generating donut chart data: {str(e)}", exc_info=True) # Add exc_info
-            donut_data = []
-    else:
-        logger.debug("Skipping Donut Chart: No categorical column found after heuristic selection.")
+            # Convert numerical column to numeric, coercing errors
+            numeric_series = pd.to_numeric(df[num_col], errors='coerce')
+            # Create temporary DataFrame
+            temp_df = pd.DataFrame({'category': df[cat_col], 'value': numeric_series}).dropna()
 
-    # Log final chart data arrays
-    logger.debug(f"Final chart payloads: bar={len(bar_data)}, line={len(line_data)}, donut={len(donut_data)}")
-    
+            if not temp_df.empty:
+                # Group by category and sum values
+                grouped = temp_df.groupby('category')['value'].sum().reset_index()
+                # Calculate total sum for percentage calculation
+                total_sum = grouped['value'].sum()
+                if total_sum > 0:
+                    grouped['percentage'] = (grouped['value'] / total_sum) * 100
+                    # Select top N categories + 'Other'
+                    top_n = grouped.nlargest(8, 'percentage')
+                    if len(grouped) > 8:
+                        other_percentage = 100 - top_n['percentage'].sum()
+                        other_row = pd.DataFrame([{'category': 'Other', 'value': total_sum * (other_percentage / 100), 'percentage': other_percentage}])
+                        top_n = pd.concat([top_n, other_row], ignore_index=True)
+                    
+                    donut_chart_data = top_n.rename(columns={'category': 'name', 'percentage': 'value'})[['name', 'value']].to_dict('records')
+                else:
+                    logger.debug("Skipping Donut Chart: Total sum of numerical column is zero or negative.")
+                    donut_chart_data = []
+            else:
+                logger.debug("Skipping Donut Chart: No valid category/numeric pairs found after conversion.")
+                donut_chart_data = []
+        except Exception as e:
+            logger.warning(f"Could not generate donut chart data: {e}", exc_info=True) # Add traceback
+            donut_chart_data = []
+    else:
+        logger.debug(f"Skipping Donut Chart: Missing required columns (Need Category: '{cat_col}', Numerical: '{num_col}')")
+
+    logger.debug(f"Final chart payloads: bar={len(bar_chart_data)}, line={len(line_chart_data)}, donut={len(donut_chart_data)}")
     return {
-        "barChart": bar_data,
-        "lineChart": line_data, 
-        "donutChart": donut_data
+        'barChart': bar_chart_data,
+        'lineChart': line_chart_data,
+        'donutChart': donut_chart_data
     }
 
 # ─────────────────────────────────────────────────────────────────────────────

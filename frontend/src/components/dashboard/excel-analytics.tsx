@@ -52,6 +52,9 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import EnhancedDataPreview from "../../components/enhanced-data-preview";
 import GenericHeatmapPreview from "../../components/generic-heatmap-preview";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Select as ShadSelect } from "@/components/ui/select";
 
 // Create alert UI components since @/components/ui/alert seems to be missing
 const Alert = ({ children, className, variant }: { children: React.ReactNode, className?: string, variant?: string }) => (
@@ -747,91 +750,16 @@ const CalendarIcon = (props: any) => (
 );
 
 // Import the API functions and the new response interface
-import { fetchExcelData, fetchExcelFiles, ExcelAnalyticsResponse, ProcessedTable } from '@/lib/api/analytics';
+import { fetchExcelData, fetchExcelFiles, ExcelAnalyticsResponse, ProcessedTable, SheetData } from '@/lib/api/analytics';
 
-// Chart selection panel component
-function ChartSelectionPanel({ 
-  availableCharts, 
-  selectedCharts, 
-  onSelectionChange 
-}: { 
-  availableCharts: Record<string, boolean>,
-  selectedCharts: Record<string, boolean>,
-  onSelectionChange: (id: string, checked: boolean) => void
-}) {
-  return (
-    <Card className="mb-6">
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center text-lg">
-          <Filter className="h-5 w-5 mr-2 text-blue-500" />
-          Chart Display Options
-        </CardTitle>
-        <CardDescription>
-          Select which charts to display based on your data
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className={`flex items-center space-x-3 rounded-lg border p-4 ${availableCharts.bar ? 'border-blue-200 bg-blue-50' : 'border-gray-200 bg-gray-50 opacity-60'}`}>
-            <Checkbox 
-              id="show-bar-chart" 
-              checked={selectedCharts.bar}
-              disabled={!availableCharts.bar}
-              onCheckedChange={(checked) => onSelectionChange('bar', checked === true)}
-              className={availableCharts.bar ? 'border-blue-500 data-[state=checked]:bg-blue-500' : 'border-gray-300 data-[state=checked]:bg-gray-400'}
-            />
-            <div className="flex flex-1 items-center justify-between">
-              <Label 
-                htmlFor="show-bar-chart" 
-                className={`font-medium ${availableCharts.bar ? 'text-blue-900' : 'text-gray-500'}`}
-              >
-                Bar Chart
-              </Label>
-              <BarChart3 className={`h-5 w-5 ${availableCharts.bar ? 'text-blue-500' : 'text-gray-400'}`} />
-            </div>
-          </div>
-          
-          <div className={`flex items-center space-x-3 rounded-lg border p-4 ${availableCharts.line ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-gray-50 opacity-60'}`}>
-            <Checkbox 
-              id="show-line-chart" 
-              checked={selectedCharts.line}
-              disabled={!availableCharts.line}
-              onCheckedChange={(checked) => onSelectionChange('line', checked === true)}
-              className={availableCharts.line ? 'border-emerald-500 data-[state=checked]:bg-emerald-500' : 'border-gray-300 data-[state=checked]:bg-gray-400'}
-            />
-            <div className="flex flex-1 items-center justify-between">
-              <Label 
-                htmlFor="show-line-chart" 
-                className={`font-medium ${availableCharts.line ? 'text-emerald-900' : 'text-gray-500'}`}
-              >
-                Line Chart
-              </Label>
-              <TrendingUp className={`h-5 w-5 ${availableCharts.line ? 'text-emerald-500' : 'text-gray-400'}`} />
-            </div>
-          </div>
-          
-          <div className={`flex items-center space-x-3 rounded-lg border p-4 ${availableCharts.donut ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50 opacity-60'}`}>
-            <Checkbox 
-              id="show-donut-chart" 
-              checked={selectedCharts.donut}
-              disabled={!availableCharts.donut}
-              onCheckedChange={(checked) => onSelectionChange('donut', checked === true)}
-              className={availableCharts.donut ? 'border-amber-500 data-[state=checked]:bg-amber-500' : 'border-gray-300 data-[state=checked]:bg-gray-400'}
-            />
-            <div className="flex flex-1 items-center justify-between">
-              <Label 
-                htmlFor="show-donut-chart" 
-                className={`font-medium ${availableCharts.donut ? 'text-amber-900' : 'text-gray-500'}`}
-              >
-                Donut Chart
-              </Label>
-              <PieChartIcon className={`h-5 w-5 ${availableCharts.donut ? 'text-amber-500' : 'text-gray-400'}`} />
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
+// Define the structure for the multi-sheet API response
+interface MultiSheetResponse {
+  sheets: Record<string, SheetData>;
+  sheetOrder: string[];
+  fileMetadata?: { filename: string; duration?: number };
+  error?: boolean;
+  errorType?: string | null;
+  message?: string | null;
 }
 
 export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
@@ -868,7 +796,9 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
   
   // --- NEW State for API Response --- 
   const [apiResponse, setApiResponse] = useState<ExcelAnalyticsResponse | null>(null);
-  const [selectedTableIndex, setSelectedTableIndex] = useState<number>(0);
+  const [selectedTableIndex, setSelectedTableIndex] = useState<number>(0); // Index for the selected SHEET
+  const [selectedTableIndexWithinSheet, setSelectedTableIndexWithinSheet] = useState<number>(0); // Index for table WITHIN the sheet
+  const [selectedSheetName, setSelectedSheetName] = useState<string | null>(null); // <<< ADDED state for sheet name
   // --- END NEW State --- 
 
   const [availableFiles, setAvailableFiles] = useState<{
@@ -899,28 +829,64 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     }));
   };
 
-  // --- Derive data for the selected table --- 
-  const selectedTable: ProcessedTable | null = useMemo(() => {
-    if (!apiResponse || !apiResponse.tables || apiResponse.tables.length === 0) {
+  // --- Derive data for the selected table (now represents the selected table WITHIN the selected sheet) --- 
+  const displayedTableData: SheetData | null = useMemo(() => {
+    if (!apiResponse || !apiResponse.sheets || !apiResponse.sheetOrder || apiResponse.sheetOrder.length === 0) {
       return null;
     }
-    // Ensure index is valid
-    const index = Math.min(Math.max(0, selectedTableIndex), apiResponse.tables.length - 1);
-    return apiResponse.tables[index];
-  }, [apiResponse, selectedTableIndex]);
-  
-  const parsedDataForPreview = useMemo(() => {
-    if (!selectedTable) return null;
-    return {
-      headers: selectedTable.tableData?.headers || [],
-      tableData: selectedTable.tableData?.rows || [], // Pass rows array
-      analytics: {}, // Placeholder, populate if needed
-      metadata: selectedTable.meta, // Pass the specific table metadata
-    };
-  }, [selectedTable]);
+    // Ensure sheet index is valid
+    const sheetIndex = Math.min(Math.max(0, selectedTableIndex), apiResponse.sheetOrder.length - 1);
+    const sheetName = apiResponse.sheetOrder[sheetIndex];
+    const sheet = apiResponse.sheets[sheetName];
 
-  const tableMetadata = useMemo(() => selectedTable?.meta, [selectedTable]);
-  const tableChartData = useMemo(() => selectedTable?.chartData, [selectedTable]);
+    if (!sheet || !sheet.tables || sheet.tables.length === 0) {
+        // Return basic sheet info if no tables exist
+        return {
+            ...sheet,
+            tables: [],
+            tableCount: 0,
+            headers: [],
+            tableData: [],
+            metadata: null,
+            chartData: { barChart: [], lineChart: [], donutChart: []}, 
+            stats: null,
+        };
+    }
+    
+    // Ensure table index within the sheet is valid
+    const tableIndex = Math.min(Math.max(0, selectedTableIndexWithinSheet), sheet.tables.length - 1);
+    const selectedTable = sheet.tables[tableIndex];
+    
+    // Return data structured like SheetData but specific to the selected table
+    return {
+        // Carry over sheet-level info if needed (like overall error/message)
+        error: sheet.error,
+        message: sheet.message,
+        // Populate with data from the specific table
+        tables: sheet.tables, // Keep reference to all tables for the dropdown
+        tableCount: sheet.tableCount,
+        headers: selectedTable.tableData?.headers || [], 
+        tableData: selectedTable.tableData?.rows || [], 
+        metadata: selectedTable.meta || null, 
+        chartData: selectedTable.chartData || { barChart: [], lineChart: [], donutChart: []}, // Ensure chartData exists
+        stats: selectedTable.stats || null,
+    };
+
+  }, [apiResponse, selectedTableIndex, selectedTableIndexWithinSheet]); // Depend on both indices
+  
+  // Keep `parsedDataForPreview` based on the derived `displayedTableData`
+  const parsedDataForPreview = useMemo(() => {
+    if (!displayedTableData) return null;
+    return {
+      headers: displayedTableData.headers || [],
+      tableData: displayedTableData.tableData || [], // Pass rows array
+      analytics: {}, // Placeholder, populate if needed
+      metadata: displayedTableData.metadata, // Pass the specific table metadata
+    };
+  }, [displayedTableData]);
+
+  const tableMetadata = useMemo(() => displayedTableData?.metadata, [displayedTableData]);
+  const tableChartData = useMemo(() => displayedTableData?.chartData, [displayedTableData]);
   // --- END Derived Data ---
 
   // --- Add logging for tableChartData ---
@@ -1038,14 +1004,14 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     scatter: true, // Added scatter
   });
   
-  // Update chart availability whenever the selected table changes
+  // Update chart availability whenever the selected table data changes
   useEffect(() => {
-    if (selectedTable && selectedTable.chartData) {
+    if (displayedTableData && displayedTableData.chartData) {
       const availability = {
-        bar: (selectedTable.chartData.barChart?.length ?? 0) > 0,
-        line: (selectedTable.chartData.lineChart?.length ?? 0) > 0,
-        donut: (selectedTable.chartData.donutChart?.length ?? 0) > 0,
-        scatter: (selectedTable.chartData.scatterPlot?.length ?? 0) > 0,
+        bar: (displayedTableData.chartData.barChart?.length ?? 0) > 0,
+        line: (displayedTableData.chartData.lineChart?.length ?? 0) > 0,
+        donut: (displayedTableData.chartData.donutChart?.length ?? 0) > 0,
+        scatter: (displayedTableData.chartData.scatterPlot?.length ?? 0) > 0,
       };
       setAvailableCharts(availability);
       // Optionally reset selected charts based on availability
@@ -1062,7 +1028,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
       setAvailableCharts(resetAvailability);
       setSelectedCharts(resetAvailability);
     }
-  }, [selectedTable]);
+  }, [displayedTableData]); // Depend on the derived table data
   // --- END Chart Availability Update ---
 
   // --- Updated function to fetch and process Excel file --- 
@@ -1085,18 +1051,18 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
         setError(`Backend error: ${result.message || 'Failed to process file.'}`);
         setApiResponse(result); // Store response even if it has errors for potential display
         setShowCharts(false);
-      } else if (result.tables && result.tables.length > 0) {
+      } else if (result.sheets && result.sheetOrder && result.sheetOrder.length > 0) {
         setApiResponse(result); // Store the successful structured response
-        setSelectedTableIndex(0); // Default to the first table
+        setSelectedTableIndex(0); // Default to the first sheet
         setShowCharts(true);
-        setSuccessMessage(`Successfully processed ${fileName}. Found ${result.tableCount} table(s).`);
+        setSuccessMessage(`Successfully processed ${fileName}. Found ${result.sheetCount} sheet(s).`);
         // Clear success message after a delay
         setTimeout(() => setSuccessMessage(null), 5000);
       } else {
-        // Handle case where API call was ok, but no tables were found
-        console.warn(`[Component] No tables found in the response for ${fileName}.`);
-        setError('No data tables found in the selected file.');
-        setApiResponse(result); // Store response even if no tables
+        // Handle case where API call was ok, but no sheets were found
+        console.warn(`[Component] No sheets found in the response for ${fileName}.`);
+        setError('No data sheets found in the selected file.');
+        setApiResponse(result); // Store response even if no sheets
         setShowCharts(false);
       }
 
@@ -1148,9 +1114,9 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     
     const a = document.createElement('a');
     a.href = url;
-    // Include table index in filename if multiple tables exist
-    const tableSuffix = (apiResponse?.tableCount ?? 0) > 1 ? `_table${selectedTableIndex + 1}` : '';
-    a.download = `analytics-${selectedFile}${tableSuffix}.json`;
+    // Include table index in filename if multiple sheets exist
+    const sheetSuffix = (apiResponse?.sheetCount ?? 0) > 1 ? `_sheet${selectedTableIndex + 1}` : '';
+    a.download = `analytics-${selectedFile}${sheetSuffix}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1206,15 +1172,62 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
   const firstDateCol = useMemo(() => tableMetadata?.dateColumns?.[0] || tableMetadata?.categoricalColumns?.[0] || '', [tableMetadata]);
   // --- END Dynamic Labels --- 
 
-  // --- Handle Table Selection Change ---
-  const handleTableSelectionChange = (indexStr: string) => {
-    const index = parseInt(indexStr, 10);
-    if (!isNaN(index) && apiResponse && index >= 0 && index < apiResponse.tableCount) {
-      console.log(`[Component] Table selection changed to index: ${index}`);
+  // --- Handle Sheet Selection Change --- 
+  const handleSheetSelectionChange = (sheetName: string) => {
+    if (!apiResponse || !apiResponse.sheets || !apiResponse.sheetOrder) return;
+
+    const index = apiResponse.sheetOrder.indexOf(sheetName);
+
+    if (index !== -1) {
+      console.log(`[Component] Sheet selection changed to index: ${index}, name: ${sheetName}`);
       setSelectedTableIndex(index);
+      setSelectedTableIndexWithinSheet(0); // <<< RESET table index when sheet changes
+      setSelectedSheetName(sheetName); // <<< SET selected sheet name state
+      // Clear errors when sheet changes
+      setError(null);
+      // Data derivation now happens in useMemo, no need to update apiResponse state here
+      // Check if the selected sheet has errors or no tables
+      const selectedSheet = apiResponse.sheets[sheetName];
+      if (selectedSheet && (selectedSheet.error || selectedSheet.tableCount === 0)) {
+        setError(selectedSheet.message || `No data tables found in sheet: ${sheetName}.`);
+        // Ensure charts are hidden if the sheet has issues
+        setShowCharts(false);
+      } else if (selectedSheet) { // Check if selectedSheet exists before showing charts
+        // Show charts if the sheet is valid
+        setShowCharts(true);
+      } else {
+        // Handle case where sheet might be missing unexpectedly
+        setError(`Could not find data for sheet: ${sheetName}.`);
+        setShowCharts(false);
+      }
+    } else {
+      console.warn(`[Component] Sheet name '${sheetName}' not found in sheetOrder.`);
     }
   };
-  // --- END Table Selection --- 
+  // --- END Sheet Selection ---
+
+  // --- NEW: Handler for Table Selection WITHIN a Sheet --- 
+  const handleTableWithinSheetChange = (indexStr: string) => {
+    const index = parseInt(indexStr, 10);
+    if (!isNaN(index)) {
+       // We can add checks here later if needed to ensure index is valid for the current sheet
+       console.log(`[Component] Table selection within sheet changed to index: ${index}`);
+       setSelectedTableIndexWithinSheet(index);
+       // Reset chart availability/selection if needed, or let useEffect handle it
+    }
+  };
+  // --- END NEW Handler ---
+
+  // --- Set initial sheet name when API response is ready ---
+  useEffect(() => {
+    if (apiResponse && apiResponse.sheetOrder && apiResponse.sheetOrder.length > 0) {
+      // Default to the first sheet
+      setSelectedSheetName(apiResponse.sheetOrder[0]); 
+    } else {
+      setSelectedSheetName(null); // Reset if no sheets
+    }
+  }, [apiResponse]); // Depend only on apiResponse
+  // --- END Initial Sheet Name ---
 
   return (
     <div className={`space-y-8 ${className}`}>
@@ -1308,42 +1321,66 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                   </p>
                 )}
 
-                {/* --- NEW Table Selector --- */} 
-                {apiResponse && apiResponse.tableCount > 1 && (
-                  <div>
-                    <Label htmlFor="table-select" className="mb-2 block text-gray-700 dark:text-gray-300 font-medium">
-                      Select Detected Table ({apiResponse.tableCount} found)
-                    </Label>
-                    <Select 
-                      value={String(selectedTableIndex)} 
-                      onValueChange={handleTableSelectionChange}
-                      disabled={processingFile}
-                    >
-                      <SelectTrigger id="table-select" className="w-full border-gray-200 dark:border-gray-700 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                        <SelectValue placeholder="Select a table to visualize" />
-                      </SelectTrigger>
-                      <SelectContent className="border-0 shadow-xl rounded-lg bg-white dark:bg-gray-800 backdrop-blur-sm">
-                        {apiResponse.tables.map((table, index) => (
-                          <SelectItem key={`table-${index}`} value={String(index)} className="rounded-md my-0.5 hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors duration-150">
-                            <div className="flex items-center">
-                              <Database className="h-4 w-4 mr-2 text-sky-600" />
-                              <span>{`Table ${index + 1}`}</span>
-                              {table.meta.excelRange && (
-                                <span className="ml-2 text-xs text-gray-500">
-                                  (Range: {table.meta.excelRange})
-                                </span>
-                              )}
-                              {table.processingStatus !== 'success' && (
-                                <Badge variant="destructive" className="ml-auto text-xs px-1.5 py-0.5">{table.processingStatus}</Badge>
-                              )}
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-                {/* --- END Table Selector --- */} 
+                {/* --- Remove conditional rendering & Place both dropdowns in a flex layout --- */}
+                <div className="mt-4 flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0">
+                    {/* Sheet Selection Dropdown (Only visible when more than one sheet contains tables) */}
+                    {apiResponse && apiResponse.sheetOrder && apiResponse.sheetOrder.length > 0 &&
+                      (() => {
+                        // Count sheets with tables
+                        const sheetsWithTables = apiResponse.sheetOrder.filter(sheetName => {
+                          const sheet = apiResponse.sheets[sheetName];
+                          return sheet && Array.isArray(sheet.tables) && sheet.tables.length > 0;
+                        });
+                        return sheetsWithTables.length > 1 ? (
+                          <div className="flex-1">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Select Sheet
+                            </label>
+                            <ShadSelect 
+                              value={selectedSheetName || ''}
+                              onValueChange={handleSheetSelectionChange}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select a sheet..." />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {sheetsWithTables.map((sheetName, index) => (
+                                  <SelectItem key={sheetName} value={sheetName}>
+                                    {sheetName} (Sheet {apiResponse.sheetOrder.indexOf(sheetName) + 1})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </ShadSelect>
+                          </div>
+                        ) : null;
+                      })()
+                    }
+
+                    {/* Table Selection Dropdown (Conditional on having multiple tables) */}
+                    {apiResponse && displayedTableData && displayedTableData.tables && displayedTableData.tables.length > 0 && (
+                        <div className="flex-1">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Select Table (within Sheet)
+                            </label>
+                            <ShadSelect 
+                                value={selectedTableIndexWithinSheet.toString()} 
+                                onValueChange={handleTableWithinSheetChange}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select Table" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {displayedTableData.tables.map((table: ProcessedTable, index: number) => (
+                                        <SelectItem key={`table-${index}`} value={index.toString()}>
+                                            Table {index + 1} (Range: {table.range || 'N/A'})
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </ShadSelect>
+                        </div>
+                    )}
+                </div>
+                {/* --- END Updated Dropdowns Section --- */}
 
               </div>
           
@@ -1390,15 +1427,8 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
       </Card>
       
       {/* Only show the visualization once processing is complete and we have data */}
-      {selectedTable && showCharts && !error && !processingFile && (
+      {displayedTableData && showCharts && !error && !processingFile && (
         <div className="mt-8">
-          {/* Chart Selection Panel */}
-          <ChartSelectionPanel 
-            availableCharts={availableCharts}
-            selectedCharts={selectedCharts}
-            onSelectionChange={handleChartSelectionChange}
-          />
-
           {/* Generic Heatmap Preview */}
           {parsedDataForPreview && (
             <GenericHeatmapPreview 

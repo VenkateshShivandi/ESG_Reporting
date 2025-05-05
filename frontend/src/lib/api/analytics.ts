@@ -35,16 +35,37 @@ export interface ProcessedTable {
   processingStatus?: string;
 }
 
-export interface ExcelAnalyticsResponse {
-  tables: ProcessedTable[];
+// --- Define SheetData structure here ---
+export interface SheetData {
+  tables: any[]; 
   tableCount: number;
+  error?: boolean;
+  message?: string | null;
+  headers?: string[]; 
+  tableData?: Record<string, any>[]; 
+  metadata?: any; 
+  stats?: any;
+  chartData?: {
+    barChart: Array<{name: string; value: number}>;
+    lineChart: Array<{name: string; value: number}>;
+    donutChart: Array<{name: string; value: number}>;
+    scatterPlot?: Array<any>;
+  };
+}
+// --- End SheetData definition ---
+
+// --- Updated interface for the API response ---
+export interface ExcelAnalyticsResponse {
+  sheets: Record<string, SheetData>;
+  sheetOrder: string[];
+  sheetCount: number;
   fileMetadata: {
     filename: string;
     duration: number;
   };
   error: boolean;
   errorType?: string;
-  message?: string;
+  message?: string | null;
   errorDetails?: any;
 }
 
@@ -255,6 +276,13 @@ export async function fetchExcelData(fileName?: string): Promise<ExcelAnalyticsR
     // Log the raw data received from API
     console.log('[API] Raw data received from /api/analytics/excel-data:', data);
     
+    // --- FIX: Remove legacy format check --- 
+    // The backend now consistently returns the multi-sheet format.
+    // Assume the data is already in the correct ExcelAnalyticsResponse structure.
+    console.log('[API] Assuming response is in the new multi-sheet format');
+    return data as ExcelAnalyticsResponse;
+    
+    /* --- REMOVED LEGACY CHECK --- 
     // Return the data in the expected format
     if (data.tables && Array.isArray(data.tables)) {
       // If the API already returns data in the expected ExcelAnalyticsResponse format
@@ -297,24 +325,41 @@ export async function fetchExcelData(fileName?: string): Promise<ExcelAnalyticsR
       
       // Create the response structure
       const response: ExcelAnalyticsResponse = {
-        tables: [processedTable],
-        tableCount: 1,
+        sheets: {
+          'Sheet1': {
+            tables: [processedTable],
+            tableCount: 1,
+            stats: processedTable.stats,
+            metadata: processedTable.meta,
+            chartData: processedTable.chartData,
+            headers: processedTable.tableData?.headers,
+            tableData: processedTable.tableData?.rows || [], // Ensure rows is always an array
+            error: false,
+            message: "Processed successfully"
+          }
+        },
+        sheetOrder: ['Sheet1'],
+        sheetCount: 1, // Ensure sheetCount is provided
         fileMetadata: {
           filename: data.metadata?.filename || fileName,
           duration: data.stats?.duration || 0
         },
         error: false,
-        message: 'Legacy data format converted successfully'
+        errorType: undefined,
+        message: undefined,
+        errorDetails: undefined
       };
       
       return response;
     }
+    */ // --- END REMOVED LEGACY CHECK --- 
   } catch (error) {
     console.error('Error in fetchExcelData:', error);
     // Return error in the proper format
     return {
-      tables: [],
-      tableCount: 0,
+      sheets: {},
+      sheetOrder: [],
+      sheetCount: 0,
       fileMetadata: {
         filename: fileName || 'unknown',
         duration: 0
