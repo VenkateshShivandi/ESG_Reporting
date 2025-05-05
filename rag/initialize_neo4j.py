@@ -252,6 +252,85 @@ class Neo4jGraphInitializer:
                 DETACH DELETE o
             """, {"orgId": orgId}) 
 
+
+    def subgraphExists(self, userId: str, rootLabel: str = "Root") -> bool:
+        """
+        Check if a subgraph exists for a user.
+        """
+        try:
+            with self.driver.session() as session:
+                session.run(f"MATCH (u:User {{user_id: $userId}}) RETURN u", {"userId": userId})
+                return True
+            return False
+        except Exception as e:
+            return False
+    
+    def deleteSubgraph(self, userId: str, rootLabel: str = "Root") -> None:
+        """
+        Delete a subgraph for a user.
+        """
+        try:
+            with self.driver.session() as session:
+                session.run(f"MATCH (u:User {{user_id: $userId}}) DETACH DELETE u", {"userId": userId})
+        except Exception as e:
+            print(f"Error deleting subgraph: {str(e)}")
+
+    def createSubgraph(self, entities: list, relationships: list, userId: str, rootLabel: str = "Root") -> None:
+        """
+        Create a subgraph for a user in neo4j database using the entities and relationships
+        
+        Args:
+            entities: list of entities
+            relationships: list of relationships
+            userId: unique user id
+            rootLabel: label for the root node
+        
+        Returns:
+            None
+        """
+        try:
+            with self.driver.session() as session:
+                session.run(f"MATCH (u:User {{user_id: $userId}}) CREATE (u)-[:HAS_SUBGRAPH]->(s:Subgraph)", {"userId": userId})
+                session.run(f"MATCH (u:User {{user_id: $userId}}) CALL gds.graph.create.cypher($graphName, $entities, $relationships)", {"userId": userId, "graphName": f"subgraph_{userId}", "entities": entities, "relationships": relationships})
+            print(f"Subgraph created for user {userId}")
+        except Exception as e:
+            print(f"Error creating subgraph: {str(e)}")
+
+    def buildGraphProjection(self, graphName: str, rootLabel: str = "Root") -> None:
+        """
+        Build a graph projection for a subgraph.
+        """
+        try:
+            with self.driver.session() as session:
+                session.run(f"CALL gds.graph.project.cypher($graphName, $entities, $relationships)", {"graphName": graphName, "entities": entities, "relationships": relationships})
+        except Exception as e:
+            print(f"Error building graph projection: {str(e)}")
+
+
+    def getSubgraphId(self, userId: str, rootLabel: str = "Root") -> str:
+        """
+        Get the subgraph id for a user.
+        """
+        try:
+            with self.driver.session() as session:
+                result = session.run(f"MATCH (u:User {{user_id: $userId}}) RETURN u.subgraph_id", {"userId": userId})
+                return result.single()[0]
+        except Exception as e:
+            print(f"Error getting subgraph id: {str(e)}")
+            return None # if no subgraph id is found, return None
+    
+    def runCommunityDetection(self, userId: str, rootLabel: str = "Root") -> None:
+        """
+        Run community detection for a user.
+        """
+        try:
+            with self.driver.session() as session:
+                session.run(f"MATCH (u:User {{user_id: $userId}}) CALL gds.graph.create.cypher($graphName, $entities, $relationships)", {"userId": userId, "graphName": f"subgraph_{userId}"})
+        except Exception as e:
+            print(f"Error running community detection: {str(e)}")
+
+
+
 def run() -> None:
     """
     Test function to initialize the graph and create users/orgs as described.

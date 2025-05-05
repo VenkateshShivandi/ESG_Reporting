@@ -209,6 +209,53 @@ def process_document_endpoint():
             except OSError as e:
                 logging.error(f"Error removing temporary file {temp_file_path}: {e}")
 
+@app.route("/api/v1/create-graph", methods=["POST"])
+def create_graph():
+    """Create a graph from a file.
+
+    Accepts multipart/form-data with a file field named 'file'
+
+    Returns:
+        JSON response with processing results and graph data
+    """
+    app.logger.info(f"---------------/api/v1/create-graph-----------------")
+    # get the entities and relationships from the request
+    data = flask.request.json
+    entities = data.get("entities")
+    relationships = data.get("relationships")
+    user_id = data.get("user_id")
+
+    # 1. check if the user has already created a subgraph, if yes, delete/detach it first before creating a new one
+    if neo4j_initializer.userExists(user_id):
+        # check if the subgraph is already created
+        if neo4j_initializer.subgraphExists(user_id):
+            # delete the subgraph
+            neo4j_initializer.deleteSubgraph(user_id)
+        else:
+            # 2. create the subgraph
+            neo4j_initializer.createSubgraph(entities, relationships, user_id)
+            #2.1 build a graph projection for the subgraph
+            graph_projection = neo4j_initializer.buildGraphProjection('subgraph_'+user_id)
+            # 3. Run community detection and insights on the subgraph using the graph projection
+            neo4j_initializer.runCommunityDetection(graph_projection, user_id)
+            # 4. return the subgraph id
+            return flask.jsonify({"success": True, "message": "Graph created successfully", "subgraph_id": neo4j_initializer.getSubgraphId(user_id)}), 200
+    else:
+        # provide a message to the user that the user does not exist
+        return flask.jsonify({"error": "User does not exist"}), 400
+    
+
+
+    return flask.jsonify({"success": True, "message": "Graph created successfully", "entities": entities, "relationships": relationships, "user_id": user_id}), 200
+    
+    # 1. check if the user has already created a subgraph, if yes, delete/detach it first before creating a new one
+    
+    # 2. get the entities and relationships based on the chunk ids from the documents in the document ids list, for this we need to query the chunk_ids from the documents table in supabase
+    # 3. create entity-relationship graph in neo4j using the entities and relationships based on the chunk ids
+    # 4. if there is a unique id allocated to the subgraph, return it, otherwise maybe do nothing? we will see...
+
+    if "file" not in flask.request.files:
+        return flask.jsonify({"error": "No file provided"}), 400
 
 @app.route("/api/v1/process-file", methods=["POST"])
 def process_file():
@@ -313,7 +360,6 @@ def process_file():
             except OSError as e:
                 app.logger.error(f"Error removing temp file {temp_file_path}: {e}")
 
-
 @app.route("/api/v1/community-insights", methods=["GET"])
 def get_community_insights():
     """Get community insights from a processed file.
@@ -351,7 +397,6 @@ def get_community_insights():
 
     except Exception as e:
         return flask.jsonify({"success": False, "error": str(e)}), 500
-
 
 @app.route("/api/v1/add-user", methods=["POST"])
 def add_user():
@@ -421,9 +466,6 @@ def delete_org():
     except Exception as e:
         return flask.jsonify({"error": str(e)}), 500
         
-
-
-
 if __name__ == "__main__":
     try:
         # Initialize Neo4j connection at startup
