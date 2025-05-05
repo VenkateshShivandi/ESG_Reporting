@@ -284,23 +284,33 @@ export default function GenericHeatmapPreview({ parsedData }: GenericHeatmapPrev
       {parsedData?.headers && parsedData.headers.length > 0 && (
         <div className="flex flex-wrap gap-3 mb-4 relative">
           <Select value={selectedCategoryField || ''} onValueChange={setSelectedCategoryField}>
-            <SelectTrigger className="w-[160px] h-8 text-xs bg-slate-700 border-slate-600 text-slate-200">
-              <SelectValue placeholder="Select Category" />
+            <SelectTrigger className="w-[260px] h-10 bg-slate-800 border border-slate-600 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-slate-100 flex items-center">
+              <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
+                <span className="mr-2 flex-shrink-0">🔠</span>
+                <SelectValue placeholder="Select Category" className="text-ellipsis overflow-hidden w-full" />
+              </div>
             </SelectTrigger>
-            <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
+            <SelectContent className="z-[200] min-w-[260px] bg-slate-900 border border-slate-700 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
               {potentialCategoryColumns.map(header => (
-                <SelectItem key={`cat-${header}`} value={header}>{header}</SelectItem>
+                <SelectItem key={`cat-${header}`} value={header} className="truncate px-3 py-2 text-base text-slate-100 hover:bg-sky-900 focus:bg-sky-800 rounded-md">
+                  {header}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
 
           <Select value={selectedValueField || ''} onValueChange={setSelectedValueField}>
-            <SelectTrigger className="w-[160px] h-8 text-xs bg-slate-700 border-slate-600 text-slate-200">
-              <SelectValue placeholder="Select Value" />
+            <SelectTrigger className="w-[260px] h-10 bg-slate-800 border border-slate-600 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-slate-100 flex items-center">
+              <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
+                <span className="mr-2 flex-shrink-0">🔢</span>
+                <SelectValue placeholder="Select Value" className="text-ellipsis overflow-hidden w-full" />
+              </div>
             </SelectTrigger>
-            <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
+            <SelectContent className="z-[200] min-w-[260px] bg-slate-900 border border-slate-700 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
               {potentialValueColumns.map(header => (
-                <SelectItem key={`val-${header}`} value={header}>{header}</SelectItem>
+                <SelectItem key={`val-${header}`} value={header} className="truncate px-3 py-2 text-base text-slate-100 hover:bg-sky-900 focus:bg-sky-800 rounded-md">
+                  {header}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>

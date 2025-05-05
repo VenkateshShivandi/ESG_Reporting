@@ -1230,203 +1230,204 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
   // --- END Initial Sheet Name ---
 
   return (
-    <div className={`space-y-8 ${className}`}>
-      <Card className="overflow-hidden border-0 shadow-xl rounded-xl bg-white dark:bg-gray-900">
-        <CardHeader className="pb-3 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-900 border-b border-gray-100 dark:border-gray-800">
-          <CardTitle className="text-xl font-bold text-gray-800 dark:text-gray-100">Excel & CSV Data Analytics</CardTitle>
-          <CardContent className="p-0 pt-3">
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              Analyze your ESG data from Excel and CSV files for enhanced insights and reporting.
-            </p>
-            
-            {error && (
-              <Alert variant="destructive" className="mb-4 bg-red-50 border-red-100 text-red-700">
-                <AlertCircle className="h-4 w-4 mr-2" />
-                <AlertTitle>Error</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-            
-            <div className="flex flex-col space-y-4 md:flex-row md:space-y-0 md:space-x-4">
-              <div className="flex-1 space-y-4">
-                {/* Add file type selector */}
-                <div className="mb-4">
-                  <Label htmlFor="file-type-select" className="mb-2 block text-gray-700 dark:text-gray-300 font-medium">File Type</Label>
-                  <Tabs 
-                    value={selectedFileType} 
-                    onValueChange={(value) => handleFileTypeChange(value as 'excel' | 'csv')}
-                    className="w-full"
-                  >
-                    <TabsList className="grid w-full grid-cols-2">
-                      <TabsTrigger value="excel" className="flex items-center justify-center gap-2">
-                        <FileSpreadsheet className="h-4 w-4" />
-                        <span>Excel</span>
-                      </TabsTrigger>
-                      <TabsTrigger value="csv" className="flex items-center justify-center gap-2">
-                        <FileType className="h-4 w-4" />
-                        <span>CSV</span>
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </div>
-                
-                <Label htmlFor="file-select" className="mb-2 block text-gray-700 dark:text-gray-300 font-medium">
-                  Select {selectedFileType === 'excel' ? 'Excel' : 'CSV'} File
-                </Label>
-                <Select 
-                  value={selectedFile} 
-                  onValueChange={handleFileChange}
-                  disabled={loading || currentFileList.length === 0}
-                >
-                  <SelectTrigger id="file-select" className="w-full border-gray-200 dark:border-gray-700 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                    <SelectValue placeholder={loading ? "Loading files..." : `Select a ${selectedFileType} file to analyze`}>
-                      {selectedFile && (
-                        <div className="flex items-center">
-                          {selectedFileType === 'excel' ? (
-                          <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-600" />
-                          ) : (
-                            <FileType className="h-4 w-4 mr-2 text-green-600" />
-                          )}
-                          <span>{selectedFile}</span>
-                </div>
-                      )}
-                    </SelectValue>
-              </SelectTrigger>
-                  <SelectContent className="border-0 shadow-xl rounded-lg bg-white dark:bg-gray-800 backdrop-blur-sm">
-                    {currentFileList.map(file => (
-                      <SelectItem key={file.path} value={file.name} className="rounded-md my-0.5 hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors duration-150">
-                        <div className="flex items-center">
-                          {selectedFileType === 'excel' ? (
-                          <FileSpreadsheet className="h-4 w-4 mr-2 text-emerald-600" />
-                          ) : (
-                            <FileType className="h-4 w-4 mr-2 text-green-600" />
-                          )}
-                          <span>{file.name}</span>
-                          <span className="ml-2 text-xs text-gray-500">
-                            {file.size ? `(${Math.round(file.size / 1024)} KB)` : ''}
-                          </span>
+    <div className={`w-full max-w-6xl mx-auto mt-12`}> 
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+        {/* Header Section */}
+        <div className="bg-gradient-to-r from-teal-50 to-cyan-50 px-8 py-7 flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <BarChart3 className="h-7 w-7 text-teal-500" />
+              <span className="text-2xl font-bold text-gray-800">ESG Data Analytics</span>
+            </div>
+            <div className="text-base text-gray-500 font-medium">Import and analyze your ESG data from spreadsheets for enhanced insights and reporting</div>
+          </div>
+          <span className="bg-teal-100 text-teal-700 px-4 py-1 rounded-full text-sm font-semibold shadow-sm">Enterprise</span>
+        </div>
+        {/* Main Form Section */}
+        <div className="px-8 pt-8 pb-6">
+          <div className="mb-7">
+            <Label htmlFor="file-type-select" className="mb-2 block text-gray-700 font-semibold text-base">File Format</Label>
+            <div className="flex rounded-full overflow-hidden border border-gray-200 bg-gray-50 w-full max-w-md">
+              <button
+                type="button"
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-base font-semibold transition-all rounded-full ${selectedFileType === 'excel' ? 'bg-teal-500 text-white shadow-md scale-[1.02]' : 'bg-gray-100 text-gray-500 hover:bg-emerald-50'} focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-1 z-10`}
+                onClick={() => handleFileTypeChange('excel')}
+              >
+                <FileSpreadsheet className="h-5 w-5" /> Excel
+              </button>
+              <button
+                type="button"
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-base font-semibold transition-all rounded-full ${selectedFileType === 'csv' ? 'bg-teal-500 text-white shadow-md scale-[1.02]' : 'bg-gray-100 text-gray-500 hover:bg-emerald-50'} focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-1 z-10`}
+                onClick={() => handleFileTypeChange('csv')}
+              >
+                <FileType className="h-5 w-5" /> CSV
+              </button>
+            </div>
+          </div>
+          <div className="mb-7">
+            <Label htmlFor="file-select" className="mb-2 block text-gray-700 font-semibold text-base">
+              Select {selectedFileType === 'excel' ? 'Excel' : 'CSV'} File
+            </Label>
+            <div className="flex items-center gap-2">
+              <Select 
+                value={selectedFile} 
+                onValueChange={handleFileChange}
+                disabled={loading || currentFileList.length === 0}
+              >
+                <SelectTrigger id="file-select" className="w-full border-gray-200 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500">
+                  <SelectValue placeholder={loading ? "Loading files..." : `Choose a ${selectedFileType === 'excel' ? 'Excel' : 'CSV'} file`}>
+                    {selectedFile && (
+                      <div className="flex items-center">
+                        {selectedFileType === 'excel' ? (
+                          <FileSpreadsheet className="h-5 w-5 mr-2 text-emerald-600" />
+                        ) : (
+                          <FileType className="h-5 w-5 mr-2 text-green-600" />
+                        )}
+                        <span>{selectedFile}</span>
                       </div>
-                        </SelectItem>
-                      ))}
-                    {currentFileList.length === 0 && !loading && (
-                      <SelectItem value="no-files" disabled className="opacity-60">
-                        No {selectedFileType === 'excel' ? 'Excel' : 'CSV'} files available
-                        </SelectItem>
-                  )}
-              </SelectContent>
-            </Select>
-                {error && (
-                  <p className="mt-2 text-xs text-red-500">
-                    Try refreshing the file list or check your network connection.
-                  </p>
-                )}
-
-                {/* --- Remove conditional rendering & Place both dropdowns in a flex layout --- */}
-                <div className="mt-4 flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0">
-                    {/* Sheet Selection Dropdown (Only visible when more than one sheet contains tables) */}
-                    {apiResponse && apiResponse.sheetOrder && apiResponse.sheetOrder.length > 0 &&
-                      (() => {
-                        // Count sheets with tables
-                        const sheetsWithTables = apiResponse.sheetOrder.filter(sheetName => {
-                          const sheet = apiResponse.sheets[sheetName];
-                          return sheet && Array.isArray(sheet.tables) && sheet.tables.length > 0;
-                        });
-                        return sheetsWithTables.length > 1 ? (
-                          <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                              Select Sheet
-                            </label>
-                            <ShadSelect 
-                              value={selectedSheetName || ''}
-                              onValueChange={handleSheetSelectionChange}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select a sheet..." />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {sheetsWithTables.map((sheetName, index) => (
-                                  <SelectItem key={sheetName} value={sheetName}>
-                                    {sheetName} (Sheet {apiResponse.sheetOrder.indexOf(sheetName) + 1})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </ShadSelect>
-                          </div>
-                        ) : null;
-                      })()
-                    }
-
-                    {/* Table Selection Dropdown (Conditional on having multiple tables) */}
-                    {apiResponse && displayedTableData && displayedTableData.tables && displayedTableData.tables.length > 0 && (
-                        <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Select Table (within Sheet)
-                            </label>
-                            <ShadSelect 
-                                value={selectedTableIndexWithinSheet.toString()} 
-                                onValueChange={handleTableWithinSheetChange}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select Table" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {displayedTableData.tables.map((table: ProcessedTable, index: number) => (
-                                        <SelectItem key={`table-${index}`} value={index.toString()}>
-                                            Table {index + 1} (Range: {table.range || 'N/A'})
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </ShadSelect>
-                        </div>
                     )}
-                </div>
-                {/* --- END Updated Dropdowns Section --- */}
-
-              </div>
-          
-              <div className="flex items-end">
-            <Button 
-                  onClick={() => fetchExcelFileDirectly(selectedFile, selectedFileIndex)}
-                  disabled={!selectedFile || processingFile || loading}
-                  className="w-full md:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-medium py-3 px-6 rounded-lg shadow-lg shadow-blue-200/50 dark:shadow-none hover:shadow-xl transition-all duration-200"
-                  variant="default"
-                >
-                  {processingFile ? (
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className="relative w-5 h-5">
-                        <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-blue-300 animate-spin"></div>
-                        <div className="absolute inset-0 rounded-full border-b-2 border-l-2 border-blue-100 opacity-30"></div>
-                          </div>
-                      <span>Processing File...</span>
-                        </div>
-                  ) : (
-                    <div className="flex items-center justify-center space-x-2">
-                      <BarChart3 className="h-5 w-5 text-blue-200" />
-                      <span>Analyze Data</span>
-                      <div className="relative flex items-center justify-center ml-1 group">
-                        <div className="absolute -right-1 -top-1 w-2 h-2 bg-white rounded-full animate-ping opacity-75"></div>
-                        <div className="w-1.5 h-1.5 bg-white rounded-full"></div>
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="border-0 shadow-xl rounded-lg bg-white backdrop-blur-sm">
+                  {currentFileList.map(file => (
+                    <SelectItem key={file.path} value={file.name} className="rounded-md my-0.5 hover:bg-teal-50 transition-colors duration-150">
+                      <div className="flex items-center">
+                        {selectedFileType === 'excel' ? (
+                          <FileSpreadsheet className="h-5 w-5 mr-2 text-emerald-600" />
+                        ) : (
+                          <FileType className="h-5 w-5 mr-2 text-green-600" />
+                        )}
+                        <span>{file.name}</span>
+                        <span className="ml-2 text-xs text-gray-500">
+                          {file.size ? `(${Math.round(file.size / 1024)} KB)` : ''}
+                        </span>
                       </div>
-                    </div>
+                    </SelectItem>
+                  ))}
+                  {currentFileList.length === 0 && !loading && (
+                    <SelectItem value="no-files" disabled className="opacity-60">
+                      No {selectedFileType === 'excel' ? 'Excel' : 'CSV'} files available
+                    </SelectItem>
                   )}
-            </Button>
-                
-            <Button 
-                  onClick={loadAvailableFiles} 
-              variant="outline" 
-                  size="icon"
-                  className="ml-2 h-10 w-10 border-gray-200 text-gray-700 hover:text-blue-600 hover:border-blue-200 hover:bg-blue-50 transition-all duration-200 dark:border-gray-700 dark:text-gray-300 dark:hover:text-blue-400 dark:hover:border-blue-800 dark:hover:bg-gray-800"
-              disabled={loading}
+                </SelectContent>
+              </Select>
+              <Button 
+                onClick={loadAvailableFiles} 
+                variant="outline" 
+                size="icon"
+                className="h-11 w-11 border-gray-200 text-teal-600 hover:bg-teal-100 hover:text-teal-700 hover:border-teal-300 transition-all duration-200 shadow-sm rounded-lg"
+                disabled={loading}
+              >
+                <RefreshCw className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+            {error && (
+              <p className="mt-2 text-xs text-red-500">
+                Try refreshing the file list or check your network connection.
+              </p>
+            )}
+          </div>
+          <div className="pt-2">
+            <Button
+              onClick={() => fetchExcelFileDirectly(selectedFile, selectedFileIndex)}
+              disabled={!selectedFile || processingFile || loading}
+              className="w-full py-4 text-lg font-bold rounded-xl shadow-md bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white border-none focus:ring-2 focus:ring-emerald-400 focus:outline-none flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
+              variant="default"
             >
-                  <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              <BarChart3 className="h-6 w-6 mr-2" />
+              Analyze Data
             </Button>
           </div>
         </div>
-          </CardContent>
-        </CardHeader>
-      </Card>
-      
-      {/* Only show the visualization once processing is complete and we have data */}
+      </div>
+      {/* --- Sheet and Table Selectors --- */}
+      {apiResponse && apiResponse.sheetOrder && apiResponse.sheetOrder.length > 0 && !processingFile && (
+        <div className="mt-6 px-8 pb-4 border-t border-slate-100 pt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Sheet Selector */}
+            <div>
+              <Label htmlFor="sheet-select" className="mb-2 block text-gray-700 font-semibold text-base">Select Sheet</Label>
+              <Select 
+                value={selectedSheetName || ''} 
+                onValueChange={handleSheetSelectionChange}
+                disabled={!apiResponse || !apiResponse.sheetOrder || apiResponse.sheetOrder.length === 0}
+              >
+                <SelectTrigger id="sheet-select" className="w-full border-gray-200 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500">
+                  <SelectValue placeholder="Select a sheet">
+                    {selectedSheetName && (
+                      <div className="flex items-center">
+                        <Database className="h-5 w-5 mr-2 text-purple-600" />
+                        <span>{selectedSheetName}</span>
+                      </div>
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="border-0 shadow-xl rounded-lg bg-white backdrop-blur-sm">
+                  {apiResponse.sheetOrder.map((sheetName, index) => (
+                    <SelectItem key={sheetName} value={sheetName} className="rounded-md my-0.5 hover:bg-teal-50 transition-colors duration-150">
+                      <div className="flex items-center">
+                        <Database className="h-5 w-5 mr-2 text-purple-600" />
+                        <span>{sheetName}</span>
+                        <span className="ml-2 text-xs text-gray-500">
+                          ({apiResponse.sheets[sheetName]?.tableCount || 0} tables)
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Table Selector (within the selected sheet) */}
+            {displayedTableData && displayedTableData.tables && displayedTableData.tableCount > 1 && (
+              <div>
+                <Label htmlFor="table-within-sheet-select" className="mb-2 block text-gray-700 font-semibold text-base">
+                  Select Table within Sheet
+                </Label>
+                <Select
+                  value={selectedTableIndexWithinSheet.toString()} // Ensure value is string
+                  onValueChange={handleTableWithinSheetChange}
+                  disabled={!displayedTableData || !displayedTableData.tables || displayedTableData.tables.length <= 1}
+                >
+                  <SelectTrigger id="table-within-sheet-select" className="w-full border-gray-200 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500">
+                    <SelectValue placeholder="Select a table">
+                      {displayedTableData.tables[selectedTableIndexWithinSheet]?.meta?.name && (
+                        <div className="flex items-center">
+                          <TableIcon className="h-5 w-5 mr-2 text-orange-600" />
+                          <span>{displayedTableData.tables[selectedTableIndexWithinSheet].meta.name || `Table ${selectedTableIndexWithinSheet + 1}`}</span>
+                        </div>
+                      )}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="border-0 shadow-xl rounded-lg bg-white backdrop-blur-sm">
+                    {displayedTableData.tables.map((table, index) => {
+                      // Determine the table name based on the first column header
+                      const firstHeader = table.tableData?.headers?.[0];
+                      const isValidHeader = firstHeader && typeof firstHeader === 'string' && firstHeader.trim() !== '' && firstHeader.toLowerCase() !== 'nan';
+                      const tableName = isValidHeader 
+                        ? firstHeader 
+                        : table.meta?.name || `Table ${index + 1}`;
+
+                      return (
+                        <SelectItem key={index} value={index.toString()} className="rounded-md my-0.5 hover:bg-orange-50 transition-colors duration-150">
+                          <div className="flex items-center">
+                            <TableIcon className="h-5 w-5 mr-2 text-orange-600" />
+                            <span>{tableName}</span>
+                            <span className="ml-2 text-xs text-gray-500">
+                              ({table.tableData?.rows?.length || 0} rows)
+                            </span>
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {/* The rest of the analytics UI (results, loading, etc.) remains unchanged and is rendered below as before */}
       {displayedTableData && showCharts && !error && !processingFile && (
         <div className="mt-8">
           {/* Generic Heatmap Preview */}

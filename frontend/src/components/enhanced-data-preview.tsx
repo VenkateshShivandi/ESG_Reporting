@@ -319,33 +319,55 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
             <div className="flex flex-wrap gap-2 mb-4">
               {activeTab !== 'scatter' && activeTab !== 'table' && (
                   <>
-                   <Select value={categoryField || ""} onValueChange={setCategoryField}>
-                     <SelectTrigger className="w-[160px] h-9">
-                       <div className="flex items-center">
-                         <span className="mr-1">🔠</span>
-                         <SelectValue placeholder="Category" />
-                       </div>
-                      </SelectTrigger>
-                     <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
-                       {potentialCategoryColumns.map(header => (
-                         <SelectItem key={`cat-${header}`} value={header}>{header}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    
-                   <Select value={valueField || ""} onValueChange={setValueField}>
-                     <SelectTrigger className="w-[160px] h-9">
-                       <div className="flex items-center">
-                         <span className="mr-1">🔢</span>
-                         <SelectValue placeholder="Value" />
-                       </div>
-                      </SelectTrigger>
-                     <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
-                       {potentialValueColumns.map(header => (
-                         <SelectItem key={`val-${header}`} value={header}>{header}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                   <TooltipProvider>
+                     <ShadTooltip delayDuration={100}>
+                       <TooltipTrigger asChild>
+                         <Select value={categoryField || ""} onValueChange={setCategoryField}>
+                           <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center">
+                             <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
+                               <span className="mr-2 flex-shrink-0">🔠</span>
+                               <SelectValue placeholder="Category" className="text-ellipsis overflow-hidden w-full" />
+                             </div>
+                           </SelectTrigger>
+                           <SelectContent className="z-[200] min-w-[260px] bg-white border border-gray-200 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
+                             {potentialCategoryColumns.map(header => (
+                               <SelectItem key={`cat-${header}`} value={header} className="truncate px-3 py-2 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 rounded-md">
+                                 {header}
+                               </SelectItem>
+                             ))}
+                           </SelectContent>
+                         </Select>
+                       </TooltipTrigger>
+                       <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
+                         <p>{categoryField || "Select category column"}</p>
+                       </TooltipContent>
+                     </ShadTooltip>
+                   </TooltipProvider>
+                   
+                   <TooltipProvider>
+                     <ShadTooltip delayDuration={100}>
+                       <TooltipTrigger asChild>
+                         <Select value={valueField || ""} onValueChange={setValueField}>
+                           <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center">
+                             <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
+                               <span className="mr-2 flex-shrink-0">🔢</span>
+                               <SelectValue placeholder="Value" className="text-ellipsis overflow-hidden w-full" />
+                             </div>
+                           </SelectTrigger>
+                           <SelectContent className="z-[200] min-w-[260px] bg-white border border-gray-200 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
+                             {potentialValueColumns.map(header => (
+                               <SelectItem key={`val-${header}`} value={header} className="truncate px-3 py-2 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 rounded-md">
+                                 {header}
+                               </SelectItem>
+                             ))}
+                           </SelectContent>
+                         </Select>
+                       </TooltipTrigger>
+                       <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
+                         <p>{valueField || "Select value column"}</p>
+                       </TooltipContent>
+                     </ShadTooltip>
+                   </TooltipProvider>
 
                     <TooltipProvider>
                       <ShadTooltip delayDuration={100}>
@@ -362,33 +384,55 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                 
               {activeTab === 'scatter' && (
                   <>
-                    <Select value={scatterXField || ""} onValueChange={setScatterXField}>
-                      <SelectTrigger className="w-[160px] h-9">
-                       <div className="flex items-center">
-                         <span className="mr-1">X: 🔢</span>
-                         <SelectValue placeholder="X-Axis Value" />
-                       </div>
-                      </SelectTrigger>
-                    <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
-                      {potentialValueColumns.map(header => (
-                        <SelectItem key={`scatter-x-${header}`} value={header}>{header}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <TooltipProvider>
+                      <ShadTooltip delayDuration={100}>
+                        <TooltipTrigger asChild>
+                          <Select value={scatterXField || ""} onValueChange={setScatterXField}>
+                            <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center">
+                              <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
+                                <span className="mr-2 flex-shrink-0">X: 🔢</span>
+                                <SelectValue placeholder="X-Axis Value" className="text-ellipsis overflow-hidden w-full" />
+                              </div>
+                            </SelectTrigger>
+                            <SelectContent className="z-[200] min-w-[260px] bg-white border border-gray-200 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
+                              {potentialValueColumns.map(header => (
+                                <SelectItem key={`scatter-x-${header}`} value={header} className="truncate px-3 py-2 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 rounded-md">
+                                  {header}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
+                          <p>{scatterXField || "Select X-axis column"}</p>
+                        </TooltipContent>
+                      </ShadTooltip>
+                    </TooltipProvider>
                     
-                    <Select value={scatterYField || ""} onValueChange={setScatterYField}>
-                      <SelectTrigger className="w-[160px] h-9">
-                       <div className="flex items-center">
-                         <span className="mr-1">Y: 🔢</span>
-                         <SelectValue placeholder="Y-Axis Value" />
-                       </div>
-                      </SelectTrigger>
-                     <SelectContent className="z-[200] min-w-[160px]" position="item-aligned" sideOffset={5} align="start">
-                      {potentialValueColumns.map(header => (
-                        <SelectItem key={`scatter-y-${header}`} value={header}>{header}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <TooltipProvider>
+                      <ShadTooltip delayDuration={100}>
+                        <TooltipTrigger asChild>
+                          <Select value={scatterYField || ""} onValueChange={setScatterYField}>
+                            <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center">
+                              <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
+                                <span className="mr-2 flex-shrink-0">Y: 🔢</span>
+                                <SelectValue placeholder="Y-Axis Value" className="text-ellipsis overflow-hidden w-full" />
+                              </div>
+                            </SelectTrigger>
+                            <SelectContent className="z-[200] min-w-[260px] bg-white border border-gray-200 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
+                              {potentialValueColumns.map(header => (
+                                <SelectItem key={`scatter-y-${header}`} value={header} className="truncate px-3 py-2 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 rounded-md">
+                                  {header}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
+                          <p>{scatterYField || "Select Y-axis column"}</p>
+                        </TooltipContent>
+                      </ShadTooltip>
+                    </TooltipProvider>
                    <TooltipProvider>
                       <ShadTooltip delayDuration={100}>
                         <TooltipTrigger asChild>
