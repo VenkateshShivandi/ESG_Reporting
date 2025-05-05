@@ -194,6 +194,8 @@ function ChatPage() {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
   const [isGeneratingResponse, setIsGeneratingResponse] = useState(false)
 
+  const [isUploadingToGraph, setIsUploadingToGraph] = useState(false)
+
   // Define status messages only once at the component level
   const statusMessages = [
     "Generating your report...",
@@ -1023,6 +1025,40 @@ function ChatPage() {
     return !hasErrors
   }
 
+  const uploadDocumentsToGraph = async () => {
+    if (!session?.access_token || selectedFiles.size === 0) return
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/create-graph`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          document_ids: Array.from(selectedFiles),
+          user_id: session.user.id
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error("Upload error response:", errorData)
+        throw new Error(errorData.error || "Failed to upload documents to graph")
+      }
+
+      const data = await response.json()
+      console.log("Graph creation response:", data)
+
+      toast.success("Documents uploaded to graph successfully")
+    } catch (error) {
+      console.error("Error uploading documents to graph:", error)
+      toast.error("Failed to upload documents to graph")
+    } finally {
+      setIsUploadingToGraph(false)
+    }
+  }
+
   // Add UI for upload button in the sidebar
   const renderOpenAIUploadSection = () => {
     if (selectedFiles.size === 0) return null
@@ -1040,7 +1076,7 @@ function ChatPage() {
         <Button
           variant="default"
           size="sm"
-          onClick={uploadSelectedFilesToOpenAI}
+          onClick={uploadDocumentsToGraph}
           disabled={isUploadingToOpenAI}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white"
         >

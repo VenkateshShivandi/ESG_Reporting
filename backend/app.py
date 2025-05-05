@@ -2069,7 +2069,7 @@ def get_chunked_files():
     try:
         # 1. query all chunk stats
         chunk_stats_resp = (
-            supabase.schema("esg_data")
+            supabase.postgrest.schema("esg_data")
             .table("document_chunks")
             .select("document_id, created_at")
             .execute()
@@ -2096,7 +2096,7 @@ def get_chunked_files():
 
         # 3. batch query file names
         docs_resp = (
-            supabase.schema("esg_data")
+            supabase.postgrest.schema("esg_data")
             .table("documents")
             .select("id, file_name")
             .in_("id", document_ids)
@@ -2120,6 +2120,51 @@ def get_chunked_files():
 
     except Exception as e:
         app.logger.error(f"❌ API Error in get_chunked_files: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/create-graph", methods=["POST"])
+@require_auth
+def create_graph():
+    """
+    Create a subgraph in neo4j for a specific user, given the attached document ids for the platform.
+
+    Args:
+        document_ids (list[str]): List of document ids to create a subgraph for
+        user_id (str): The user id to create the subgraph for
+    
+    Returns:
+        str: The id of the created subgraph
+
+    Raises:
+        Exception: If the subgraph creation fails
+    """
+    # Enforce application/json content type
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 415
+    try:
+        app.logger.info("📊 API Call - create_graph")
+        data = request.get_json()
+        document_ids = data.get("document_ids")
+        user_id = data.get("user_id")
+
+        # 1. get the entities and relationships from supabase based on the chunk ids/ document ids
+        entities = supabase.postgrest.schema("esg_data").table("entities").select("*").in_("document_id", document_ids).execute()
+
+        relationships = supabase.postgrest.schema("esg_data").table("relationships").select("*").in_("document_id", document_ids).execute()
+        
+        # call the rag/app.py create_graph endpoint to create the subgraph
+        response = requests.post(
+            "http://localhost:6050/api/v1/create-graph",
+            json={"entities": entities.data, "relationships": relationships.data, "user_id": user_id},
+        )
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to create subgraph"}), response.status_code
+
+        return jsonify({"subgraph_id": "123"}), 200
+    
+    except Exception as e:
+        app.logger.error(f"❌ API Error in create_graph: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 

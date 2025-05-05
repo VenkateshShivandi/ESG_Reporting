@@ -200,7 +200,7 @@ class EntityRelationshipManager:
                         entity_name = parts[1].strip()
                         entity_type = parts[2].strip()
                         entity_description = parts[3].strip().strip(")")  # Remove trailing parenthesis
-                        
+                    
                         if entity_name and entity_type:
                             entity = entities.get(entity_name, Entity(
                                 name=entity_name,
@@ -211,7 +211,7 @@ class EntityRelationshipManager:
                             entity.descriptions.append(entity_description)
                             entity.chunk_ids.add(chunk_id)
                             entities[entity_name] = entity
-                            
+                        
                     elif record_type.lower() == "relationship":
                         # Handle relationship record
                         source = parts[1].strip()
@@ -219,7 +219,7 @@ class EntityRelationshipManager:
                         description = parts[3].strip()
                         # Extract relationship type from description or use a default
                         rel_type = "connects_to"  # Default type
-                        
+                    
                         if source and target:
                             relationship = Relationship(
                                 source=source,
@@ -229,7 +229,7 @@ class EntityRelationshipManager:
                                 chunk_id=chunk_id
                             )
                             relationships.append(relationship)
-                            
+                        
                 except Exception as e:
                     print(f"Warning: Error parsing record: {record}. Error: {str(e)}")
                     continue
