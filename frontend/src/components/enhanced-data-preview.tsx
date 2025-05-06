@@ -28,6 +28,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Download, BarChart2, LineChart as LineChartIcon, PieChart as PieChartIcon, Table as TableIcon, ArrowUpDown, AreaChart as AreaChartIcon, Circle, HelpCircle } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tooltip as ShadTooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import * as htmlToImage from "html-to-image"
 
 // <<< Add formatNumber helper function here >>>
 const formatNumber = (num: number | string): string => {
@@ -71,6 +72,10 @@ interface EnhancedDataPreviewProps {
     } | null;
   } | null;
   handleDownload: () => void;
+  categoryField: string | null;
+  valueField: string | null;
+  setCategoryField: (field: string) => void;
+  setValueField: (field: string) => void;
 }
 
 // --- NEW Paginated Table Sub-component ---
@@ -166,13 +171,17 @@ function PaginatedTable({ headers, tableData }: PaginatedTableProps) {
 }
 // --- END Paginated Table Sub-component ---
 
-export default function EnhancedDataPreview({ parsedData, handleDownload }: EnhancedDataPreviewProps) {
+// Utility function for conditional class names
+function classNames(...classes: (string | boolean | undefined)[]) {
+  return classes.filter(Boolean).join(' ');
+}
+
+export default function EnhancedDataPreview({ parsedData, handleDownload, categoryField, valueField, setCategoryField, setValueField }: EnhancedDataPreviewProps) {
   const [activeTab, setActiveTab] = useState("bar")
-  const [categoryField, setCategoryField] = useState<string | null>(null)
-  const [valueField, setValueField] = useState<string | null>(null)
   const [scatterXField, setScatterXField] = useState<string | null>(null)
   const [scatterYField, setScatterYField] = useState<string | null>(null)
   const tabsContentContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<HTMLDivElement>(null);
 
   const { potentialCategoryColumns, potentialValueColumns } = useMemo(() => {
     const headers = parsedData?.headers || [];
@@ -185,33 +194,25 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
   useEffect(() => {
     if (parsedData?.tableData && parsedData.tableData.length > 0) {
       const headers = parsedData.headers;
-      const defaultCategory = headers.length > 0 ? headers[0] : null;
-      if (!categoryField || !headers.includes(categoryField)) {
-          setCategoryField(defaultCategory);
-      }
-
-      const defaultValue = headers.length > 1 ? headers[1] : (headers.length > 0 ? headers[0] : null);
-      if (!valueField || !headers.includes(valueField)) {
-          setValueField(defaultValue);
-      }
-      
       const defaultScatterX = headers.length > 0 ? headers[0] : null;
       const defaultScatterY = headers.length > 1 ? headers[1] : defaultScatterX;
-      
       if (!scatterXField || !headers.includes(scatterXField)) {
         setScatterXField(defaultScatterX);
       }
       if (!scatterYField || !headers.includes(scatterYField)) {
         setScatterYField(defaultScatterY);
       }
-      
     } else {
-        setCategoryField(null);
-        setValueField(null);
         setScatterXField(null);
         setScatterYField(null);
     }
   }, [parsedData?.headers, parsedData?.tableData]);
+
+  // Sync scatter plot axes with main dropdowns
+  useEffect(() => {
+    setScatterXField(categoryField);
+    setScatterYField(valueField);
+  }, [categoryField, valueField]);
 
   const chartData = useMemo(() => {
     if (!parsedData?.tableData || !categoryField || !valueField) {
@@ -286,8 +287,31 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
 
   const hasValidData = parsedData?.tableData && parsedData.tableData.length > 0;
 
+  // Chart download handler
+  const handleDownloadChart = async () => {
+    if (!chartRef.current) return;
+    try {
+      const dataUrl = await htmlToImage.toPng(chartRef.current, { backgroundColor: '#fff', pixelRatio: 2 });
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = `chart-${activeTab}.png`;
+      link.click();
+    } catch (err) {
+      alert('Failed to export chart image.');
+    }
+  };
+
   return (
-    <Card className="mb-6">
+    <Card
+      className="mb-6 bg-white rounded-3xl shadow-2xl px-8 py-8 relative transition-all duration-300 hover:scale-[1.01] hover:shadow-[0_16px_48px_0_rgba(60,72,100,0.20),0_4px_16px_0_rgba(60,72,100,0.14)] overflow-hidden border-none"
+    >
+      
+      {/* Shiny angled glass streak */}
+      <div className="absolute top-4 left-1/4 w-2/3 h-8 bg-white/30 rounded-full rotate-[18deg] pointer-events-none z-20" />
+     
+     
+      {/* Card content sits above overlays */}
+      <div className="relative z-20">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <div>
           <CardTitle className="flex items-center text-lg">
@@ -301,14 +325,16 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
           </CardDescription>
         </div>
         <div className="flex space-x-2">
-          {hasValidData && (
+          {hasValidData && activeTab !== 'table' && (
             <Button
-              onClick={handleDownload}
+              onClick={handleDownloadChart}
               variant="outline"
               className="h-9 px-3 border-gray-200 hover:bg-gray-50"
+              disabled={!hasValidData || activeTab === 'table'}
+              title="Download the current chart as an image"
             >
               <Download className="h-4 w-4 mr-2" />
-              Export JSON
+              Download Chart
             </Button>
           )}
         </div>
@@ -319,55 +345,69 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
             <div className="flex flex-wrap gap-2 mb-4">
               {activeTab !== 'scatter' && activeTab !== 'table' && (
                   <>
-                   <TooltipProvider>
-                     <ShadTooltip delayDuration={100}>
-                       <TooltipTrigger asChild>
-                         <Select value={categoryField || ""} onValueChange={setCategoryField}>
-                           <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center">
-                             <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
-                               <span className="mr-2 flex-shrink-0">🔠</span>
-                               <SelectValue placeholder="Category" className="text-ellipsis overflow-hidden w-full" />
-                             </div>
-                           </SelectTrigger>
-                           <SelectContent className="z-[200] min-w-[260px] bg-white border border-gray-200 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
-                             {potentialCategoryColumns.map(header => (
-                               <SelectItem key={`cat-${header}`} value={header} className="truncate px-3 py-2 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 rounded-md">
-                                 {header}
-                               </SelectItem>
-                             ))}
-                           </SelectContent>
-                         </Select>
-                       </TooltipTrigger>
-                       <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
-                         <p>{categoryField || "Select category column"}</p>
-                       </TooltipContent>
-                     </ShadTooltip>
-                   </TooltipProvider>
-                   
-                   <TooltipProvider>
-                     <ShadTooltip delayDuration={100}>
-                       <TooltipTrigger asChild>
-                         <Select value={valueField || ""} onValueChange={setValueField}>
-                           <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center">
-                             <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
-                               <span className="mr-2 flex-shrink-0">🔢</span>
-                               <SelectValue placeholder="Value" className="text-ellipsis overflow-hidden w-full" />
-                             </div>
-                           </SelectTrigger>
-                           <SelectContent className="z-[200] min-w-[260px] bg-white border border-gray-200 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
-                             {potentialValueColumns.map(header => (
-                               <SelectItem key={`val-${header}`} value={header} className="truncate px-3 py-2 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 rounded-md">
-                                 {header}
-                               </SelectItem>
-                             ))}
-                           </SelectContent>
-                         </Select>
-                       </TooltipTrigger>
-                       <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
-                         <p>{valueField || "Select value column"}</p>
-                       </TooltipContent>
-                     </ShadTooltip>
-                   </TooltipProvider>
+                     <TooltipProvider>
+                       <ShadTooltip delayDuration={100}>
+                         <TooltipTrigger asChild>
+                   <Select value={categoryField || ""} onValueChange={setCategoryField}>
+                             <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow rounded-2xl px-4 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center transition-all duration-200">
+                               <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
+                                 <span className="mr-2 flex-shrink-0">🔠</span>
+                                 <SelectValue placeholder="Category" className="text-ellipsis overflow-hidden w-full" />
+                       </div>
+                      </SelectTrigger>
+                             <SelectContent className="z-[200] min-w-[260px] w-full bg-white border border-gray-200 shadow-2xl rounded-2xl py-2 px-1 mt-2" side="bottom" align="start">
+                               {potentialCategoryColumns.map((header, index, arr) => (
+                                 <SelectItem
+                                   key={`cat-${header}`}
+                                   value={header}
+                                   className={classNames(
+                                     "truncate px-4 py-3 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 data-[state=checked]:bg-sky-50 rounded-xl transition-all duration-150",
+                                     index !== arr.length - 1 && "border-b border-slate-100"
+                                   )}
+                                 >
+                                   {header}
+                                 </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                         </TooltipTrigger>
+                         <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
+                           <p>{categoryField || "Select category column"}</p>
+                         </TooltipContent>
+                       </ShadTooltip>
+                     </TooltipProvider>
+                     
+                     <TooltipProvider>
+                       <ShadTooltip delayDuration={100}>
+                         <TooltipTrigger asChild>
+                   <Select value={valueField || ""} onValueChange={setValueField}>
+                             <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow rounded-2xl px-4 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center transition-all duration-200">
+                               <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
+                                 <span className="mr-2 flex-shrink-0">🔢</span>
+                                 <SelectValue placeholder="Value" className="text-ellipsis overflow-hidden w-full" />
+                       </div>
+                      </SelectTrigger>
+                             <SelectContent className="z-[200] min-w-[260px] w-full bg-white border border-gray-200 shadow-2xl rounded-2xl py-2 px-1 mt-2" side="bottom" align="start">
+                               {potentialValueColumns.map((header, index, arr) => (
+                                 <SelectItem
+                                   key={`val-${header}`}
+                                   value={header}
+                                   className={classNames(
+                                     "truncate px-4 py-3 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 data-[state=checked]:bg-sky-50 rounded-xl transition-all duration-150",
+                                     index !== arr.length - 1 && "border-b border-slate-100"
+                                   )}
+                                 >
+                                   {header}
+                                 </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                         </TooltipTrigger>
+                         <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
+                           <p>{valueField || "Select value column"}</p>
+                         </TooltipContent>
+                       </ShadTooltip>
+                     </TooltipProvider>
 
                     <TooltipProvider>
                       <ShadTooltip delayDuration={100}>
@@ -384,55 +424,69 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                 
               {activeTab === 'scatter' && (
                   <>
-                    <TooltipProvider>
-                      <ShadTooltip delayDuration={100}>
-                        <TooltipTrigger asChild>
-                          <Select value={scatterXField || ""} onValueChange={setScatterXField}>
-                            <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center">
-                              <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
-                                <span className="mr-2 flex-shrink-0">X: 🔢</span>
-                                <SelectValue placeholder="X-Axis Value" className="text-ellipsis overflow-hidden w-full" />
-                              </div>
-                            </SelectTrigger>
-                            <SelectContent className="z-[200] min-w-[260px] bg-white border border-gray-200 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
-                              {potentialValueColumns.map(header => (
-                                <SelectItem key={`scatter-x-${header}`} value={header} className="truncate px-3 py-2 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 rounded-md">
-                                  {header}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
-                          <p>{scatterXField || "Select X-axis column"}</p>
-                        </TooltipContent>
-                      </ShadTooltip>
-                    </TooltipProvider>
-                    
-                    <TooltipProvider>
-                      <ShadTooltip delayDuration={100}>
-                        <TooltipTrigger asChild>
-                          <Select value={scatterYField || ""} onValueChange={setScatterYField}>
-                            <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center">
-                              <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
-                                <span className="mr-2 flex-shrink-0">Y: 🔢</span>
-                                <SelectValue placeholder="Y-Axis Value" className="text-ellipsis overflow-hidden w-full" />
-                              </div>
-                            </SelectTrigger>
-                            <SelectContent className="z-[200] min-w-[260px] bg-white border border-gray-200 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
-                              {potentialValueColumns.map(header => (
-                                <SelectItem key={`scatter-y-${header}`} value={header} className="truncate px-3 py-2 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 rounded-md">
-                                  {header}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
-                          <p>{scatterYField || "Select Y-axis column"}</p>
-                        </TooltipContent>
-                      </ShadTooltip>
-                    </TooltipProvider>
+                      <TooltipProvider>
+                        <ShadTooltip delayDuration={100}>
+                          <TooltipTrigger asChild>
+                    <Select value={scatterXField || ""} onValueChange={setScatterXField}>
+                              <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow rounded-2xl px-4 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center transition-all duration-200">
+                                <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
+                                  <span className="mr-2 flex-shrink-0">X: 🔢</span>
+                                  <SelectValue placeholder="X-Axis Value" className="text-ellipsis overflow-hidden w-full" />
+                       </div>
+                      </SelectTrigger>
+                              <SelectContent className="z-[200] min-w-[260px] w-full bg-white border border-gray-200 shadow-2xl rounded-2xl py-2 px-1 mt-2" side="bottom" align="start">
+                                {potentialValueColumns.map((header, index, arr) => (
+                                  <SelectItem
+                                    key={`scatter-x-${header}`}
+                                    value={header}
+                                    className={classNames(
+                                      "truncate px-4 py-3 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 data-[state=checked]:bg-sky-50 rounded-xl transition-all duration-150",
+                                      index !== arr.length - 1 && "border-b border-slate-100"
+                                    )}
+                                  >
+                                    {header}
+                                  </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
+                            <p>{scatterXField || "Select X-axis column"}</p>
+                          </TooltipContent>
+                        </ShadTooltip>
+                      </TooltipProvider>
+                      
+                      <TooltipProvider>
+                        <ShadTooltip delayDuration={100}>
+                          <TooltipTrigger asChild>
+                    <Select value={scatterYField || ""} onValueChange={setScatterYField}>
+                              <SelectTrigger className="w-[260px] h-10 bg-white border border-gray-300 shadow rounded-2xl px-4 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center transition-all duration-200">
+                                <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
+                                  <span className="mr-2 flex-shrink-0">Y: 🔢</span>
+                                  <SelectValue placeholder="Y-Axis Value" className="text-ellipsis overflow-hidden w-full" />
+                       </div>
+                      </SelectTrigger>
+                              <SelectContent className="z-[200] min-w-[260px] w-full bg-white border border-gray-200 shadow-2xl rounded-2xl py-2 px-1 mt-2" side="bottom" align="start">
+                                {potentialValueColumns.map((header, index, arr) => (
+                                  <SelectItem
+                                    key={`scatter-y-${header}`}
+                                    value={header}
+                                    className={classNames(
+                                      "truncate px-4 py-3 text-base text-gray-800 hover:bg-sky-50 focus:bg-sky-100 data-[state=checked]:bg-sky-50 rounded-xl transition-all duration-150",
+                                      index !== arr.length - 1 && "border-b border-slate-100"
+                                    )}
+                                  >
+                                    {header}
+                                  </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" align="start" className="bg-gray-800 text-white p-2 rounded text-xs">
+                            <p>{scatterYField || "Select Y-axis column"}</p>
+                          </TooltipContent>
+                        </ShadTooltip>
+                      </TooltipProvider>
                    <TooltipProvider>
                       <ShadTooltip delayDuration={100}>
                         <TooltipTrigger asChild>
@@ -475,304 +529,308 @@ export default function EnhancedDataPreview({ parsedData, handleDownload }: Enha
                   </TabsTrigger>
               </TabsList>
               
-              <div ref={tabsContentContainerRef} className="border rounded-md p-1 mt-2">
-              <TabsContent value="bar" className="mt-0">
-                <div className="h-[400px] w-full">
-                  {chartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={chartData}
-                        margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="name" 
-                        angle={-45} 
-                        textAnchor="end"
-                          height={70}
-                          tick={{ fontSize: 11 }}
-                          label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
-                      />
-                      <YAxis 
-                        tick={{ fontSize: 11 }} 
-                          label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                        domain={['auto', 'auto']}
-                        allowDataOverflow={true}
-                        tickFormatter={(value) => formatNumber(value)}
-                      />
-                      <Tooltip 
-                        formatter={(value, name, props) => [
-                            `${formatNumber(value as number)}`,
-                            valueField || 'Value'
-                        ]}
-                          labelFormatter={(label) => label}
-                        contentStyle={{ 
-                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                          borderRadius: '8px',
-                          padding: '10px',
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                          border: '1px solid #f0f0f0'
-                        }}
-                      />
-                      <Legend 
-                          verticalAlign="top"
-                        wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
-                      />
-                      <Bar 
-                        dataKey="value" 
-                          name={valueField || "Value"}
-                        fill={CHART_COLORS[0]} 
-                        radius={[4, 4, 0, 0]} 
-                        maxBarSize={60}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-gray-500">
-                      Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-              
-              <TabsContent value="line" className="mt-0">
-                 <div className="h-[400px] w-full">
-                  {chartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart
-                      data={chartData}
-                      margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="name" 
-                        angle={-45} 
-                        textAnchor="end"
-                        height={70}
-                        tick={{ fontSize: 11 }}
-                          label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
-                      />
-                      <YAxis 
-                        tick={{ fontSize: 11 }}
-                          label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                        domain={['auto', 'auto']}
-                        allowDataOverflow={true}
-                        tickFormatter={(value) => formatNumber(value)}
-                      />
-                      <Tooltip 
-                        formatter={(value, name, props) => [
-                            `${formatNumber(value as number)}`,
-                            valueField || 'Value'
-                        ]}
-                        labelFormatter={(label) => label}
-                        contentStyle={{ 
-                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                          borderRadius: '8px',
-                          padding: '10px',
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                          border: '1px solid #f0f0f0'
-                        }}
-                      />
-                      <Legend 
-                          verticalAlign="top"
-                        wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="value" 
-                          name={valueField || "Value"}
-                        stroke={CHART_COLORS[0]} 
-                        strokeWidth={2}
-                        dot={{ r: 4 }}
-                        activeDot={{ r: 6 }}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                  ) : (
-                     <div className="flex items-center justify-center h-full text-gray-500">
-                       Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-                     </div>
-                  )}
-                </div>             
-              </TabsContent>
-              
-              <TabsContent value="area" className="mt-0">
-                 <div className="h-[400px] w-full">
-                   {chartData.length > 0 ? (
-                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart
-                      data={chartData}
-                      margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis 
-                        dataKey="name" 
-                        angle={-45} 
-                        textAnchor="end"
-                        height={70}
-                        tick={{ fontSize: 11 }}
-                          label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
-                      />
-                      <YAxis 
-                        tick={{ fontSize: 11 }}
-                          label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                        domain={['auto', 'auto']}
-                        allowDataOverflow={true}
-                        tickFormatter={(value) => formatNumber(value)}
-                      />
-                      <Tooltip 
-                        formatter={(value, name, props) => [
-                            `${formatNumber(value as number)}`,
-                            valueField || 'Value'
-                        ]}
-                        labelFormatter={(label) => label}
-                        contentStyle={{ 
-                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                          borderRadius: '8px',
-                          padding: '10px',
-                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                          border: '1px solid #f0f0f0'
-                        }}
-                      />
-                      <Legend 
-                          verticalAlign="top"
-                        wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="value" 
-                          name={valueField || "Value"}
-                        stroke={CHART_COLORS[0]} 
-                        fill={CHART_COLORS[0]} 
-                        fillOpacity={0.3}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                  ) : (
-                     <div className="flex items-center justify-center h-full text-gray-500">
-                       Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-                     </div>
-                  )}
-                </div>             
-              </TabsContent>
-              
-              <TabsContent value="pie" className="mt-0">
-                <div className="h-[400px] w-full">
-                  {pieChartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height="100%">
-                      <PieChart margin={{ top: 20, right: 40, bottom: 60, left: 40 }}>
-                      <Pie
-                        data={pieChartData}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false} 
-                          outerRadius={100}
-                        innerRadius={50}  
-                        fill="#8884d8"
-                        dataKey="value"
-                        nameKey="name"  
-                        label={({ value }) => `${(value as number).toFixed(1)}%`}
-                      >
-                        {pieChartData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        formatter={(value, name, props) => [
-                            `${formatNumber(props.payload?.absoluteValue)} (${(value as number).toFixed(1)}%)`,
-                            valueField || 'Value'
-                        ]}
-                        labelFormatter={(label) => label}
-                      />
-                      <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', marginTop: '15px' }} /> 
-                    </PieChart>
-                  </ResponsiveContainer>
-                  ) : (
-                     <div className="flex items-center justify-center h-full text-gray-500">
-                       Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-                     </div>
-                  )}
-                </div>
-              </TabsContent>
-              
-                <TabsContent value="scatter" className="mt-0">
-                  <div className="h-[400px] w-full">
-                    {scatterData.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ScatterChart
-                          margin={{ top: 20, right: 30, bottom: 70, left: 20 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis
-                          type="number"
-                          dataKey="x"
-                          name={scatterXField || "X"}
-                            label={{ value: scatterXField || 'X-Axis', position: 'insideBottom', dy: 10, fontSize: 12 }}
-                          tick={{ fontSize: 11 }}
-                            tickFormatter={(value) => formatNumber(value)}
-                        />
-                        <YAxis
-                          type="number"
-                          dataKey="y"
-                          name={scatterYField || "Y"}
-                            label={{ value: scatterYField || 'Y-Axis', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                          tick={{ fontSize: 11 }}
-                          tickFormatter={(value) => formatNumber(value)}
-                        />
-                        <Tooltip
-                          formatter={(value, name, props) => {
-                               const pointName = props.payload?.name || 'Point';
-                               const xVal = formatNumber(props.payload?.x);
-                               const yVal = formatNumber(props.payload?.y);
-                               return [`X: ${xVal}, Y: ${yVal}`, pointName];
-                          }}
-                             labelFormatter={(label) => ''}
-                             cursor={{ strokeDasharray: '3 3' }}
-                          contentStyle={{ 
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            borderRadius: '8px',
-                            padding: '10px',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                            border: '1px solid #f0f0f0'
-                          }}
-                        />
-                        <Legend 
-                          verticalAlign="top" 
-                          wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
-                            payload={[{ value: `${scatterXField || 'X'} vs ${scatterYField || 'Y'}`, color: CHART_COLORS[0] }]}
-                        />
-                        <Scatter
-                          name={`${scatterXField || 'X'} vs ${scatterYField || 'Y'}`}
-                          data={scatterData}
-                          fill={CHART_COLORS[0]}
-                        />
-                      </ScatterChart>
-                    </ResponsiveContainer>
-                    ) : (
-                      <div className="flex items-center justify-center h-full text-gray-500">
-                        Please select two Number columns for the X and Y axes.
+                <div ref={tabsContentContainerRef} className="p-1 mt-2">
+                  {/* Wrap chart content in a div with ref for export */}
+                  <div ref={chartRef} className="bg-white rounded-2xl">
+                    <TabsContent value="bar" className="mt-0">
+                      <div className="h-[400px] w-full">
+                        {chartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={chartData}
+                              margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis 
+                              dataKey="name" 
+                              angle={-45} 
+                              textAnchor="end"
+                                height={70}
+                                tick={{ fontSize: 11 }}
+                                label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
+                            />
+                            <YAxis 
+                              tick={{ fontSize: 11 }} 
+                                label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                              domain={['auto', 'auto']}
+                              allowDataOverflow={true}
+                              tickFormatter={(value) => formatNumber(value)}
+                            />
+                            <Tooltip 
+                              formatter={(value, name, props) => [
+                                  `${formatNumber(value as number)}`,
+                                  valueField || 'Value'
+                              ]}
+                                labelFormatter={(label) => label}
+                              contentStyle={{ 
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                borderRadius: '8px',
+                                padding: '10px',
+                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                                border: '1px solid #f0f0f0'
+                              }}
+                            />
+                            <Legend 
+                                verticalAlign="top"
+                              wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
+                            />
+                            <Bar 
+                              dataKey="value" 
+                                name={valueField || "Value"}
+                              fill={CHART_COLORS[0]} 
+                              radius={[4, 4, 0, 0]} 
+                              maxBarSize={60}
+                            />
+                          </BarChart>
+                        </ResponsiveContainer>
+                        ) : (
+                          <div className="flex items-center justify-center h-full text-gray-500">
+                            Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </TabsContent>
+                    
+                    <TabsContent value="line" className="mt-0">
+                       <div className="h-[400px] w-full">
+                        {chartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={chartData}
+                            margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis 
+                              dataKey="name" 
+                              angle={-45} 
+                              textAnchor="end"
+                              height={70}
+                              tick={{ fontSize: 11 }}
+                                label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
+                            />
+                            <YAxis 
+                              tick={{ fontSize: 11 }}
+                                label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                              domain={['auto', 'auto']}
+                              allowDataOverflow={true}
+                              tickFormatter={(value) => formatNumber(value)}
+                            />
+                            <Tooltip 
+                              formatter={(value, name, props) => [
+                                  `${formatNumber(value as number)}`,
+                                  valueField || 'Value'
+                              ]}
+                              labelFormatter={(label) => label}
+                              contentStyle={{ 
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                borderRadius: '8px',
+                                padding: '10px',
+                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                                border: '1px solid #f0f0f0'
+                              }}
+                            />
+                            <Legend 
+                                verticalAlign="top"
+                              wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
+                            />
+                            <Line 
+                              type="monotone" 
+                              dataKey="value" 
+                                name={valueField || "Value"}
+                              stroke={CHART_COLORS[0]} 
+                              strokeWidth={2}
+                              dot={{ r: 4 }}
+                              activeDot={{ r: 6 }}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                        ) : (
+                           <div className="flex items-center justify-center h-full text-gray-500">
+                             Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
+                           </div>
+                        )}
+                      </div>             
+                    </TabsContent>
+                    
+                    <TabsContent value="area" className="mt-0">
+                       <div className="h-[400px] w-full">
+                         {chartData.length > 0 ? (
+                         <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart
+                            data={chartData}
+                            margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis 
+                              dataKey="name" 
+                              angle={-45} 
+                              textAnchor="end"
+                              height={70}
+                              tick={{ fontSize: 11 }}
+                                label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
+                            />
+                            <YAxis 
+                              tick={{ fontSize: 11 }}
+                                label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                              domain={['auto', 'auto']}
+                              allowDataOverflow={true}
+                              tickFormatter={(value) => formatNumber(value)}
+                            />
+                            <Tooltip 
+                              formatter={(value, name, props) => [
+                                  `${formatNumber(value as number)}`,
+                                  valueField || 'Value'
+                              ]}
+                              labelFormatter={(label) => label}
+                              contentStyle={{ 
+                                backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                borderRadius: '8px',
+                                padding: '10px',
+                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                                border: '1px solid #f0f0f0'
+                              }}
+                            />
+                            <Legend 
+                                verticalAlign="top"
+                              wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
+                            />
+                            <Area 
+                              type="monotone" 
+                              dataKey="value" 
+                                name={valueField || "Value"}
+                              stroke={CHART_COLORS[0]} 
+                              fill={CHART_COLORS[0]} 
+                              fillOpacity={0.3}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                        ) : (
+                           <div className="flex items-center justify-center h-full text-gray-500">
+                             Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
+                           </div>
+                        )}
+                       </div>             
+                    </TabsContent>
+                    
+                    <TabsContent value="pie" className="mt-0">
+                      <div className="h-[400px] w-full">
+                        {pieChartData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <PieChart margin={{ top: 20, right: 40, bottom: 60, left: 40 }}>
+                            <Pie
+                              data={pieChartData}
+                              cx="50%"
+                              cy="50%"
+                              labelLine={false} 
+                                outerRadius={100}
+                              innerRadius={50}  
+                              fill="#8884d8"
+                              dataKey="value"
+                              nameKey="name"  
+                              label={({ value }) => `${(value as number).toFixed(1)}%`}
+                            >
+                              {pieChartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip 
+                              formatter={(value, name, props) => [
+                                  `${formatNumber(props.payload?.absoluteValue)} (${(value as number).toFixed(1)}%)`,
+                                  valueField || 'Value'
+                              ]}
+                              labelFormatter={(label) => label}
+                            />
+                            <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', marginTop: '15px' }} /> 
+                          </PieChart>
+                        </ResponsiveContainer>
+                        ) : (
+                           <div className="flex items-center justify-center h-full text-gray-500">
+                             Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
+                           </div>
+                        )}
+                      </div>
+                    </TabsContent>
+                    
+                      <TabsContent value="scatter" className="mt-0">
+                        <div className="h-[400px] w-full">
+                          {scatterData.length > 0 ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <ScatterChart
+                                margin={{ top: 20, right: 30, bottom: 70, left: 20 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis
+                                type="number"
+                                dataKey="x"
+                                name={scatterXField || "X"}
+                                  label={{ value: scatterXField || 'X-Axis', position: 'insideBottom', dy: 10, fontSize: 12 }}
+                                tick={{ fontSize: 11 }}
+                                  tickFormatter={(value) => formatNumber(value)}
+                              />
+                              <YAxis
+                                type="number"
+                                dataKey="y"
+                                name={scatterYField || "Y"}
+                                  label={{ value: scatterYField || 'Y-Axis', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                                tick={{ fontSize: 11 }}
+                                tickFormatter={(value) => formatNumber(value)}
+                              />
+                              <Tooltip
+                                formatter={(value, name, props) => {
+                                     const pointName = props.payload?.name || 'Point';
+                                     const xVal = formatNumber(props.payload?.x);
+                                     const yVal = formatNumber(props.payload?.y);
+                                     return [`X: ${xVal}, Y: ${yVal}`, pointName];
+                                }}
+                                   labelFormatter={(label) => ''}
+                                   cursor={{ strokeDasharray: '3 3' }}
+                                contentStyle={{ 
+                                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                  borderRadius: '8px',
+                                  padding: '10px',
+                                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                                  border: '1px solid #f0f0f0'
+                                }}
+                              />
+                              <Legend 
+                                verticalAlign="top" 
+                                wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
+                                  payload={[{ value: `${scatterXField || 'X'} vs ${scatterYField || 'Y'}`, color: CHART_COLORS[0] }]}
+                              />
+                              <Scatter
+                                name={`${scatterXField || 'X'} vs ${scatterYField || 'Y'}`}
+                                data={scatterData}
+                                fill={CHART_COLORS[0]}
+                              />
+                            </ScatterChart>
+                          </ResponsiveContainer>
+                          ) : (
+                            <div className="flex items-center justify-center h-full text-gray-500">
+                              Please select two Number columns for the X and Y axes.
+                            </div>
+                          )}
+                        </div>
+                      </TabsContent>
+                      
                   </div>
-                </TabsContent>
-                
-                <TabsContent value="table" className="mt-0">
-                <div className="border border-gray-200 rounded-md overflow-x-auto"> {/* Added overflow-x-auto */}
-                   {/* Use the new sub-component */}
-                   <PaginatedTable headers={parsedData?.headers || []} tableData={parsedData?.tableData || []} />
+                  {/* Table tab remains outside chartRef */}
+                  <TabsContent value="table" className="mt-0">
+                    <div className="border border-gray-200 rounded-md overflow-x-auto">
+                      <PaginatedTable headers={parsedData?.headers || []} tableData={parsedData?.tableData || []} />
+                    </div>
+                  </TabsContent>
                 </div>
-              </TabsContent>
+              </Tabs>
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-[300px] bg-gray-50 rounded-md border border-dashed border-gray-200">
+              <BarChart2 className="h-12 w-12 text-gray-300 mb-3" />
+              <p className="text-gray-500 text-center">No data available for visualization</p>
+              <p className="text-gray-400 text-sm text-center mt-1">Upload a file or select processed data</p>
             </div>
-          </Tabs>
-          </>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-[300px] bg-gray-50 rounded-md border border-dashed border-gray-200">
-            <BarChart2 className="h-12 w-12 text-gray-300 mb-3" />
-            <p className="text-gray-500 text-center">No data available for visualization</p>
-            <p className="text-gray-400 text-sm text-center mt-1">Upload a file or select processed data</p>
-          </div>
-        )}
-      </CardContent>
+          )}
+        </CardContent>
+        </div>
     </Card>
   )
 } 

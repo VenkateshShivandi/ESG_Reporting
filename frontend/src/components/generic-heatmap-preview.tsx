@@ -70,6 +70,11 @@ const getValueColor = (value: number, minVal: number, maxVal: number): string =>
   return "bg-red-800";
 }
 
+// Utility function for conditional class names
+function classNames(...classes: (string | boolean | undefined)[]) {
+  return classes.filter(Boolean).join(' ');
+}
+
 export default function GenericHeatmapPreview({ parsedData }: GenericHeatmapPreviewProps) {
   // Add pagination state
   const [currentPage, setCurrentPage] = useState(0);
@@ -284,15 +289,22 @@ export default function GenericHeatmapPreview({ parsedData }: GenericHeatmapPrev
       {parsedData?.headers && parsedData.headers.length > 0 && (
         <div className="flex flex-wrap gap-3 mb-4 relative">
           <Select value={selectedCategoryField || ''} onValueChange={setSelectedCategoryField}>
-            <SelectTrigger className="w-[260px] h-10 bg-slate-800 border border-slate-600 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-slate-100 flex items-center">
+            <SelectTrigger className="w-[260px] h-10 bg-slate-800 border border-slate-600 shadow rounded-2xl px-4 focus:ring-2 focus:ring-sky-400 text-base font-medium text-slate-100 flex items-center transition-all duration-200">
               <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
                 <span className="mr-2 flex-shrink-0">🔠</span>
                 <SelectValue placeholder="Select Category" className="text-ellipsis overflow-hidden w-full" />
               </div>
             </SelectTrigger>
-            <SelectContent className="z-[200] min-w-[260px] bg-slate-900 border border-slate-700 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
-              {potentialCategoryColumns.map(header => (
-                <SelectItem key={`cat-${header}`} value={header} className="truncate px-3 py-2 text-base text-slate-100 hover:bg-sky-900 focus:bg-sky-800 rounded-md">
+            <SelectContent className="z-[200] min-w-[260px] w-full bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl py-2 px-1 mt-2" side="bottom" align="start">
+              {potentialCategoryColumns.map((header, index, arr) => (
+                <SelectItem
+                  key={`cat-${header}`}
+                  value={header}
+                  className={classNames(
+                    "truncate px-4 py-3 text-base text-slate-100 hover:bg-sky-900 focus:bg-sky-800 data-[state=checked]:bg-sky-900 rounded-xl transition-all duration-150",
+                    index !== arr.length - 1 && "border-b border-slate-700"
+                  )}
+                >
                   {header}
                 </SelectItem>
               ))}
@@ -300,15 +312,22 @@ export default function GenericHeatmapPreview({ parsedData }: GenericHeatmapPrev
           </Select>
 
           <Select value={selectedValueField || ''} onValueChange={setSelectedValueField}>
-            <SelectTrigger className="w-[260px] h-10 bg-slate-800 border border-slate-600 shadow-sm rounded-lg px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-slate-100 flex items-center">
+            <SelectTrigger className="w-[260px] h-10 bg-slate-800 border border-slate-600 shadow rounded-2xl px-4 focus:ring-2 focus:ring-sky-400 text-base font-medium text-slate-100 flex items-center transition-all duration-200">
               <div className="flex items-center overflow-hidden whitespace-nowrap w-full">
                 <span className="mr-2 flex-shrink-0">🔢</span>
                 <SelectValue placeholder="Select Value" className="text-ellipsis overflow-hidden w-full" />
               </div>
             </SelectTrigger>
-            <SelectContent className="z-[200] min-w-[260px] bg-slate-900 border border-slate-700 shadow-xl rounded-lg" position="item-aligned" sideOffset={5} align="start">
-              {potentialValueColumns.map(header => (
-                <SelectItem key={`val-${header}`} value={header} className="truncate px-3 py-2 text-base text-slate-100 hover:bg-sky-900 focus:bg-sky-800 rounded-md">
+            <SelectContent className="z-[200] min-w-[260px] w-full bg-slate-900 border border-slate-700 shadow-2xl rounded-2xl py-2 px-1 mt-2" side="bottom" align="start">
+              {potentialValueColumns.map((header, index, arr) => (
+                <SelectItem
+                  key={`val-${header}`}
+                  value={header}
+                  className={classNames(
+                    "truncate px-4 py-3 text-base text-slate-100 hover:bg-sky-900 focus:bg-sky-800 data-[state=checked]:bg-sky-900 rounded-xl transition-all duration-150",
+                    index !== arr.length - 1 && "border-b border-slate-700"
+                  )}
+                >
                   {header}
                 </SelectItem>
               ))}

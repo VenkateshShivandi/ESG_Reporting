@@ -55,6 +55,13 @@ import GenericHeatmapPreview from "../../components/generic-heatmap-preview";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select as ShadSelect } from "@/components/ui/select";
+import { BarChartCard } from "./BarChartCard";
+import { LineChartCard } from "./LineChartCard";
+import { AreaChartCard } from "./AreaChartCard";
+import { PieChartCard } from "./PieChartCard";
+import { ScatterChartCard } from "./ScatterChartCard";
+import { HeatmapCard } from "./HeatmapCard";
+import PaginatedTable from "../../components/enhanced-data-preview";
 
 // Create alert UI components since @/components/ui/alert seems to be missing
 const Alert = ({ children, className, variant }: { children: React.ReactNode, className?: string, variant?: string }) => (
@@ -995,6 +1002,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     line: false,
     donut: false,
     scatter: false, // Added scatter
+    area: false, // Added area
   });
 
   const [selectedCharts, setSelectedCharts] = useState({
@@ -1002,6 +1010,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     line: true,
     donut: true,
     scatter: true, // Added scatter
+    area: true, // Added area
   });
   
   // Update chart availability whenever the selected table data changes
@@ -1012,6 +1021,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
         line: (displayedTableData.chartData.lineChart?.length ?? 0) > 0,
         donut: (displayedTableData.chartData.donutChart?.length ?? 0) > 0,
         scatter: (displayedTableData.chartData.scatterPlot?.length ?? 0) > 0,
+        area: (displayedTableData.chartData.lineChart?.length ?? 0) > 0,
       };
       setAvailableCharts(availability);
       // Optionally reset selected charts based on availability
@@ -1020,11 +1030,12 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
         line: availability.line && prev.line,
         donut: availability.donut && prev.donut,
         scatter: availability.scatter && prev.scatter,
+        area: availability.area && prev.area,
       }));
       console.log('[Component] Updated chart availability based on selected table:', availability);
     } else {
       // Reset if no table selected
-      const resetAvailability = { bar: false, line: false, donut: false, scatter: false };
+      const resetAvailability = { bar: false, line: false, donut: false, scatter: false, area: false };
       setAvailableCharts(resetAvailability);
       setSelectedCharts(resetAvailability);
     }
@@ -1229,6 +1240,127 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
   }, [apiResponse]); // Depend only on apiResponse
   // --- END Initial Sheet Name ---
 
+  // Inside ExcelAnalytics component, after parsedDataForPreview is available:
+  const [categoryField, setCategoryField] = useState<string | null>(null);
+  const [valueField, setValueField] = useState<string | null>(null);
+
+  // When parsedDataForPreview changes, set defaults for category/value fields
+  useEffect(() => {
+    if (parsedDataForPreview?.headers && parsedDataForPreview.headers.length > 0) {
+      const headers = parsedDataForPreview.headers;
+      if (!categoryField || !headers.includes(categoryField)) {
+        setCategoryField(headers[0]);
+      }
+      if (!valueField || !headers.includes(valueField)) {
+        setValueField(headers.length > 1 ? headers[1] : headers[0]);
+      }
+    } else {
+      setCategoryField(null);
+      setValueField(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parsedDataForPreview?.headers]);
+
+  // --- Paginated Table Sub-component (copied from EnhancedDataPreview) ---
+  interface PaginatedTableProps {
+    headers: string[];
+    tableData: Record<string, any>[];
+  }
+
+  function PaginatedTable({ headers, tableData }: PaginatedTableProps) {
+    const [columnPage, setColumnPage] = useState(0);
+    const [rowPage, setRowPage] = useState(0);
+    const columnsPerPage = 5;
+    const rowsPerPage = 10;
+
+    const totalColumnHeaders = headers.length;
+    const totalRows = tableData.length;
+    
+    const totalColumnPages = Math.ceil(totalColumnHeaders / columnsPerPage);
+    const totalRowPages = Math.ceil(totalRows / rowsPerPage);
+
+    const currentColumns = headers.slice(columnPage * columnsPerPage, (columnPage + 1) * columnsPerPage);
+    const currentRows = tableData.slice(rowPage * rowsPerPage, (rowPage + 1) * rowsPerPage);
+
+    const handlePrevColumns = () => setColumnPage(prev => Math.max(0, prev - 1));
+    const handleNextColumns = () => setColumnPage(prev => Math.min(totalColumnPages - 1, prev + 1));
+    const handlePrevRows = () => setRowPage(prev => Math.max(0, prev - 1));
+    const handleNextRows = () => setRowPage(prev => Math.min(totalRowPages - 1, prev + 1));
+
+  return (
+      <>
+        <div className="p-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center sticky top-0 z-10">
+          <h3 className="font-medium text-sm whitespace-nowrap">Data Preview</h3>
+          <div className="flex items-center gap-4">
+            {totalColumnHeaders > columnsPerPage && (
+              <div className="flex items-center gap-2">
+                <button onClick={handlePrevColumns} disabled={columnPage === 0} className={`text-xs px-2 py-1 rounded border ${columnPage === 0 ? 'text-gray-400 border-gray-200' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}>←</button>
+                <span className="text-xs text-gray-500 whitespace-nowrap">Cols {columnPage * columnsPerPage + 1}-{Math.min((columnPage + 1) * columnsPerPage, totalColumnHeaders)}</span>
+                <button onClick={handleNextColumns} disabled={columnPage >= totalColumnPages - 1} className={`text-xs px-2 py-1 rounded border ${columnPage >= totalColumnPages - 1 ? 'text-gray-400 border-gray-200' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}>→</button>
+              </div>
+            )}
+            {totalRows > rowsPerPage && (
+              <div className="flex items-center gap-2">
+                <button onClick={handlePrevRows} disabled={rowPage === 0} className={`text-xs px-2 py-1 rounded border ${rowPage === 0 ? 'text-gray-400 border-gray-200' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}>↑</button>
+                <span className="text-xs text-gray-500 whitespace-nowrap">Rows {rowPage * rowsPerPage + 1}-{Math.min((rowPage + 1) * rowsPerPage, totalRows)}</span>
+                <button onClick={handleNextRows} disabled={rowPage >= totalRowPages - 1} className={`text-xs px-2 py-1 rounded border ${rowPage >= totalRowPages - 1 ? 'text-gray-400 border-gray-200' : 'text-gray-700 border-gray-300 hover:bg-gray-50'}`}>↓</button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="w-full overflow-x-auto">
+          <table className="w-full text-sm text-left text-gray-700 min-w-[600px]">
+            <thead className="text-xs text-gray-800 uppercase bg-gray-100">
+              <tr>
+                {currentColumns.map((header: string, index: number) => (
+                  <th key={index} scope="col" className="px-3 py-2 border-b border-r border-gray-200 whitespace-nowrap">
+                    {header}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {currentRows.length === 0 ? (
+                <tr>
+                  <td colSpan={currentColumns.length || 1} className="text-center text-gray-500 py-4 border-b">
+                    No data rows available.
+                  </td>
+                </tr>
+              ) : (
+                currentRows.map((row: Record<string, any>, rowIndex: number) => (
+                  <tr key={rowIndex} className={`${rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'} border-b border-gray-200`}>
+                    {currentColumns.map((header: string, colIndex: number) => (
+                      <td key={colIndex} className="px-3 py-1.5 border-r border-gray-200 whitespace-normal break-words">
+                        {row[header]?.toString() || '-'}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="py-2 px-4 text-center text-xs text-gray-500 border-t border-gray-200 bg-gray-50 rounded-b-md sticky bottom-0 z-10">
+          {totalRows > rowsPerPage
+            ? `Showing rows ${rowPage * rowsPerPage + 1} to ${Math.min((rowPage + 1) * rowsPerPage, totalRows)} of ${totalRows}`
+            : `Showing all ${totalRows} rows`
+          }
+           {' | '}
+          {totalColumnHeaders > columnsPerPage
+            ? `Showing columns ${columnPage * columnsPerPage + 1} to ${Math.min((columnPage + 1) * columnsPerPage, totalColumnHeaders)} of ${totalColumnHeaders}`
+            : `Showing all ${totalColumnHeaders} columns`
+          }
+        </div>
+      </>
+    );
+  }
+  // --- END Paginated Table Sub-component ---
+
+  // Utility function for conditional class names
+  function classNames(...classes: (string | boolean | undefined)[]) {
+    return classes.filter(Boolean).join(' ');
+  }
+
   return (
     <div className={`w-full max-w-6xl mx-auto mt-12`}> 
       <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
@@ -1247,17 +1379,22 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
         <div className="px-8 pt-8 pb-6">
           <div className="mb-7">
             <Label htmlFor="file-type-select" className="mb-2 block text-gray-700 font-semibold text-base">File Format</Label>
-            <div className="flex rounded-full overflow-hidden border border-gray-200 bg-gray-50 w-full max-w-md">
+            <div className="flex w-full max-w-md rounded-full overflow-hidden border border-gray-200 bg-gray-50">
               <button
                 type="button"
-                className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-base font-semibold transition-all rounded-full ${selectedFileType === 'excel' ? 'bg-teal-500 text-white shadow-md scale-[1.02]' : 'bg-gray-100 text-gray-500 hover:bg-emerald-50'} focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-1 z-10`}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-base font-semibold transition-all
+                  ${selectedFileType === 'excel' ? 'bg-teal-500 text-white shadow-md scale-[1.02] z-10' : 'bg-gray-100 text-gray-500 hover:bg-emerald-50 z-0'}
+                  rounded-none rounded-l-full focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-1`}
                 onClick={() => handleFileTypeChange('excel')}
+                style={{ borderRight: '1px solid #e5e7eb' }}
               >
                 <FileSpreadsheet className="h-5 w-5" /> Excel
               </button>
               <button
                 type="button"
-                className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-base font-semibold transition-all rounded-full ${selectedFileType === 'csv' ? 'bg-teal-500 text-white shadow-md scale-[1.02]' : 'bg-gray-100 text-gray-500 hover:bg-emerald-50'} focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-1 z-10`}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-base font-semibold transition-all
+                  ${selectedFileType === 'csv' ? 'bg-teal-500 text-white shadow-md scale-[1.02] z-10' : 'bg-gray-100 text-gray-500 hover:bg-emerald-50 z-0'}
+                  rounded-none rounded-r-full focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-1`}
                 onClick={() => handleFileTypeChange('csv')}
               >
                 <FileType className="h-5 w-5" /> CSV
@@ -1274,7 +1411,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                 onValueChange={handleFileChange}
                 disabled={loading || currentFileList.length === 0}
               >
-                <SelectTrigger id="file-select" className="w-full border-gray-200 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500">
+                <SelectTrigger id="file-select" className="w-full h-12 border border-gray-200 rounded-2xl bg-white flex items-center text-base font-medium transition-all duration-200 px-4 shadow-none focus:ring-2 focus:ring-teal-400 focus:border-teal-400 scale-100 hover:bg-teal-50 focus:bg-teal-50" style={{boxShadow: 'none'}}>
                   <SelectValue placeholder={loading ? "Loading files..." : `Choose a ${selectedFileType === 'excel' ? 'Excel' : 'CSV'} file`}>
                     {selectedFile && (
                       <div className="flex items-center">
@@ -1288,10 +1425,17 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                     )}
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent className="border-0 shadow-xl rounded-lg bg-white backdrop-blur-sm">
-                  {currentFileList.map(file => (
-                    <SelectItem key={file.path} value={file.name} className="rounded-md my-0.5 hover:bg-teal-50 transition-colors duration-150">
-                      <div className="flex items-center">
+                <SelectContent className="border border-slate-200 shadow-2xl rounded-2xl bg-gradient-to-br from-white to-slate-50 py-2 px-1 mt-2 min-w-[260px] w-full" side="bottom" align="start">
+                  {currentFileList.map((file, index, arr) => (
+                    <SelectItem
+                      key={file.path}
+                      value={file.name}
+                      className={classNames(
+                        "rounded-xl my-1 py-3 px-4 text-base flex items-center transition-all duration-150 hover:bg-teal-50 hover:font-semibold focus:bg-teal-50 focus:font-bold data-[state=checked]:bg-teal-50 data-[state=checked]:font-bold",
+                        index !== arr.length - 1 && "border-b border-slate-100"
+                      )}
+                    >
+                      <span className="flex items-center">
                         {selectedFileType === 'excel' ? (
                           <FileSpreadsheet className="h-5 w-5 mr-2 text-emerald-600" />
                         ) : (
@@ -1301,7 +1445,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                         <span className="ml-2 text-xs text-gray-500">
                           {file.size ? `(${Math.round(file.size / 1024)} KB)` : ''}
                         </span>
-                      </div>
+                      </span>
                     </SelectItem>
                   ))}
                   {currentFileList.length === 0 && !loading && (
@@ -1342,34 +1486,39 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
       </div>
       {/* --- Sheet and Table Selectors --- */}
       {apiResponse && apiResponse.sheetOrder && apiResponse.sheetOrder.length > 0 && !processingFile && (
-        <div className="mt-6 px-8 pb-4 border-t border-slate-100 pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="mt-6 px-0 pb-4 flex justify-center">
+          <div className="w-full max-w-6xl bg-gradient-to-br from-white via-slate-50 to-slate-100 rounded-3xl shadow-2xl border border-slate-200 px-10 py-8 flex flex-col md:flex-row gap-8 items-stretch mx-auto transition-all duration-300" style={{boxShadow: '0 12px 36px 0 rgba(60,72,100,0.16), 0 2px 8px 0 rgba(60,72,100,0.12)'}}>
             {/* Sheet Selector */}
-            <div>
-              <Label htmlFor="sheet-select" className="mb-2 block text-gray-700 font-semibold text-base">Select Sheet</Label>
+            <div className="flex-1 min-w-[180px] flex flex-col justify-end pl-3">
+              <Label htmlFor="sheet-select" className="mb-2 block text-gray-700 font-bold text-base">Select Sheet</Label>
               <Select 
                 value={selectedSheetName || ''} 
                 onValueChange={handleSheetSelectionChange}
                 disabled={!apiResponse || !apiResponse.sheetOrder || apiResponse.sheetOrder.length === 0}
               >
-                <SelectTrigger id="sheet-select" className="w-full border-gray-200 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500">
-                  <SelectValue placeholder="Select a sheet">
-                    {selectedSheetName && (
-                      <div className="flex items-center">
-                        <Database className="h-5 w-5 mr-2 text-purple-600" />
-                        <span>{selectedSheetName}</span>
-                      </div>
-                    )}
-                  </SelectValue>
+                <SelectTrigger 
+                  id="sheet-select" 
+                  className="w-full h-12 border border-gray-200 rounded-2xl bg-white flex items-center text-base font-medium transition-all duration-200 px-4 shadow-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 scale-100 hover:bg-blue-50 focus:bg-blue-50" 
+                  aria-haspopup="listbox" aria-expanded="false"
+                  style={{boxShadow: 'none'}}
+                >
+                  <FileText className="h-5 w-5 mr-2 text-blue-600" />
+                  <SelectValue placeholder="Select a sheet" />
                 </SelectTrigger>
-                <SelectContent className="border-0 shadow-xl rounded-lg bg-white backdrop-blur-sm">
-                  {apiResponse.sheetOrder.map((sheetName, index) => (
-                    <SelectItem key={sheetName} value={sheetName} className="rounded-md my-0.5 hover:bg-teal-50 transition-colors duration-150">
+                <SelectContent className="border border-slate-200 shadow-2xl rounded-2xl bg-gradient-to-br from-white to-slate-50 py-2 px-1 mt-2" side="bottom" align="start">
+                  {apiResponse?.sheetOrder?.map((sheetName, index, arr) => (
+                    <SelectItem
+                      key={sheetName}
+                      value={sheetName}
+                      className={classNames(
+                        "rounded-xl my-1 py-3 px-4 text-base transition-all duration-150 hover:bg-blue-100 hover:font-semibold focus:bg-blue-50 focus:font-bold data-[state=checked]:bg-blue-50 data-[state=checked]:font-bold",
+                        index !== arr.length - 1 && "border-b border-slate-100"
+                      )}
+                    >
                       <div className="flex items-center">
-                        <Database className="h-5 w-5 mr-2 text-purple-600" />
                         <span>{sheetName}</span>
                         <span className="ml-2 text-xs text-gray-500">
-                          ({apiResponse.sheets[sheetName]?.tableCount || 0} tables)
+                          ({apiResponse?.sheets?.[sheetName]?.tableCount || 0} tables)
                         </span>
                       </div>
                     </SelectItem>
@@ -1377,44 +1526,46 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                 </SelectContent>
               </Select>
             </div>
-
             {/* Table Selector (within the selected sheet) */}
             {displayedTableData && displayedTableData.tables && displayedTableData.tableCount > 1 && (
-              <div>
-                <Label htmlFor="table-within-sheet-select" className="mb-2 block text-gray-700 font-semibold text-base">
+              <div className="flex-1 min-w-[180px] flex flex-col justify-end pr-3">
+                <Label htmlFor="table-within-sheet-select" className="mb-2 block text-gray-700 font-bold text-base">
                   Select Table within Sheet
                 </Label>
                 <Select
-                  value={selectedTableIndexWithinSheet.toString()} // Ensure value is string
+                  value={selectedTableIndexWithinSheet.toString()}
                   onValueChange={handleTableWithinSheetChange}
                   disabled={!displayedTableData || !displayedTableData.tables || displayedTableData.tables.length <= 1}
                 >
-                  <SelectTrigger id="table-within-sheet-select" className="w-full border-gray-200 rounded-lg shadow-sm focus:ring-teal-500 focus:border-teal-500">
-                    <SelectValue placeholder="Select a table">
-                      {displayedTableData.tables[selectedTableIndexWithinSheet]?.meta?.name && (
-                        <div className="flex items-center">
-                          <TableIcon className="h-5 w-5 mr-2 text-orange-600" />
-                          <span>{displayedTableData.tables[selectedTableIndexWithinSheet].meta.name || `Table ${selectedTableIndexWithinSheet + 1}`}</span>
-                        </div>
-                      )}
-                    </SelectValue>
+                  <SelectTrigger 
+                    id="table-within-sheet-select" 
+                    className="w-full h-12 border border-gray-200 rounded-2xl bg-white flex items-center text-base font-medium transition-all duration-200 px-4 shadow-none focus:ring-2 focus:ring-green-300 focus:border-green-400 scale-100 hover:bg-green-50 focus:bg-green-50" 
+                    aria-haspopup="listbox" aria-expanded="false"
+                    style={{boxShadow: 'none'}}
+                  >
+                    <TableIcon className="h-5 w-5 mr-2 text-green-600" />
+                    <SelectValue placeholder="Select a table" />
                   </SelectTrigger>
-                  <SelectContent className="border-0 shadow-xl rounded-lg bg-white backdrop-blur-sm">
-                    {displayedTableData.tables.map((table, index) => {
-                      // Determine the table name based on the first column header
-                      const firstHeader = table.tableData?.headers?.[0];
+                  <SelectContent className="border border-slate-200 shadow-2xl rounded-2xl bg-gradient-to-br from-white to-slate-50 py-2 px-1 mt-2" side="bottom" align="start">
+                    {displayedTableData?.tables?.map((table, index, arr) => {
+                      const firstHeader = table?.tableData?.headers?.[0];
                       const isValidHeader = firstHeader && typeof firstHeader === 'string' && firstHeader.trim() !== '' && firstHeader.toLowerCase() !== 'nan';
                       const tableName = isValidHeader 
                         ? firstHeader 
-                        : table.meta?.name || `Table ${index + 1}`;
-
+                        : table?.meta?.name || `Table ${index + 1}`;
                       return (
-                        <SelectItem key={index} value={index.toString()} className="rounded-md my-0.5 hover:bg-orange-50 transition-colors duration-150">
+                        <SelectItem
+                          key={index}
+                          value={index.toString()}
+                          className={classNames(
+                            "rounded-xl my-1 py-3 px-4 text-base transition-all duration-150 hover:bg-green-100 hover:font-semibold focus:bg-green-50 focus:font-bold data-[state=checked]:bg-green-50 data-[state=checked]:font-bold",
+                            index !== arr.length - 1 && "border-b border-slate-100"
+                          )}
+                        >
                           <div className="flex items-center">
-                            <TableIcon className="h-5 w-5 mr-2 text-orange-600" />
                             <span>{tableName}</span>
                             <span className="ml-2 text-xs text-gray-500">
-                              ({table.tableData?.rows?.length || 0} rows)
+                              ({table?.tableData?.rows?.length || 0} rows)
                             </span>
                           </div>
                         </SelectItem>
@@ -1450,6 +1601,10 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                 metadata: tableMetadata || null // Pass null if tableMetadata is undefined
               }}
               handleDownload={handleDownload}
+              categoryField={categoryField}
+              valueField={valueField}
+              setCategoryField={setCategoryField}
+              setValueField={setValueField}
             />
           )}
           
@@ -1676,6 +1831,47 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
               </Button>
             </div>
           </div>
+        </div>
+      )}
+      {displayedTableData && showCharts && !error && !processingFile && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+          <BarChartCard 
+            title="Bar Chart Analysis"
+            tableData={parsedDataForPreview?.tableData || []}
+            categoryField={categoryField}
+            valueField={valueField}
+            available={availableCharts.bar}
+          />
+          <LineChartCard 
+            title="Line Chart Trend"
+            tableData={parsedDataForPreview?.tableData || []}
+            categoryField={categoryField}
+            valueField={valueField}
+            available={availableCharts.line}
+          />
+          <AreaChartCard 
+            title="Area Chart Overview"
+            tableData={parsedDataForPreview?.tableData || []}
+            categoryField={categoryField}
+            valueField={valueField}
+            available={availableCharts.area}
+          />
+          <PieChartCard 
+            title="Pie Chart Distribution"
+            tableData={parsedDataForPreview?.tableData || []}
+            categoryField={categoryField}
+            valueField={valueField}
+            available={availableCharts.donut}
+          />
+          <ScatterChartCard 
+            title="Scatter Plot Correlation"
+            tableData={parsedDataForPreview?.tableData || []}
+            scatterXField={categoryField}
+            scatterYField={valueField}
+            categoryField={categoryField}
+            headers={parsedDataForPreview?.headers || []}
+            available={availableCharts.scatter}
+          />
         </div>
       )}
     </div>
