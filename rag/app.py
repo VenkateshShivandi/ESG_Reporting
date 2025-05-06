@@ -227,19 +227,15 @@ def create_graph():
 
     # 1. check if the user has already created a subgraph, if yes, delete/detach it first before creating a new one
     if neo4j_initializer.userExists(user_id):
-        # check if the subgraph is already created
-        if neo4j_initializer.subgraphExists(user_id):
-            # delete the subgraph
-            neo4j_initializer.deleteSubgraph(user_id)
-        else:
-            # 2. create the subgraph
-            neo4j_initializer.createSubgraph(entities, relationships, user_id)
-            #2.1 build a graph projection for the subgraph
-            graph_projection = neo4j_initializer.buildGraphProjection('subgraph_'+user_id)
-            # 3. Run community detection and insights on the subgraph using the graph projection
-            neo4j_initializer.runCommunityDetection(graph_projection, user_id)
-            # 4. return the subgraph id
-            return flask.jsonify({"success": True, "message": "Graph created successfully", "subgraph_id": neo4j_initializer.getSubgraphId(user_id)}), 200
+        # delete the subgraph, if it exists
+        neo4j_initializer.deleteSubgraph(user_id)
+        
+        # 2. create the subgraph using GDS and return the projection name
+        subgraph_projection = neo4j_initializer.createSubgraph(entities, relationships, user_id)
+        # 3. Run community detection and insights on the subgraph using the graph projection
+        neo4j_initializer.runCommunityDetection(projection_name=subgraph_projection, algorithm="louvain", min_community_size=3)
+        # 4. return the subgraph id
+        return flask.jsonify({"success": True, "message": "Graph created successfully", "subgraph_id": neo4j_initializer.getSubgraphId(user_id)}), 200
     else:
         # provide a message to the user that the user does not exist
         return flask.jsonify({"error": "User does not exist"}), 400

@@ -28,6 +28,8 @@ class Neo4jGraphInitializer:
         self.port = port
         self.uri = uri
         self.driver = None
+        self.entities = None
+        self.relationships = None
 
     @staticmethod
     def wait_for_neo4j(port: int = 7687, max_attempts: int = 30) -> bool:
@@ -110,8 +112,7 @@ class Neo4jGraphInitializer:
                 "-p", f"{port}:7687",
                 "-p", "7474:7474",
                 "-e", "NEO4J_AUTH=none",
-                "-e", f"NEO4JLABS_PLUGINS=[\"graph-data-science\"]",
-                "-e", f"NEO4J_PLUGINS=\"[\"apoc\",\"graph-data-science\"]\"",
+                "-e", f"NEO4J_PLUGINS=\"[\"graph-data-science\"]\"",
                 "-e", "NEO4J_dbms_memory_pagecache_size=1G",
                 "-e", "NEO4J_dbms_memory_heap_initial__size=1G",
                 "-e", "NEO4J_dbms_memory_heap_max__size=1G",
@@ -252,47 +253,84 @@ class Neo4jGraphInitializer:
                 DETACH DELETE o
             """, {"orgId": orgId}) 
 
-
     def subgraphExists(self, userId: str, rootLabel: str = "Root") -> bool:
         """
-        Check if a subgraph exists for a user.
+        Check if a subgraph exists for a user by verifying the SubgraphRoot node is connected to the user and has the correct userId property.
         """
-        try:
-            with self.driver.session() as session:
-                session.run(f"MATCH (u:User {{user_id: $userId}}) RETURN u", {"userId": userId})
-                return True
-            return False
-        except Exception as e:
-            return False
+        with self.driver.session() as session:
+            # Check if the SubgraphRoot node is connected to the user and has userId property
+            result = session.run(
+                f"MATCH (u:User {{user_id: $userId}})-[:HAS_SUBGRAPH]->(s:SubgraphRoot {{user_id: $userId}}) RETURN s",
+                {"userId": userId}
+            )
+            return result.single() is not None
     
     def deleteSubgraph(self, userId: str, rootLabel: str = "Root") -> None:
         """
-        Delete a subgraph for a user.
+        Delete a subgraph for a user by deleting the SubgraphRoot node with the matching user_id property.
         """
         try:
             with self.driver.session() as session:
-                session.run(f"MATCH (u:User {{user_id: $userId}}) DETACH DELETE u", {"userId": userId})
+                session.run(
+                    f"MATCH (s:SubgraphRoot {{user_id: $userId}}) DETACH DELETE s",
+                    {"userId": userId}
+                )
         except Exception as e:
             print(f"Error deleting subgraph: {str(e)}")
 
     def createSubgraph(self, entities: list, relationships: list, userId: str, rootLabel: str = "Root") -> None:
         """
         Create a subgraph for a user in neo4j database using the entities and relationships
-        
         Args:
-            entities: list of entities
-            relationships: list of relationships
+            entities: list of entities (each must have an 'entity_name' property)
+            relationships: list of relationships (each must have 'source_entity_name' and 'target_entity_name' properties)
             userId: unique user id
             rootLabel: label for the root node
-        
         Returns:
             None
         """
         try:
+            self.entities = entities
+            self.relationships = relationships
             with self.driver.session() as session:
-                session.run(f"MATCH (u:User {{user_id: $userId}}) CREATE (u)-[:HAS_SUBGRAPH]->(s:Subgraph)", {"userId": userId})
-                session.run(f"MATCH (u:User {{user_id: $userId}}) CALL gds.graph.create.cypher($graphName, $entities, $relationships)", {"userId": userId, "graphName": f"subgraph_{userId}", "entities": entities, "relationships": relationships})
-            print(f"Subgraph created for user {userId}")
+                # create a subgraph root node with user_id property
+                session.run(f"MATCH (u:User {{user_id: $userId}}) CREATE (u)-[:HAS_SUBGRAPH]->(s:SubgraphRoot {{user_id: $userId}})", {"userId": userId})
+
+                # Build Cypher queries for GDS projection using entity_name
+                entity_names = [e['entity_name'] for e in entities if 'entity_name' in e]
+                rel_tuples = [(r['source_entity_name'], r['target_entity_name']) for r in relationships if 'source_entity_name' in r and 'target_entity_name' in r]
+
+                # Format entity_names for Cypher (as a list of quoted strings)
+                cypher_entity_names = ', '.join([f'"{name}"' for name in entity_names])
+                cypher_entities = f"MATCH (n) WHERE n.entity_name IN [{cypher_entity_names}] RETURN id(n) AS id"
+
+                # Format relationships for Cypher
+                if rel_tuples:
+                    cypher_rel_pairs = ', '.join([f'("{src}", "{tgt}")' for src, tgt in rel_tuples])
+                    cypher_relationships = (
+                        f"UNWIND [{cypher_rel_pairs}] AS pair "
+                        f"MATCH (n)-[r]->(m) WHERE n.entity_name = pair[0] AND m.entity_name = pair[1] "
+                        f"RETURN id(n) AS source, id(m) AS target, type(r) AS type"
+                    )
+                else:
+                    cypher_relationships = "MATCH (n)-[r]->(m) WHERE false RETURN id(n) AS source, id(m) AS target, type(r) AS type"
+
+                # create a subgraph from the entities and relationships
+                session.run(
+                    "CALL gds.graph.project.cypher($graphName, $entities, $relationships) YIELD graphName, nodeCount, relationshipCount",
+                    {"graphName": f"subgraph_{userId}", "entities": cypher_entities, "relationships": cypher_relationships}
+                )
+
+                # After creating the projection
+                exists_result = session.run(
+                    "CALL gds.graph.exists($graphName) YIELD exists RETURN exists",
+                    {"graphName": f"subgraph_{userId}"}
+                )
+                exists = exists_result.single()["exists"] if exists_result else False
+                print(f"Projection 'subgraph_{userId}' exists: {exists}")
+            print(f"Subgraph created for user {userId} using {len(entities)} entities and {len(relationships)} relationships through GDS")
+            print(f"Subgraph Projection name: {f'subgraph_{userId}'}")
+            return f"subgraph_{userId}"
         except Exception as e:
             print(f"Error creating subgraph: {str(e)}")
 
@@ -302,7 +340,7 @@ class Neo4jGraphInitializer:
         """
         try:
             with self.driver.session() as session:
-                session.run(f"CALL gds.graph.project.cypher($graphName, $entities, $relationships)", {"graphName": graphName, "entities": entities, "relationships": relationships})
+                session.run(f"CALL gds.graph.project.cypher($graphName, $entities, $relationships)", {"graphName": graphName, "entities": self.entities, "relationships": self.relationships})
         except Exception as e:
             print(f"Error building graph projection: {str(e)}")
 
@@ -319,16 +357,143 @@ class Neo4jGraphInitializer:
             print(f"Error getting subgraph id: {str(e)}")
             return None # if no subgraph id is found, return None
     
-    def runCommunityDetection(self, userId: str, rootLabel: str = "Root") -> None:
+    def runCommunityDetection(self, projection_name: str, algorithm: str = "louvain", min_community_size: int = 3) -> dict:
         """
-        Run community detection for a user.
+        Detect communities in the graph using the specified algorithm.
+        Args:
+            projection_name: Name of the graph projection to use (must exist)
+            algorithm: Community detection algorithm (louvain, leiden, or label_propagation)
+            min_community_size: Minimum number of nodes for a community
+        Returns:
+            Dict with community detection results
         """
+        if not self.driver:
+            print("Not connected to Neo4j")
+            return None
         try:
             with self.driver.session() as session:
-                session.run(f"MATCH (u:User {{user_id: $userId}}) CALL gds.graph.create.cypher($graphName, $entities, $relationships)", {"userId": userId, "graphName": f"subgraph_{userId}"})
+                algo = algorithm.lower()
+                if algo == "louvain":
+                    query = f"""
+                    CALL gds.louvain.stream('{projection_name}')
+                    YIELD nodeId, communityId
+                    WITH communityId, collect(gds.util.asNode(nodeId)) AS nodes
+                    WHERE size(nodes) >= $min_community_size
+                    RETURN communityId, size(nodes) AS size,
+                           [n IN nodes | n.entity_name] AS entity_names,
+                           [n IN nodes | labels(n)[0]] AS entity_types
+                    ORDER BY size DESC
+                    """
+                elif algo == "leiden":
+                    query = f"""
+                    CALL gds.leiden.stream('{projection_name}')
+                    YIELD nodeId, communityId
+                    WITH communityId, collect(gds.util.asNode(nodeId)) AS nodes
+                    WHERE size(nodes) >= $min_community_size
+                    RETURN communityId, size(nodes) AS size,
+                           [n IN nodes | n.entity_name] AS entity_names,
+                           [n IN nodes | labels(n)[0]] AS entity_types
+                    ORDER BY size DESC
+                    """
+                elif algo == "label_propagation":
+                    query = f"""
+                    CALL gds.labelPropagation.stream('{projection_name}')
+                    YIELD nodeId, communityId
+                    WITH communityId, collect(gds.util.asNode(nodeId)) AS nodes
+                    WHERE size(nodes) >= $min_community_size
+                    RETURN communityId, size(nodes) AS size,
+                           [n IN nodes | n.entity_name] AS entity_names,
+                           [n IN nodes | labels(n)[0]] AS entity_types
+                    ORDER BY size DESC
+                    """
+                else:
+                    print(f"Unsupported algorithm: {algorithm}")
+                    return None
+                result = session.run(query, {"min_community_size": min_community_size})
+                communities = []
+                for record in result:
+                    community = {
+                        "id": record["communityId"],
+                        "size": record["size"],
+                        "entity_names": record["entity_names"],
+                        "entity_types": record["entity_types"]
+                    }
+                    communities.append(community)
+                # Optionally write community IDs to nodes
+                write_query = f"""
+                CALL gds.louvain.write('{projection_name}', {{writeProperty: 'community'}})
+                YIELD communityCount, modularity, modularities
+                RETURN communityCount, modularity, modularities
+                """
+                try:
+                    write_result = session.run(write_query)
+                    write_record = write_result.single()
+                    if write_record:
+                        print(f"Wrote community IDs to nodes. Total communities: {write_record['communityCount']}")
+                except Exception as e:
+                    print(f"Could not write community IDs to nodes: {str(e)}")
+                print(f"Detected {len(communities)} communities using {algorithm} algorithm")
+                return {"communities": communities}
         except Exception as e:
-            print(f"Error running community detection: {str(e)}")
+            print(f"Error detecting communities: {str(e)}")
+            return None
 
+    def summarizeCommunities(self, max_communities: int = 10, max_entities_per_community: int = 10) -> list:
+        """
+        Generate summaries for detected communities.
+        Args:
+            max_communities: Maximum number of communities to summarize
+            max_entities_per_community: Maximum entities to include per community
+        Returns:
+            List of community summaries
+        """
+        if not self.driver:
+            print("Not connected to Neo4j")
+            return None
+        try:
+            with self.driver.session() as session:
+                query = """
+                MATCH (n) WHERE n.community IS NOT NULL
+                WITH n.community AS communityId, count(n) AS communitySize
+                ORDER BY communitySize DESC
+                LIMIT $max_communities
+                MATCH (e {community: communityId})
+                WITH communityId, communitySize, collect(e) AS entities
+                RETURN communityId, communitySize,
+                       [e IN entities | {name: e.entity_name, type: labels(e)[0]}] AS entityDetails
+                ORDER BY communitySize DESC
+                """
+                result = session.run(query, {"max_communities": max_communities})
+                summaries = []
+                for record in result:
+                    community_id = record["communityId"]
+                    community_size = record["communitySize"]
+                    entities = record["entityDetails"]
+                    # Limit entities per community
+                    if len(entities) > max_entities_per_community:
+                        entities = entities[:max_entities_per_community]
+                    # Get types distribution
+                    type_counts = {}
+                    for entity in entities:
+                        entity_type = entity.get("type", "Unknown")
+                        if entity_type in type_counts:
+                            type_counts[entity_type] += 1
+                        else:
+                            type_counts[entity_type] = 1
+                    # Create summary
+                    summary = {
+                        "community_id": community_id,
+                        "size": community_size,
+                        "type_distribution": type_counts,
+                        "key_entities": [e["name"] for e in entities],
+                        "entities": entities
+                    }
+                    summaries.append(summary)
+                print(f"Generated summaries for {len(summaries)} communities")
+                return summaries
+        except Exception as e:
+            print(f"Error summarizing communities: {str(e)}")
+            return None
 
 
 def run() -> None:
