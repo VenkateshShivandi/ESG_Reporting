@@ -1,6 +1,7 @@
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { BarChart3 } from "lucide-react";
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList } from "recharts";
+import { renderCustomAxisTick } from "./chart-utils";
 
 // Color palette for charts (should match EnhancedDataPreview)
 const CHART_COLORS = [
@@ -30,6 +31,7 @@ interface BarChartCardProps {
   categoryField: string | null;
   valueField: string | null;
   available: boolean;
+  yAxisScale: 'linear' | 'log';
 }
 
 function buildChartData(tableData: any[], categoryField: string | null, valueField: string | null) {
@@ -44,8 +46,49 @@ function buildChartData(tableData: any[], categoryField: string | null, valueFie
   });
 }
 
-export function BarChartCard({ title, tableData, categoryField, valueField, available }: BarChartCardProps) {
+// Custom XAxis tick renderer
+const renderCustomXAxisTick = (props: any) => {
+  const { x, y, payload } = props;
+  const label = payload.value?.toString() || '';
+  const maxLen = 10;
+  const displayLabel = label.length > maxLen ? label.slice(0, maxLen) + '…' : label;
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{label}</title>
+      <text
+        x={0}
+        y={0}
+        dy={16}
+        textAnchor="end"
+        fill="#64748b"
+        fontSize={11}
+        transform="rotate(-60)"
+        style={{ cursor: label.length > maxLen ? 'pointer' : 'default' }}
+      >
+        {displayLabel}
+      </text>
+    </g>
+  );
+};
+
+export function BarChartCard({ title, tableData, categoryField, valueField, available, yAxisScale }: BarChartCardProps) {
   const chartData = buildChartData(tableData, categoryField, valueField);
+  const hasZeroOrNegative = chartData.some(d => d.value <= 0);
+  const hasValidChartData = chartData.length > 0 && chartData.some(d => d.value !== undefined && d.name !== undefined);
+
+  // Dynamic Y-axis domain logic
+  const values = chartData.map(d => d.value);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const range = maxValue - minValue;
+  // If range is less than 0.5% of max, zoom in
+  let yDomain: number[] | (string | ((dataMax: number) => number))[] = ['auto', (dataMax: number) => dataMax * 1.05];
+  if (maxValue > 0 && range / maxValue < 0.005) {
+    // Use number[] only
+    const pad = Math.max(range * 0.1, 1); // Ensure at least 1 unit of padding
+    yDomain = [minValue - pad, maxValue + pad];
+  }
+
   return (
     <Card className="mb-6 bg-white rounded-3xl shadow-2xl px-8 py-8 relative transition-all duration-300 hover:scale-[1.01] hover:shadow-[0_16px_48px_0_rgba(60,72,100,0.20),0_4px_16px_0_rgba(60,72,100,0.14)] overflow-hidden border-none">
       {/* Glass streak for shine */}
@@ -58,68 +101,60 @@ export function BarChartCard({ title, tableData, categoryField, valueField, avai
               {title || "Bar Chart"}
             </CardTitle>
             <CardDescription>
-              {available
-                ? 'Categorical breakdown of numerical values'
-                : 'No suitable categorical and numerical data found'}
+              Categorical breakdown of numerical values
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="h-[400px] w-full">
-            {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chartData}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="name" 
-                    angle={-45} 
-                    textAnchor="end"
-                    height={70}
-                    tick={{ fontSize: 11 }}
-                    label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
-                  />
-                  <YAxis 
-                    tick={{ fontSize: 11 }} 
-                    label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                    domain={['auto', 'auto']}
-                    allowDataOverflow={true}
-                    tickFormatter={(value) => formatNumber(value)}
-                  />
-                  <Tooltip 
-                    formatter={(value, name, props) => [
-                        `${formatNumber(value as number)}`,
-                        valueField || 'Value'
-                    ]}
-                    labelFormatter={(label) => label}
-                    contentStyle={{ 
-                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                      borderRadius: '8px',
-                      padding: '10px',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                      border: '1px solid #f0f0f0'
-                    }}
-                  />
-                  <Legend 
-                    verticalAlign="top"
-                    wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
-                  />
-                  <Bar 
-                    dataKey="value" 
-                    name={valueField || "Value"}
-                    fill={CHART_COLORS[0]} 
-                    radius={[4, 4, 0, 0]} 
-                    maxBarSize={60}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-              </div>
-            )}
+          <div className="h-[500px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={chartData}
+                margin={{ top: 50, right: 30, left: 20, bottom: 90 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="name" 
+                  height={80}
+                  tick={renderCustomAxisTick}
+                  label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 20, fontSize: 12 }}
+                  interval={0}
+                />
+                <YAxis 
+                  tick={{ fontSize: 11 }} 
+                  label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                  domain={yDomain as any}
+                  allowDataOverflow={true}
+                  tickFormatter={(value) => formatNumber(value)}
+                  scale={yAxisScale}
+                />
+                <Tooltip 
+                  formatter={(value, name, props) => [
+                      `${formatNumber(value as number)}`,
+                      valueField || 'Value'
+                  ]}
+                  labelFormatter={(label) => label}
+                  contentStyle={{ 
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #f0f0f0'
+                  }}
+                />
+                <Legend 
+                  verticalAlign="top"
+                  wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
+                />
+                <Bar 
+                  dataKey="value" 
+                  name={valueField || "Value"}
+                  fill={CHART_COLORS[0]} 
+                  radius={[4, 4, 0, 0]} 
+                  maxBarSize={60}
+                />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </CardContent>
       </div>

@@ -50,6 +50,31 @@ interface ScatterChartCardProps {
   available?: boolean;
 }
 
+// Custom X/Y Axis tick renderer
+const renderCustomAxisTick = (props: any) => {
+  const { x, y, payload } = props;
+  const label = payload.value?.toString() || '';
+  const maxLen = 10;
+  const displayLabel = label.length > maxLen ? label.slice(0, maxLen) + '…' : label;
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{label}</title>
+      <text
+        x={0}
+        y={0}
+        dy={16}
+        textAnchor="end"
+        fill="#64748b"
+        fontSize={11}
+        transform="rotate(-60)"
+        style={{ cursor: label.length > maxLen ? 'pointer' : 'default' }}
+      >
+        {displayLabel}
+      </text>
+    </g>
+  );
+};
+
 export function ScatterChartCard({ title, tableData, scatterXField, scatterYField, categoryField, headers, available }: ScatterChartCardProps) {
   const scatterData = buildScatterData(tableData, scatterXField, scatterYField, categoryField, headers);
   return (
@@ -64,68 +89,63 @@ export function ScatterChartCard({ title, tableData, scatterXField, scatterYFiel
               {title || "Scatter Chart"}
             </CardTitle>
             <CardDescription>
-              {available
-                ? 'Scatter plot for correlation analysis'
-                : 'No suitable data found for scatter plot'}
+              Scatter plot for correlation analysis
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent>
           <div className="h-[400px] w-full">
-            {scatterData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <ScatterChart margin={{ top: 20, right: 30, bottom: 70, left: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    type="number"
-                    dataKey="x"
-                    name={scatterXField || "X"}
-                    label={{ value: scatterXField || 'X-Axis', position: 'insideBottom', dy: 10, fontSize: 12 }}
-                    tick={{ fontSize: 11 }}
-                    tickFormatter={(value) => formatNumber(value)}
-                  />
-                  <YAxis
-                    type="number"
-                    dataKey="y"
-                    name={scatterYField || "Y"}
-                    label={{ value: scatterYField || 'Y-Axis', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                    tick={{ fontSize: 11 }}
-                    tickFormatter={(value) => formatNumber(value)}
-                  />
-                  <Tooltip
-                    formatter={(value, name, props) => {
-                      const pointName = props.payload?.name || 'Point';
-                      const xVal = formatNumber(props.payload?.x);
-                      const yVal = formatNumber(props.payload?.y);
-                      return [`X: ${xVal}, Y: ${yVal}`, pointName];
-                    }}
-                    labelFormatter={() => ''}
-                    cursor={{ strokeDasharray: '3 3' }}
-                    contentStyle={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                      borderRadius: '8px',
-                      padding: '10px',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                      border: '1px solid #f0f0f0'
-                    }}
-                  />
-                  <Legend
-                    verticalAlign="top"
-                    wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
-                    payload={[{ value: `${scatterXField || 'X'} vs ${scatterYField || 'Y'}`, color: CHART_COLORS[0] }]}
-                  />
-                  <Scatter
-                    name={`${scatterXField || 'X'} vs ${scatterYField || 'Y'}`}
-                    data={scatterData}
-                    fill={CHART_COLORS[0]}
-                  />
-                </ScatterChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                Please select two Number columns for the X and Y axes.
-              </div>
-            )}
+            <ResponsiveContainer width="100%" height="100%">
+              <ScatterChart margin={{ top: 20, right: 30, bottom: 90, left: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis
+                  type="number"
+                  dataKey="x"
+                  name={scatterXField || "X"}
+                  label={{ value: scatterXField || 'X-Axis', position: 'insideBottom', dy: 20, fontSize: 12 }}
+                  tick={renderCustomAxisTick}
+                  height={80}
+                  interval={0}
+                  tickFormatter={(value) => formatNumber(value)}
+                />
+                <YAxis
+                  type="number"
+                  dataKey="y"
+                  name={scatterYField || "Y"}
+                  label={{ value: scatterYField || 'Y-Axis', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                  tick={{ fontSize: 11, fill: "#64748b" }}
+                  width={60}
+                  tickFormatter={(value) => formatNumber(value)}
+                />
+                <Tooltip
+                  formatter={(value, name, props) => {
+                    const pointName = props.payload?.name || 'Point';
+                    const xVal = formatNumber(props.payload?.x);
+                    const yVal = formatNumber(props.payload?.y);
+                    return [`X: ${xVal}, Y: ${yVal}`, pointName];
+                  }}
+                  labelFormatter={() => ''}
+                  cursor={{ strokeDasharray: '3 3' }}
+                  contentStyle={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #f0f0f0'
+                  }}
+                />
+                <Legend
+                  verticalAlign="top"
+                  wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
+                  payload={[{ value: `${scatterXField || 'X'} vs ${scatterYField || 'Y'}`, color: CHART_COLORS[0] }]}
+                />
+                <Scatter
+                  name={`${scatterXField || 'X'} vs ${scatterYField || 'Y'}`}
+                  data={scatterData}
+                  fill={CHART_COLORS[0]}
+                />
+              </ScatterChart>
+            </ResponsiveContainer>
           </div>
         </CardContent>
       </div>

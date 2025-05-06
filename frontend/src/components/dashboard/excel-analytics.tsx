@@ -62,6 +62,7 @@ import { PieChartCard } from "./PieChartCard";
 import { ScatterChartCard } from "./ScatterChartCard";
 import { HeatmapCard } from "./HeatmapCard";
 import PaginatedTable from "../../components/enhanced-data-preview";
+import DynamicTrendChartCard from "./DynamicTrendChartCard";
 
 // Create alert UI components since @/components/ui/alert seems to be missing
 const Alert = ({ children, className, variant }: { children: React.ReactNode, className?: string, variant?: string }) => (
@@ -1361,6 +1362,9 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     return classes.filter(Boolean).join(' ');
   }
 
+  // 1. Add a yAxisScale state at the top level of ExcelAnalytics
+  const [yAxisScale, setYAxisScale] = useState<'linear' | 'log'>('linear');
+
   return (
     <div className={`w-full max-w-6xl mx-auto mt-12`}> 
       <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
@@ -1506,7 +1510,9 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
                   <SelectValue placeholder="Select a sheet" />
                 </SelectTrigger>
                 <SelectContent className="border border-slate-200 shadow-2xl rounded-2xl bg-gradient-to-br from-white to-slate-50 py-2 px-1 mt-2" side="bottom" align="start">
-                  {apiResponse?.sheetOrder?.map((sheetName, index, arr) => (
+                  {apiResponse?.sheetOrder
+                    ?.filter(sheetName => (apiResponse?.sheets?.[sheetName]?.tableCount || 0) > 0)
+                    .map((sheetName, index, arr) => (
                     <SelectItem
                       key={sheetName}
                       value={sheetName}
@@ -1605,175 +1611,18 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
               valueField={valueField}
               setCategoryField={setCategoryField}
               setValueField={setValueField}
+              yAxisScale={yAxisScale}
+              setYAxisScale={setYAxisScale}
             />
           )}
-          
-          {/* Bar Chart */}
-          {selectedCharts.bar && (
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle className="flex items-center text-lg">
-                  <BarChart3 className="h-5 w-5 mr-2 text-blue-500" />
-                  Bar Chart
-                </CardTitle>
-                <CardDescription>
-                  {availableCharts.bar 
-                    ? 'Categorical breakdown of numerical values'
-                    : 'No suitable categorical and numerical data found'}
-                </CardDescription>
-                </CardHeader>
-                  <CardContent>
-                <div className="h-72 w-full">
-                  {isValidChartData(tableChartData?.barChart) ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={tableChartData?.barChart || []}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis
-                          dataKey="name"
-                          tick={{ fontSize: 12 }}
-                          label={{ value: firstCatCol, position: 'insideBottom' }}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12 }}
-                        />
-                        <Tooltip
-                          formatter={(value) => [`${value}`, firstNumCol]}
-                          contentStyle={{ 
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            borderRadius: '8px',
-                            padding: '10px',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                            border: '1px solid #f0f0f0'
-                          }}
-                        />
-                        <Legend />
-                        <Bar
-                          dataKey="value"
-                          name={firstNumCol}
-                          fill="#3b82f6"
-                          radius={[4, 4, 0, 0]}
-                          animationDuration={800}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="flex items-center justify-center h-full w-full border border-dashed border-gray-300 rounded-lg">
-                      <div className="text-center text-gray-500">
-                        <BarChart3 className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                        <p className="text-gray-600 font-medium">No bar chart data available</p>
-                        <p className="text-sm mt-2 max-w-md mx-auto">
-                          The data may not contain suitable categorical and numerical values for charting
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  </div>
-                </CardContent>
-              </Card>
+          {/* Dynamic Multi-Line Trend Chart */}
+          {parsedDataForPreview && (
+            <DynamicTrendChartCard
+              headers={parsedDataForPreview.headers}
+              tableData={parsedDataForPreview.tableData}
+              yAxisScale={yAxisScale}
+            />
           )}
-          
-          {/* Line Chart */}
-          {selectedCharts.line && (
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle className="flex items-center text-lg">
-                  <TrendingUp className="h-5 w-5 mr-2 text-emerald-500" />
-                  Line Chart
-                </CardTitle>
-                <CardDescription>
-                  {availableCharts.line 
-                    ? 'Time series or sequential data visualization'
-                    : 'No suitable time series data found'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-72 w-full">
-                  {/* Check if tableChartData and lineChart exist and are valid */}
-                  {tableChartData && isValidChartData(tableChartData.lineChart) ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={tableChartData.lineChart}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis
-                          dataKey="name"
-                          tick={{ fontSize: 12 }}
-                          label={{ value: firstDateCol, position: 'insideBottom' }}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 12 }}
-                          label={{ value: firstNumCol, angle: -90, position: 'insideLeft' }}
-                        />
-                        <Tooltip
-                          formatter={(value) => [`${value}`, firstNumCol]}
-                          contentStyle={{
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            borderRadius: '8px',
-                            padding: '10px',
-                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                            border: '1px solid #f0f0f0'
-                          }}
-                        />
-                        <Legend />
-                        <Line
-                          type="monotone"
-                          dataKey="value"
-                          name={firstNumCol}
-                          stroke="#10b981"
-                          strokeWidth={2}
-                          dot={{ stroke: '#047857', strokeWidth: 2, r: 4, fill: 'white' }}
-                          activeDot={{ r: 6, stroke: '#047857', strokeWidth: 2, fill: '#10b981' }}
-                          animationDuration={1000}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <div className="flex items-center justify-center h-full w-full border border-dashed border-gray-300 rounded-lg">
-                      <div className="text-center text-gray-500">
-                        <TrendingUp className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                        <p className="text-gray-600 font-medium">No line chart data available</p>
-                        <p className="text-sm mt-2 max-w-md mx-auto">
-                          The data may not contain suitable time series or sequential data for charting
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-          
-          {/* Donut Chart */}
-          {/* {selectedCharts.donut && (
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle className="flex items-center text-lg">
-                  <PieChartIcon className="h-5 w-5 mr-2 text-amber-500" />
-                  Donut Chart
-                </CardTitle>
-                <CardDescription>
-                  {availableCharts.donut 
-                    ? 'Distribution and proportion visualization'
-                    : 'No suitable categorical data found'}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="h-72 w-full">
-                  {isValidChartData(data.donutChart) ? (
-                    <DonutChart data={data.donutChart} />
-                  ) : (
-                    <div className="flex items-center justify-center h-full w-full border border-dashed border-gray-300 rounded-lg">
-                      <div className="text-center text-gray-500">
-                        <PieChartIcon className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-                        <p className="text-gray-600 font-medium">No donut chart data available</p>
-                        <p className="text-sm mt-2 max-w-md mx-auto">
-                          The data may not contain suitable categorical values for distribution visualization
-                        </p>
-                  </div>
-                </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          )} */}
         </div>
       )}
       
@@ -1841,6 +1690,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
             categoryField={categoryField}
             valueField={valueField}
             available={availableCharts.bar}
+            yAxisScale={yAxisScale}
           />
           <LineChartCard 
             title="Line Chart Trend"
@@ -1848,6 +1698,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
             categoryField={categoryField}
             valueField={valueField}
             available={availableCharts.line}
+            yAxisScale={yAxisScale}
           />
           <AreaChartCard 
             title="Area Chart Overview"
@@ -1855,6 +1706,7 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
             categoryField={categoryField}
             valueField={valueField}
             available={availableCharts.area}
+            yAxisScale={yAxisScale}
           />
           <PieChartCard 
             title="Pie Chart Distribution"

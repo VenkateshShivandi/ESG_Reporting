@@ -69,48 +69,40 @@ export function PieChartCard({ title, tableData, categoryField, valueField, avai
               {title || "Pie Chart"}
             </CardTitle>
             <CardDescription>
-              {available
-                ? 'Pie/Donut chart for categorical distribution'
-                : 'No suitable data found'}
+              Pie/Donut chart for categorical distribution
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent>
           <div className="h-[400px] w-full">
-            {pieChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart margin={{ top: 20, right: 40, bottom: 60, left: 40 }}>
-                  <Pie
-                    data={pieChartData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    outerRadius={100}
-                    innerRadius={50}
-                    fill="#8884d8"
-                    dataKey="value"
-                    nameKey="name"
-                    label={({ value }) => `${(value as number).toFixed(1)}%`}
-                  >
-                    {pieChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value, name, props) => [
-                      `${formatNumber(props.payload?.absoluteValue)} (${(value as number).toFixed(1)}%)`,
-                      valueField || 'Value'
-                    ]}
-                    labelFormatter={(label) => label}
-                  />
-                  <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', marginTop: '15px' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-              </div>
-            )}
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart margin={{ top: 20, right: 40, bottom: 60, left: 40 }}>
+                <Pie
+                  data={pieChartData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  outerRadius={100}
+                  innerRadius={50}
+                  fill="#8884d8"
+                  dataKey="value"
+                  nameKey="name"
+                  label={({ value }) => `${(value as number).toFixed(1)}%`}
+                >
+                  {pieChartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value, name, props) => [
+                    `${formatNumber(props.payload?.absoluteValue)} (${(value as number).toFixed(1)}%)`,
+                    valueField || 'Value'
+                  ]}
+                  labelFormatter={(label) => label}
+                />
+                <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', marginTop: '15px' }} />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
         </CardContent>
       </div>

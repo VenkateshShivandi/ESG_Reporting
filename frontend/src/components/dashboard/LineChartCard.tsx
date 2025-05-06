@@ -2,6 +2,8 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { TrendingUp } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { LineChartIcon } from "lucide-react";
+import { useState } from "react";
+import { renderCustomAxisTick } from "./chart-utils";
 
 // Color palette for charts (should match EnhancedDataPreview)
 const CHART_COLORS = [
@@ -31,6 +33,7 @@ interface LineChartCardProps {
   categoryField: string | null;
   valueField: string | null;
   available?: boolean;
+  yAxisScale: 'linear' | 'log';
 }
 
 function buildChartData(tableData: any[], categoryField: string | null, valueField: string | null) {
@@ -45,8 +48,11 @@ function buildChartData(tableData: any[], categoryField: string | null, valueFie
   });
 }
 
-export function LineChartCard({ title, tableData, categoryField, valueField, available }: LineChartCardProps) {
+export function LineChartCard({ title, tableData, categoryField, valueField, available, yAxisScale }: LineChartCardProps) {
   const chartData = buildChartData(tableData, categoryField, valueField);
+  const hasZeroOrNegative = chartData.some(d => d.value <= 0);
+  const hasValidChartData = chartData.length > 0 && chartData.some(d => d.value !== undefined && d.name !== undefined);
+
   return (
     <Card className="mb-6 bg-white rounded-3xl shadow-2xl px-8 py-8 relative transition-all duration-300 hover:scale-[1.01] hover:shadow-[0_16px_48px_0_rgba(60,72,100,0.20),0_4px_16px_0_rgba(60,72,100,0.14)] overflow-hidden border-none">
       {/* Glass streak for shine */}
@@ -59,70 +65,62 @@ export function LineChartCard({ title, tableData, categoryField, valueField, ava
               {title || "Line Chart"}
             </CardTitle>
             <CardDescription>
-              {available
-                ? 'Time series or sequential data visualization'
-                : 'No suitable data found'}
+              Time series or sequential data visualization
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="h-[400px] w-full">
-            {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={chartData}
-                  margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="name" 
-                    angle={-45} 
-                    textAnchor="end"
-                    height={70}
-                    tick={{ fontSize: 11 }}
-                    label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
-                  />
-                  <YAxis 
-                    tick={{ fontSize: 11 }} 
-                    label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                    domain={['auto', 'auto']}
-                    allowDataOverflow={true}
-                    tickFormatter={(value) => formatNumber(value)}
-                  />
-                  <Tooltip 
-                    formatter={(value, name, props) => [
-                        `${formatNumber(value as number)}`,
-                        valueField || 'Value'
-                    ]}
-                    labelFormatter={(label) => label}
-                    contentStyle={{ 
-                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                      borderRadius: '8px',
-                      padding: '10px',
-                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                      border: '1px solid #f0f0f0'
-                    }}
-                  />
-                  <Legend 
-                    verticalAlign="top"
-                    wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="value" 
-                    name={valueField || "Value"}
-                    stroke={CHART_COLORS[0]} 
-                    strokeWidth={2}
-                    dot={{ r: 4 }}
-                    activeDot={{ r: 6 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500">
-                Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-              </div>
-            )}
+          <div className="h-[500px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={chartData}
+                margin={{ top: 50, right: 30, left: 20, bottom: 90 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis 
+                  dataKey="name" 
+                  height={80}
+                  tick={renderCustomAxisTick}
+                  label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 20, fontSize: 12 }}
+                  interval={0}
+                />
+                <YAxis 
+                  tick={{ fontSize: 11 }} 
+                  label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                  domain={['auto', (dataMax: number) => dataMax * 1.05]}
+                  allowDataOverflow={true}
+                  tickFormatter={(value) => formatNumber(value)}
+                  scale={yAxisScale}
+                />
+                <Tooltip 
+                  formatter={(value, name, props) => [
+                      `${formatNumber(value as number)}`,
+                      valueField || 'Value'
+                  ]}
+                  labelFormatter={(label) => label}
+                  contentStyle={{ 
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderRadius: '8px',
+                    padding: '10px',
+                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid #f0f0f0'
+                  }}
+                />
+                <Legend 
+                  verticalAlign="top"
+                  wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="value" 
+                  name={valueField || "Value"}
+                  stroke={CHART_COLORS[0]} 
+                  strokeWidth={2}
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </CardContent>
       </div>

@@ -76,6 +76,8 @@ interface EnhancedDataPreviewProps {
   valueField: string | null;
   setCategoryField: (field: string) => void;
   setValueField: (field: string) => void;
+  yAxisScale: 'linear' | 'log';
+  setYAxisScale: (scale: 'linear' | 'log') => void;
 }
 
 // --- NEW Paginated Table Sub-component ---
@@ -176,7 +178,32 @@ function classNames(...classes: (string | boolean | undefined)[]) {
   return classes.filter(Boolean).join(' ');
 }
 
-export default function EnhancedDataPreview({ parsedData, handleDownload, categoryField, valueField, setCategoryField, setValueField }: EnhancedDataPreviewProps) {
+// Custom XAxis tick renderer for Data Visualization charts
+const renderCustomXAxisTick = (props: any) => {
+  const { x, y, payload } = props;
+  const label = payload.value?.toString() || '';
+  const maxLen = 10;
+  const displayLabel = label.length > maxLen ? label.slice(0, maxLen) + '…' : label;
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{label}</title>
+      <text
+        x={0}
+        y={0}
+        dy={16}
+        textAnchor="end"
+        fill="#64748b"
+        fontSize={11}
+        transform="rotate(-60)"
+        style={{ cursor: label.length > maxLen ? 'pointer' : 'default' }}
+      >
+        {displayLabel}
+      </text>
+    </g>
+  );
+};
+
+export default function EnhancedDataPreview({ parsedData, handleDownload, categoryField, valueField, setCategoryField, setValueField, yAxisScale, setYAxisScale }: EnhancedDataPreviewProps) {
   const [activeTab, setActiveTab] = useState("bar")
   const [scatterXField, setScatterXField] = useState<string | null>(null)
   const [scatterYField, setScatterYField] = useState<string | null>(null)
@@ -219,16 +246,18 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
       return [];
     }
     
-    return parsedData.tableData.slice(0, 20).map(row => {
-      const valueRaw = row[valueField];
-      const value = typeof valueRaw === 'number'
-        ? valueRaw
-        : parseFloat(String(valueRaw || '0').replace(/[^\d.-]/g, '')) || 0;
-        
-      const name = row[categoryField]?.toString() || 'N/A';
-
-      return { name, value };
-    });
+    return parsedData.tableData.slice(0, 20)
+      .map(row => {
+        const valueRaw = row[valueField];
+        const value = typeof valueRaw === 'number'
+          ? valueRaw
+          : parseFloat(String(valueRaw ?? '').replace(/[^\d.-]/g, ''));
+        const name = row[categoryField]?.toString() || 'N/A';
+        // Only skip if value is missing or not a number
+        if (value === null || value === undefined || isNaN(value)) return null;
+        return { name, value };
+      })
+      .filter((d): d is { name: string, value: number } => d !== null);
   }, [parsedData, categoryField, valueField]);
 
   const scatterData = useMemo(() => {
@@ -286,6 +315,19 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
   }, [parsedData, categoryField, valueField]);
 
   const hasValidData = parsedData?.tableData && parsedData.tableData.length > 0;
+  const hasZeroOrNegative = chartData.some(d => d.value <= 0);
+
+  // --- Y-Axis Domain Logic for Bar/Line/Area ---
+  const values = chartData.map(d => d.value);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  let yDomain: [number, number] | [string, (dataMax: number) => number];
+  if (values.length > 0 && minValue === maxValue) {
+    const pad = Math.max(Math.abs(minValue) * 0.01, 1); // 1% or at least 1 unit
+    yDomain = [minValue - pad, maxValue + pad];
+  } else {
+    yDomain = ['auto', (dataMax: number) => dataMax * 1.05];
+  }
 
   // Chart download handler
   const handleDownloadChart = async () => {
@@ -342,6 +384,28 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
       <CardContent>
         {hasValidData ? (
           <>
+            <div className="flex items-center gap-2 mb-4">
+              <label className="text-sm font-medium">Y-Axis Scale:</label>
+              <Select value={yAxisScale} onValueChange={v => setYAxisScale(v as 'linear' | 'log')} disabled={hasZeroOrNegative}>
+                <SelectTrigger className="w-[120px] h-9 bg-white border border-gray-300 shadow rounded-xl px-3 focus:ring-2 focus:ring-sky-400 text-base font-medium text-gray-800 flex items-center transition-all duration-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="z-[200] min-w-[120px] w-full bg-white border border-gray-200 shadow-2xl rounded-xl py-2 px-1 mt-2" side="bottom" align="start">
+                  <SelectItem value="linear">Linear</SelectItem>
+                  <SelectItem value="log">Log</SelectItem>
+                </SelectContent>
+              </Select>
+              <TooltipProvider>
+                <ShadTooltip delayDuration={100}>
+                  <TooltipTrigger asChild>
+                    <HelpCircle className="h-5 w-5 text-gray-400 cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs bg-gray-800 text-white p-2 rounded text-xs">
+                    <p>Logarithmic scale is useful for data with large variance. Disabled if data contains zero or negative values.</p>
+                  </TooltipContent>
+                </ShadTooltip>
+              </TooltipProvider>
+            </div>
             <div className="flex flex-wrap gap-2 mb-4">
               {activeTab !== 'scatter' && activeTab !== 'table' && (
                   <>
@@ -533,28 +597,29 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
                   {/* Wrap chart content in a div with ref for export */}
                   <div ref={chartRef} className="bg-white rounded-2xl">
                     <TabsContent value="bar" className="mt-0">
-                      <div className="h-[400px] w-full">
-                        {chartData.length > 0 ? (
+                      <div className="h-[500px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
                           <BarChart
                             data={chartData}
-                              margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+                              margin={{ top: 50, right: 30, left: 20, bottom: 90 }}
                           >
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis 
                               dataKey="name" 
                               angle={-45} 
                               textAnchor="end"
-                                height={70}
-                                tick={{ fontSize: 11 }}
-                                label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
+                                height={80}
+                                tick={renderCustomXAxisTick}
+                                label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 20, fontSize: 12 }}
+                                interval={0}
                             />
                             <YAxis 
                               tick={{ fontSize: 11 }} 
                                 label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                              domain={['auto', 'auto']}
+                              domain={yDomain}
                               allowDataOverflow={true}
                               tickFormatter={(value) => formatNumber(value)}
+                              scale={yAxisScale}
                             />
                             <Tooltip 
                               formatter={(value, name, props) => [
@@ -583,37 +648,33 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
                             />
                           </BarChart>
                         </ResponsiveContainer>
-                        ) : (
-                          <div className="flex items-center justify-center h-full text-gray-500">
-                            Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-                          </div>
-                        )}
                       </div>
                     </TabsContent>
                     
                     <TabsContent value="line" className="mt-0">
-                       <div className="h-[400px] w-full">
-                        {chartData.length > 0 ? (
+                       <div className="h-[500px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart
                             data={chartData}
-                            margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+                            margin={{ top: 50, right: 30, left: 20, bottom: 90 }}
                           >
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis 
                               dataKey="name" 
                               angle={-45} 
                               textAnchor="end"
-                              height={70}
-                              tick={{ fontSize: 11 }}
-                                label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
+                              height={80}
+                              tick={renderCustomXAxisTick}
+                              label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 20, fontSize: 12 }}
+                              interval={0}
                             />
                             <YAxis 
                               tick={{ fontSize: 11 }}
                                 label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                              domain={['auto', 'auto']}
+                              domain={yDomain}
                               allowDataOverflow={true}
                               tickFormatter={(value) => formatNumber(value)}
+                              scale={yAxisScale}
                             />
                             <Tooltip 
                               formatter={(value, name, props) => [
@@ -644,37 +705,33 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
                             />
                           </LineChart>
                         </ResponsiveContainer>
-                        ) : (
-                           <div className="flex items-center justify-center h-full text-gray-500">
-                             Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-                           </div>
-                        )}
                       </div>             
                     </TabsContent>
                     
                     <TabsContent value="area" className="mt-0">
-                       <div className="h-[400px] w-full">
-                         {chartData.length > 0 ? (
+                       <div className="h-[500px] w-full">
                          <ResponsiveContainer width="100%" height="100%">
                           <AreaChart
                             data={chartData}
-                            margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+                            margin={{ top: 50, right: 30, left: 20, bottom: 90 }}
                           >
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis 
                               dataKey="name" 
                               angle={-45} 
                               textAnchor="end"
-                              height={70}
-                              tick={{ fontSize: 11 }}
-                                label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 10, fontSize: 12 }}
+                              height={80}
+                              tick={renderCustomXAxisTick}
+                              label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 20, fontSize: 12 }}
+                              interval={0}
                             />
                             <YAxis 
                               tick={{ fontSize: 11 }}
                                 label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                              domain={['auto', 'auto']}
+                              domain={yDomain}
                               allowDataOverflow={true}
                               tickFormatter={(value) => formatNumber(value)}
+                              scale={yAxisScale}
                             />
                             <Tooltip 
                               formatter={(value, name, props) => [
@@ -704,56 +761,44 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
                             />
                           </AreaChart>
                         </ResponsiveContainer>
-                        ) : (
-                           <div className="flex items-center justify-center h-full text-gray-500">
-                             Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-                           </div>
-                        )}
-                       </div>             
+                      </div>             
                     </TabsContent>
                     
                     <TabsContent value="pie" className="mt-0">
-                      <div className="h-[400px] w-full">
-                        {pieChartData.length > 0 ? (
+                      <div className="h-[500px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
-                            <PieChart margin={{ top: 20, right: 40, bottom: 60, left: 40 }}>
+                          <PieChart margin={{ top: 20, right: 40, bottom: 60, left: 40 }}>
                             <Pie
                               data={pieChartData}
                               cx="50%"
                               cy="50%"
-                              labelLine={false} 
-                                outerRadius={100}
-                              innerRadius={50}  
+                              labelLine={false}
+                              outerRadius={100}
+                              innerRadius={50}
                               fill="#8884d8"
                               dataKey="value"
-                              nameKey="name"  
+                              nameKey="name"
                               label={({ value }) => `${(value as number).toFixed(1)}%`}
                             >
                               {pieChartData.map((entry, index) => (
                                 <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                               ))}
                             </Pie>
-                            <Tooltip 
+                            <Tooltip
                               formatter={(value, name, props) => [
-                                  `${formatNumber(props.payload?.absoluteValue)} (${(value as number).toFixed(1)}%)`,
-                                  valueField || 'Value'
+                                `${formatNumber(props.payload?.absoluteValue)} (${(value as number).toFixed(1)}%)`,
+                                valueField || 'Value'
                               ]}
                               labelFormatter={(label) => label}
                             />
-                            <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', marginTop: '15px' }} /> 
+                            <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', marginTop: '15px' }} />
                           </PieChart>
                         </ResponsiveContainer>
-                        ) : (
-                           <div className="flex items-center justify-center h-full text-gray-500">
-                             Select a Text/Date column for Category (🔠) and a Number column for Value (🔢).
-                           </div>
-                        )}
                       </div>
                     </TabsContent>
                     
                       <TabsContent value="scatter" className="mt-0">
-                        <div className="h-[400px] w-full">
-                          {scatterData.length > 0 ? (
+                        <div className="h-[500px] w-full">
                           <ResponsiveContainer width="100%" height="100%">
                             <ScatterChart
                                 margin={{ top: 20, right: 30, bottom: 70, left: 20 }}
@@ -763,7 +808,7 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
                                 type="number"
                                 dataKey="x"
                                 name={scatterXField || "X"}
-                                  label={{ value: scatterXField || 'X-Axis', position: 'insideBottom', dy: 10, fontSize: 12 }}
+                                  label={{ value: scatterXField || 'X', position: 'insideBottom', dy: 10, fontSize: 12 }}
                                 tick={{ fontSize: 11 }}
                                   tickFormatter={(value) => formatNumber(value)}
                               />
@@ -771,7 +816,7 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
                                 type="number"
                                 dataKey="y"
                                 name={scatterYField || "Y"}
-                                  label={{ value: scatterYField || 'Y-Axis', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                                  label={{ value: scatterYField || 'Y', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
                                 tick={{ fontSize: 11 }}
                                 tickFormatter={(value) => formatNumber(value)}
                               />
@@ -804,11 +849,6 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
                               />
                             </ScatterChart>
                           </ResponsiveContainer>
-                          ) : (
-                            <div className="flex items-center justify-center h-full text-gray-500">
-                              Please select two Number columns for the X and Y axes.
-                            </div>
-                          )}
                         </div>
                       </TabsContent>
                       
