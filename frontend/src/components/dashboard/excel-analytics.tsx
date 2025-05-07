@@ -1635,9 +1635,11 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
               <div className="absolute inset-2 rounded-full border-[3px] border-emerald-200 border-dashed animate-[spin_4s_linear_infinite_reverse]"></div>
               <Loader2 className="h-16 w-16 text-emerald-600 animate-spin relative z-10" />
             </div>
-            <h3 className="text-2xl font-bold mb-3 text-gray-800">Processing Excel Data</h3>
+            <h3 className="text-2xl font-bold mb-3 text-gray-800">
+              {selectedFileType === 'csv' ? 'Processing CSV Data' : 'Processing Excel Data'}
+            </h3>
             <p className="text-gray-600 mb-4 max-w-md">
-              {processingMessage || 'Analyzing your data and generating visualizations. This may take a moment depending on the file size.'}
+              Hang tight! We're analyzing your {selectedFileType === 'csv' ? 'CSV' : 'spreadsheet'} for ESG insights… This may take a moment for large files.
             </p>
             <div className="w-80 h-3 bg-gray-200 rounded-full overflow-hidden mt-4 relative">
               <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full animate-progress relative">
@@ -1729,3 +1731,19 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     </div>
   );
 } 
+
+// Add this helper function near the top of the file (outside the component):
+function getRandomESGTip() {
+  const tips = [
+    '🌱 Did you know? Companies with strong ESG practices often outperform their peers in the long run.',
+    '💧 Water conservation is a key ESG metric. Every drop counts!',
+    '🌍 Reducing carbon emissions helps fight climate change and can lower costs.',
+    '📊 ESG data helps organizations make smarter, more sustainable decisions.',
+    '🤝 Diversity and inclusion drive innovation and better business outcomes.',
+    '🔒 Data security is an important part of good governance.',
+    '🌳 Planting trees is one of the simplest ways to offset carbon emissions.',
+    '⚡ Renewable energy adoption is rising globally—great for the planet and business!',
+    '🏢 Transparent ESG reporting builds trust with stakeholders.'
+  ];
+  return tips[Math.floor(Math.random() * tips.length)];
+}
