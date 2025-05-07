@@ -295,31 +295,49 @@ class Neo4jGraphInitializer:
             with self.driver.session() as session:
                 # create a subgraph root node with user_id property
                 session.run(f"MATCH (u:User {{user_id: $userId}}) CREATE (u)-[:HAS_SUBGRAPH]->(s:SubgraphRoot {{user_id: $userId}})", {"userId": userId})
+                # delete existing subgraph projection if it exists
+                session.run(f"CALL gds.graph.drop('subgraph_{userId}')")
+                # Ensure all required entity nodes exist before projection
+                entity_names = [e['entity_name'] for e in entities if 'entity_name' in e]
+                if entity_names:
+                    create_nodes_cypher = (
+                        "UNWIND $names AS name "
+                        "MERGE (n:Entity {entity_name: name})"
+                    )
+                    session.run(create_nodes_cypher, {"names": entity_names})
 
                 # Build Cypher queries for GDS projection using entity_name
-                entity_names = [e['entity_name'] for e in entities if 'entity_name' in e]
                 rel_tuples = [(r['source_entity_name'], r['target_entity_name']) for r in relationships if 'source_entity_name' in r and 'target_entity_name' in r]
 
-                # Format entity_names for Cypher (as a list of quoted strings)
-                cypher_entity_names = ', '.join([f'"{name}"' for name in entity_names])
+                # Nodes
+                cypher_entity_names = ', '.join([f"'{name}'" for name in entity_names])
                 cypher_entities = f"MATCH (n) WHERE n.entity_name IN [{cypher_entity_names}] RETURN id(n) AS id"
 
-                # Format relationships for Cypher
+                print("Cypher node query:", cypher_entities)
+                print("Entity names:", entity_names)
+
+                # Relationships
                 if rel_tuples:
-                    cypher_rel_pairs = ', '.join([f'("{src}", "{tgt}")' for src, tgt in rel_tuples])
+                    pair_conditions = [
+                        f"(n.entity_name = '{src}' AND m.entity_name = '{tgt}')"
+                        for src, tgt in rel_tuples
+                    ]
+                    where_clause = " OR ".join(pair_conditions)
                     cypher_relationships = (
-                        f"UNWIND [{cypher_rel_pairs}] AS pair "
-                        f"MATCH (n)-[r]->(m) WHERE n.entity_name = pair[0] AND m.entity_name = pair[1] "
+                        f"MATCH (n)-[r]->(m) WHERE {where_clause} "
                         f"RETURN id(n) AS source, id(m) AS target, type(r) AS type"
                     )
                 else:
                     cypher_relationships = "MATCH (n)-[r]->(m) WHERE false RETURN id(n) AS source, id(m) AS target, type(r) AS type"
 
-                # create a subgraph from the entities and relationships
-                session.run(
-                    "CALL gds.graph.project.cypher($graphName, $entities, $relationships) YIELD graphName, nodeCount, relationshipCount",
-                    {"graphName": f"subgraph_{userId}", "entities": cypher_entities, "relationships": cypher_relationships}
+                cypher = (
+                    f"CALL gds.graph.project.cypher("
+                    f"'subgraph_{userId}', "
+                    f'\"{cypher_entities}\", '
+                    f'\"{cypher_relationships}\"'
+                    f") YIELD graphName, nodeCount, relationshipCount"
                 )
+                session.run(cypher)
 
                 # After creating the projection
                 exists_result = session.run(
@@ -328,6 +346,12 @@ class Neo4jGraphInitializer:
                 )
                 exists = exists_result.single()["exists"] if exists_result else False
                 print(f"Projection 'subgraph_{userId}' exists: {exists}")
+
+                result = session.run(cypher_entities)
+                node_ids = [record["id"] for record in result]
+                if not node_ids:
+                    print("No nodes found for projection! Aborting.")
+                    return None
             print(f"Subgraph created for user {userId} using {len(entities)} entities and {len(relationships)} relationships through GDS")
             print(f"Subgraph Projection name: {f'subgraph_{userId}'}")
             return f"subgraph_{userId}"

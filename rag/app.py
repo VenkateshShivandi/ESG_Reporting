@@ -235,7 +235,7 @@ def create_graph():
         # 3. Run community detection and insights on the subgraph using the graph projection
         neo4j_initializer.runCommunityDetection(projection_name=subgraph_projection, algorithm="louvain", min_community_size=3)
         # 4. return the subgraph id
-        return flask.jsonify({"success": True, "message": "Graph created successfully", "subgraph_id": neo4j_initializer.getSubgraphId(user_id)}), 200
+        return flask.jsonify({"success": True, "message": "Graph created successfully", "subgraph_id": subgraph_projection}), 200
     else:
         # provide a message to the user that the user does not exist
         return flask.jsonify({"error": "User does not exist"}), 400
