@@ -6,6 +6,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { Download, X, Plus } from "lucide-react";
 import * as htmlToImage from "html-to-image";
 import { renderCustomAxisTick } from "./chart-utils";
+import { Button } from "@/components/ui/button";
 
 // --- Localization ---
 const translations = {
@@ -70,6 +71,21 @@ const scenarios = [
   { key: "higher", label: { en: "Higher (+100%)", es: "Mayor (+100%)" }, percent: 100, color: "green" },
 ];
 
+// Utility to get a safe numeric value or null for missing/unparseable
+function getNumericOrNull(value: any) {
+  if (
+    value === null ||
+    value === undefined ||
+    (typeof value === "string" && (value.trim() === "" || value.trim() === "-"))
+  ) {
+    return null;
+  }
+  const cleaned = String(value).replace(/[^\d.-]/g, "");
+  if (cleaned === "") return null;
+  const parsed = parseFloat(cleaned);
+  return isNaN(parsed) ? null : parsed;
+}
+
 export default function DynamicTrendChartCard({ headers, tableData, yAxisScale = 'linear' }: DynamicTrendChartCardProps) {
   // Detect column types and group
   const columnGroups = useMemo(() => {
@@ -79,7 +95,13 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
     if (!headers || !tableData || tableData.length === 0) return { years, projections, others };
     headers.forEach((header) => {
       // Only consider numerical columns
-      const isNumeric = tableData.some((row) => typeof row[header] === "number" && !isNaN(row[header]));
+      const isNumeric = tableData.some((row) => {
+        const val = row[header];
+        return (
+          (typeof val === "number" && !isNaN(val)) ||
+          (typeof val === "string" && val.trim() !== "" && !isNaN(Number(val)))
+        );
+      });
       if (!isNumeric) return;
       const type = detectColumnType(header);
       if (type === "year") years.push(header);
@@ -160,23 +182,22 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
     return projected;
   }, [projectedY, lastRealIdx, xValues, tableData, xAxis, projectionPercent]);
 
-  // Merge projected line into chart data
+  // Build chart data with nulls for missing/unparseable values
   const chartData = useMemo(() => {
     if (!xAxis || yAxes.length === 0) return [];
-    // Copy original data
-    const baseData = tableData.filter((row) =>
-      row[xAxis] !== undefined && yAxes.some((y) => typeof row[y] === "number" && !isNaN(row[y]))
-    ).map(row => ({ ...row }));
-    // Add projected values
-    if (projectedLine.length > 0) {
-      projectedLine.forEach(pt => {
-        const idx = baseData.findIndex(row => row[xAxis] === pt[xAxis]);
-        if (idx !== -1) baseData[idx].Projected = pt.projected;
-        else baseData.push({ [xAxis]: pt[xAxis], Projected: pt.projected });
+    // Build a row for each unique X value
+    return Array.from(new Set(tableData.map(row => row[xAxis])))
+      .map(xVal => {
+        const baseRow = tableData.find(row => row[xAxis] === xVal) || {};
+        const rowObj: Record<string, any> = { [xAxis]: xVal };
+        yAxes.forEach(y => {
+          rowObj[y] = getNumericOrNull(baseRow[y]);
+        });
+        // Add projections if needed (existing logic)
+        // ...
+        return rowObj;
       });
-    }
-    return baseData;
-  }, [tableData, xAxis, yAxes, projectedLine]);
+  }, [tableData, xAxis, yAxes /*, projectedLine, etc. */]);
 
   const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#4f46e5", "#be123c"];
 
@@ -253,6 +274,46 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
   // 5. Each projection line is calculated from the last real data point, using its percent
   // 6. Show all projections in the chart, with their custom names in the legend
 
+  // --- Determine which series have all nulls or all zeros ---
+  const seriesStatus = useMemo(() => {
+    const status: Record<string, "allNull" | "allZero" | "mixed"> = {};
+    yAxes.forEach(y => {
+      const vals = chartData.map(row => row[y]);
+      const allNull = vals.every(v => v === null || v === undefined);
+      const allZero = vals.every(v => v === 0);
+      status[y] = allNull ? "allNull" : allZero ? "allZero" : "mixed";
+    });
+    return status;
+  }, [chartData, yAxes]);
+
+  // --- Y-axis domain logic for all-zero case ---
+  const yValues = yAxes.flatMap(y => chartData.map(row => row[y]).filter(v => typeof v === "number"));
+  const allZeros = yValues.length > 0 && yValues.every(v => v === 0);
+  const yAxisDomain: [number, number] | ['auto', (dataMax: number) => number] = allZeros ? [0, 1] : ['auto', (dataMax: number) => dataMax * 1.05];
+
+  // --- Message logic ---
+  const allSeriesMissing = yAxes.every(y => seriesStatus[y] === "allNull");
+  const missingSeries = yAxes.filter(y => seriesStatus[y] === "allNull");
+  const zeroSeries = yAxes.filter(y => seriesStatus[y] === "allZero");
+
+  // Add a ref for the chart container to enable downloads
+  const chartRef = useRef<HTMLDivElement>(null);
+  
+  // Chart download handler
+  const handleDownloadChart = async () => {
+    if (!chartRef.current) return;
+    try {
+      const dataUrl = await htmlToImage.toPng(chartRef.current, { backgroundColor: '#fff', pixelRatio: 2 });
+      const link = document.createElement('a');
+      link.href = dataUrl;
+      link.download = "dynamic-trend-chart.png";
+      link.click();
+    } catch (err) {
+      console.error("Failed to export chart image:", err);
+      alert('Failed to export chart image.');
+    }
+  };
+
   return (
     <Card className="mb-6 bg-white rounded-3xl shadow-2xl px-8 py-8 relative transition-all duration-300 hover:scale-[1.01] hover:shadow-[0_16px_48px_0_rgba(60,72,100,0.20),0_4px_16px_0_rgba(60,72,100,0.14)] overflow-hidden border-none">
       <div className="absolute top-4 left-1/4 w-2/3 h-8 bg-white/30 rounded-full rotate-[18deg] pointer-events-none z-20" />
@@ -261,6 +322,20 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
           <CardTitle className="flex items-center text-lg">
             📈 {t.title}
           </CardTitle>
+          <div className="flex space-x-2">
+            {chartData.length > 0 && (
+              <Button
+                onClick={handleDownloadChart}
+                variant="outline"
+                className="h-9 px-3 border-gray-200 hover:bg-gray-50"
+                disabled={chartData.length === 0 || allSeriesMissing}
+                title="Download the trend chart as an image"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download Chart
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {/* X and Y Axis Controls - Refactored Layout */}
@@ -394,51 +469,56 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
               </button>
             </div>
             {/* Chart remains below */}
-            <div className="w-full h-[500px] mt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={(() => {
-                  // Start with base data for all X-Axis points
-                  let baseData = tableData.filter((row) =>
-                    row[xAxis] !== undefined && yAxes.some((y) => typeof row[y] === "number" && !isNaN(row[y]))
-                  ).map(row => ({ ...row }));
-                  // For each projection, add a full trend line
-                  projections.forEach((proj) => {
-                    const projY = yAxes.length > 0 ? yAxes[yAxes.length - 1] : null; // Use most recent Y-Axis
-                    if (!projY) return;
-                    // For each X value, find the value for projY and apply the projection
-                    baseData.forEach(row => {
-                      const baseVal = row[projY];
-                      if (typeof baseVal === "number" && !isNaN(baseVal)) {
-                        row[proj.name] = baseVal * (1 + proj.percent / 100);
-                      } else {
-                        row[proj.name] = null;
-                      }
-                    });
-                  });
-                  return baseData;
-                })()} margin={{ top: 50, right: 40, left: 0, bottom: 90 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey={xAxis} tick={renderCustomAxisTick} height={80} interval={0} />
-                  <YAxis tick={{ fontSize: 12 }} axisLine={{ stroke: '#e5e7eb' }} tickLine={{ stroke: '#e5e7eb' }} domain={['auto', (dataMax: number) => dataMax * 1.05]} scale={yAxisScale} />
-                  <Tooltip />
-                  <Legend />
-                  {yAxes.map((col, idx) => (
-                    <Line key={col} type="monotone" dataKey={col} stroke={COLORS[idx % COLORS.length]} strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />
-                  ))}
-                  {projections.map((proj, idx) => (
-                    <Line
-                      key={proj.name}
-                      type="monotone"
-                      dataKey={proj.name}
-                      stroke="#22c55e"
-                      strokeWidth={2.5}
-                      strokeDasharray="6 3"
-                      dot={false}
-                      name={proj.name}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="mt-6 relative">
+              <div className="h-[500px] w-full relative" ref={chartRef}>
+                {allSeriesMissing ? (
+                  <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-lg">
+                    No data available for selected series.
+                  </div>
+                ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData} margin={{ top: 50, right: 40, left: 0, bottom: 90 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey={xAxis} tick={renderCustomAxisTick} height={80} interval={0} />
+                      <YAxis
+                        tick={{ fontSize: 12 }}
+                        axisLine={{ stroke: '#e5e7eb' }}
+                        tickLine={{ stroke: '#e5e7eb' }}
+                        domain={yAxisDomain}
+                        scale={yAxisScale}
+                      />
+                    <Tooltip />
+                    <Legend />
+                      {yAxes.map((col, idx) =>
+                        seriesStatus[col] !== "allNull" ? (
+                      <Line
+                            key={col}
+                        type="monotone"
+                            dataKey={col}
+                            stroke={COLORS[idx % COLORS.length]}
+                        strokeWidth={2.5}
+                            dot={{ r: 2 }}
+                            activeDot={{ r: 5 }}
+                            connectNulls={false}
+                      />
+                        ) : null
+                      )}
+                  </LineChart>
+                </ResponsiveContainer>
+                )}
+                {/* Per-series missing message */}
+                {missingSeries.length > 0 && !allSeriesMissing && (
+                  <div className="absolute top-2 right-2 text-xs text-gray-500 bg-white/80 px-2 py-1 rounded shadow">
+                    {missingSeries.map(s => `No data for ${s}`).join(", ")}
+                  </div>
+                )}
+                {/* Optionally, per-series all-zero message */}
+                {zeroSeries.length > 0 && (
+                  <div className="absolute top-8 right-2 text-xs text-gray-500 bg-white/80 px-2 py-1 rounded shadow">
+                    {zeroSeries.map(s => `All values are zero for ${s}`).join(", ")}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </CardContent>

@@ -1093,7 +1093,9 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
   // Handle file selection (remains the same, but clears apiResponse)
   const handleFileChange = (value: string) => {
     console.log('File selected from dropdown:', value);
-    const selectedFileObject = availableFiles.excel.find(file => file.name === value);
+    // FIX: Use the correct file list based on selectedFileType
+    const fileList = selectedFileType === 'csv' ? availableFiles.csv : availableFiles.excel;
+    const selectedFileObject = fileList.find(file => file.name === value);
     const fileIndex = selectedFileObject?.index ?? 0;
     setSelectedFile(value);
     setSelectedFileIndex(fileIndex);

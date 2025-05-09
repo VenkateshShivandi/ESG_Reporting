@@ -771,14 +771,18 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
                             <Pie
                               data={pieChartData}
                               cx="50%"
-                              cy="50%"
+                              cy="45%"
                               labelLine={false}
                               outerRadius={100}
                               innerRadius={50}
                               fill="#8884d8"
                               dataKey="value"
                               nameKey="name"
-                              label={({ value }) => `${(value as number).toFixed(1)}%`}
+                              label={({ value }) => {
+                                // Only show label if value is >= 5%
+                                if (value < 5) return null;
+                                return `${(value as number).toFixed(1)}%`;
+                              }}
                             >
                               {pieChartData.map((entry, index) => (
                                 <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
@@ -791,7 +795,27 @@ export default function EnhancedDataPreview({ parsedData, handleDownload, catego
                               ]}
                               labelFormatter={(label) => label}
                             />
-                            <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', marginTop: '15px' }} />
+                            <Legend 
+                              layout="horizontal" 
+                              verticalAlign="bottom" 
+                              align="center"
+                              wrapperStyle={{ 
+                                fontSize: '10px', 
+                                paddingTop: '20px',
+                                width: '100%',
+                                overflowWrap: 'break-word',
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                justifyContent: 'center'
+                              }}
+                              formatter={(value, entry, index) => {
+                                // Truncate long names to prevent overflow
+                                if (typeof value === 'string' && value.length > 20) {
+                                  return `${value.substring(0, 18)}...`;
+                                }
+                                return value;
+                              }}
+                            />
                           </PieChart>
                         </ResponsiveContainer>
                       </div>

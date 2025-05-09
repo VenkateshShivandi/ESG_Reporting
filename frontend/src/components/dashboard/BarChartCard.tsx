@@ -73,20 +73,24 @@ const renderCustomXAxisTick = (props: any) => {
 
 export function BarChartCard({ title, tableData, categoryField, valueField, available, yAxisScale }: BarChartCardProps) {
   const chartData = buildChartData(tableData, categoryField, valueField);
-  const hasZeroOrNegative = chartData.some(d => d.value <= 0);
-  const hasValidChartData = chartData.length > 0 && chartData.some(d => d.value !== undefined && d.name !== undefined);
+  
+  const isEmpty = chartData.length === 0;
+  const allValuesAreZero = !isEmpty && chartData.every(d => d.value === 0);
 
   // Dynamic Y-axis domain logic
-  const values = chartData.map(d => d.value);
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const range = maxValue - minValue;
-  // If range is less than 0.5% of max, zoom in
   let yDomain: number[] | (string | ((dataMax: number) => number))[] = ['auto', (dataMax: number) => dataMax * 1.05];
-  if (maxValue > 0 && range / maxValue < 0.005) {
-    // Use number[] only
-    const pad = Math.max(range * 0.1, 1); // Ensure at least 1 unit of padding
-    yDomain = [minValue - pad, maxValue + pad];
+  if (!isEmpty && allValuesAreZero) {
+    yDomain = [0, 1]; // Ensure visibility if all values are 0
+  } else if (!isEmpty) {
+    const values = chartData.map(d => d.value);
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    const range = maxValue - minValue;
+    // Existing zoom logic
+    if (maxValue > 0 && range / maxValue < 0.005 && !(minValue === 0 && maxValue === 0) ) {
+      const pad = Math.max(range * 0.1, 1); 
+      yDomain = [minValue - pad, maxValue + pad];
+    }
   }
 
   return (
@@ -106,55 +110,65 @@ export function BarChartCard({ title, tableData, categoryField, valueField, avai
           </div>
         </CardHeader>
         <CardContent>
-          <div className="h-[500px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={chartData}
-                margin={{ top: 50, right: 30, left: 20, bottom: 90 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="name" 
-                  height={80}
-                  tick={renderCustomAxisTick}
-                  label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 20, fontSize: 12 }}
-                  interval={0}
-                />
-                <YAxis 
-                  tick={{ fontSize: 11 }} 
-                  label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
-                  domain={yDomain as any}
-                  allowDataOverflow={true}
-                  tickFormatter={(value) => formatNumber(value)}
-                  scale={yAxisScale}
-                />
-                <Tooltip 
-                  formatter={(value, name, props) => [
-                      `${formatNumber(value as number)}`,
-                      valueField || 'Value'
-                  ]}
-                  labelFormatter={(label) => label}
-                  contentStyle={{ 
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                    borderRadius: '8px',
-                    padding: '10px',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
-                    border: '1px solid #f0f0f0'
-                  }}
-                />
-                <Legend 
-                  verticalAlign="top"
-                  wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
-                />
-                <Bar 
-                  dataKey="value" 
-                  name={valueField || "Value"}
-                  fill={CHART_COLORS[0]} 
-                  radius={[4, 4, 0, 0]} 
-                  maxBarSize={60}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="h-[500px] w-full relative"> {/* Added relative positioning for messages */}
+            {isEmpty ? (
+              <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-lg">
+                No data to display. Select valid category and value fields.
+              </div>
+            ) : allValuesAreZero ? (
+              <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-lg">
+                All values are zero.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 50, right: 30, left: 20, bottom: 90 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="name" 
+                    height={80}
+                    tick={renderCustomAxisTick}
+                    label={{ value: categoryField || 'Category', position: 'insideBottom', dy: 20, fontSize: 12 }}
+                    interval={0}
+                  />
+                  <YAxis 
+                    tick={{ fontSize: 11 }} 
+                    label={{ value: valueField || 'Value', angle: -90, position: 'insideLeft', dx: -5, fontSize: 12 }}
+                    domain={yDomain as any}
+                    allowDataOverflow={true}
+                    tickFormatter={(value) => formatNumber(value)}
+                    scale={yAxisScale}
+                  />
+                  <Tooltip 
+                    formatter={(value, name, props) => [
+                        `${formatNumber(value as number)}`,
+                        valueField || 'Value'
+                    ]}
+                    labelFormatter={(label) => label}
+                    contentStyle={{ 
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                      borderRadius: '8px',
+                      padding: '10px',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                      border: '1px solid #f0f0f0'
+                    }}
+                  />
+                  <Legend 
+                    verticalAlign="top"
+                    wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }} 
+                  />
+                  <Bar 
+                    dataKey="value" 
+                    name={valueField || "Value"}
+                    fill={CHART_COLORS[0]} 
+                    radius={[4, 4, 0, 0]} 
+                    maxBarSize={60}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </div>

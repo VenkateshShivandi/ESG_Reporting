@@ -352,7 +352,7 @@ def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None 
 
                     # 3. Filter and Refine Blocks within the sheet
                     logger.debug(f"Sheet '{sheet_name}': Step 3: Filtering and refining blocks...")
-                    validated_blocks = _filter_and_refine_blocks(initial_blocks)
+                    validated_blocks = _filter_and_refine_blocks(df_raw, initial_blocks)
                     if not validated_blocks:
                         logger.warning(f"Sheet '{sheet_name}': No blocks remained after filtering.")
                         sheet_result["message"] = "No valid data tables found after filtering noise."
@@ -373,24 +373,174 @@ def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None 
                             logger.info(f"Sheet '{sheet_name}': --- Processing Table Block {table_id} (Label: {block['label']}, Range: {excel_range}) ---")
 
                             block_data = block['data']
+                            # --- Always log first col sample BEFORE trim ---
+                            if not block_data.empty and block_data.shape[1] > 0:
+                                logger.info(f"[HEADER DIAG] Block {table_id} (Label: {block['label']}): First col sample BEFORE trim: {block_data.iloc[:5, 0].tolist()}")
+                            else:
+                                logger.info(f"[HEADER DIAG] Block {table_id} (Label: {block['label']}): block_data empty or has no columns BEFORE trim check.")
+                            # --- Temporary Log for Issue 1 --- END
+                            # --- Trim leading blank columns from block_data and adjust slice --- START ---
+                            if block_data.empty:
+                                logger.warning(f"Block {table_id} (Label: {block['label']}): Initial block_data is empty. Skipping. Range: {excel_range}")
+                                continue
+
+                            original_cols_count = block_data.shape[1]
+                            first_non_blank_col_index = 0
+                            
+                            if original_cols_count > 0:
+                                for j in range(original_cols_count):
+                                    if not block_data.iloc[:, j].isna().all():
+                                        first_non_blank_col_index = j
+                                        break
+                                else: # Belongs to for-loop: all columns were blank
+                                    logger.warning(
+                                        f"Block {table_id} (Label: {block['label']}): All {original_cols_count} columns are blank. Skipping. Range: {excel_range}"
+                                    )
+                                    continue
+                            else: # No columns to begin with
+                                logger.warning(f"Block {table_id} (Label: {block['label']}): No columns in block_data. Skipping. Range: {excel_range}")
+                                continue
+
+                            if first_non_blank_col_index > 0:
+                                logger.debug(
+                                    f"Block {table_id} (Label: {block['label']}): Trimming {first_non_blank_col_index} leading blank column(s). "
+                                    f"Original shape: ({block_data.shape[0]}, {original_cols_count}). Original Range: {excel_range}"
+                                )
+                                block_data = block_data.iloc[:, first_non_blank_col_index:]
+                                block['data'] = block_data # Update block's data reference
+
+                                # Adjust the slice object for accurate range reporting
+                                current_row_slice, current_col_slice = block['slice']
+                                new_absolute_col_start = current_col_slice.start + first_non_blank_col_index
+                                new_col_slice = slice(new_absolute_col_start, current_col_slice.stop, current_col_slice.step)
+                                block['slice'] = (current_row_slice, new_col_slice)
+                                
+                                # Update excel_range for subsequent logging IF it's used before being recalculated or block ends
+                                excel_range = _slice_to_excel_range(block['slice']) 
+                                logger.debug(
+                                    f"Block {table_id} (Label: {block['label']}): Trimmed shape: {block_data.shape}. "
+                                    f"New Excel Range: {excel_range}"
+                                )
+                            # --- Trim leading blank columns from block_data and adjust slice --- END ---
+                            
+                            # Ensure block_data is not empty after trimming before proceeding
+                            if block_data.empty or block_data.shape[1] == 0:
+                                logger.warning(f"Block {table_id} (Label: {block['label']}): block_data became empty or has no columns after trimming. Skipping. New Range: {excel_range}")
+                                continue
+
                             header_idx = block['header_idx']
                             logger.debug(f"Block {table_id}: Header Index Relative to Block = {header_idx}")
 
-                            # 4a. Construct Final DataFrame
-                            logger.debug(f"Block {table_id}: Constructing table DataFrame...")
-                            if header_idx >= len(block_data):
-                                raise ValueError(f"Header index {header_idx} is out of bounds for block data with length {len(block_data)}")
+                            # --- Step 2 & 3: Composite Header Merging Logic ---
+                            primary_header_row_series = block_data.iloc[header_idx]
+                            row_above_primary_series = None
+                            # --- FIX: Use absolute index based on df_raw to find the row above ---
+                            absolute_primary_row_idx = block['slice'][0].start + header_idx
+                            logger.debug(f"Block {table_id}: Absolute primary header index in df_raw = {absolute_primary_row_idx}")
 
-                            header_row = block_data.iloc[header_idx]
-                            data_values = block_data.values[header_idx+1:]
-                            if data_values.size == 0:
-                                table_df = pd.DataFrame(columns=header_row)
-                            elif data_values.ndim == 1:
-                                table_df = pd.DataFrame(data_values.reshape(1, -1), columns=header_row)
+                            if absolute_primary_row_idx > 0:
+                                try:
+                                    # Access the row directly above using the absolute index in the original df_raw
+                                    row_above_primary_series = df_raw.iloc[absolute_primary_row_idx - 1]
+                                    logger.debug(f"Block {table_id}: Successfully retrieved row above from df_raw at index {absolute_primary_row_idx - 1}")
+                                except IndexError:
+                                    logger.warning(
+                                        f"Block {table_id}: Attempted to access row above at absolute index {absolute_primary_row_idx - 1} "
+                                        f"in df_raw, but it was out of bounds (df_raw length: {len(df_raw)})."
+                                    )
+                                    row_above_primary_series = None # Ensure it's None if lookup fails
                             else:
-                                table_df = pd.DataFrame(data_values, columns=header_row)
+                                logger.debug(f"Block {table_id}: Primary header is the first row (absolute index {absolute_primary_row_idx}), no row above exists.")
+                            # --- END FIX ---
 
-                            table_df = table_df.reset_index(drop=True)
+                            final_composite_header_list = []
+                            for j in range(len(primary_header_row_series)):
+                                val_primary = primary_header_row_series.iloc[j]
+                                val_above = None
+
+                                absolute_col_idx_for_current_block_col = -1 # Default for logging if not set
+                                if row_above_primary_series is not None:
+                                    absolute_col_idx_for_current_block_col = block['slice'][1].start + j
+                                    if 0 <= absolute_col_idx_for_current_block_col < len(row_above_primary_series):
+                                        val_above = row_above_primary_series.iloc[absolute_col_idx_for_current_block_col]
+                                    else:
+                                        # This case should be logged by existing debug if it happens
+                                        pass # val_above remains None
+
+                                is_primary_blank = pd.isna(val_primary) or (isinstance(val_primary, str) and not val_primary.strip())
+                                is_above_blank = pd.isna(val_above) or (isinstance(val_above, str) and not val_above.strip())
+
+                                current_header_val = None
+                                if not is_primary_blank:
+                                    current_header_val = val_primary
+                                elif not is_above_blank:
+                                    current_header_val = val_above
+                                else:
+                                    current_header_val = None
+
+                                # --- Conditional Detailed Logging for j=2 on specific table_id --- START
+                                if table_id == '8' and j == 2: # Corresponds to "Consumo de agua", third header element
+                                    logger.info(f"[J=2 DIAG] table_id={table_id}, j={j}")
+                                    logger.info(f"[J=2 DIAG] block_slice_col_start={block['slice'][1].start}")
+                                    logger.info(f"[J=2 DIAG] absolute_col_idx_for_above={absolute_col_idx_for_current_block_col}")
+                                    logger.info(f"[J=2 DIAG] val_primary='{val_primary}' (type: {type(val_primary)})")
+                                    logger.info(f"[J=2 DIAG] val_above_fetched='{val_above}' (type: {type(val_above)})")
+                                    logger.info(f"[J=2 DIAG] is_primary_blank={is_primary_blank}")
+                                    logger.info(f"[J=2 DIAG] is_above_blank={is_above_blank}")
+                                    logger.info(f"[J=2 DIAG] CHOSEN current_header_val='{current_header_val}'")
+                                # --- Conditional Detailed Logging for j=2 --- END
+
+                                final_composite_header_list.append(current_header_val)
+
+                            logger.debug(f"Block {table_id}: Primary header candidate (len {len(primary_header_row_series)}): {primary_header_row_series.tolist()}")
+                            if row_above_primary_series is not None:
+                                logger.debug(f"Block {table_id}: Row above primary (len {len(row_above_primary_series)}): {row_above_primary_series.tolist()}")
+                            logger.debug(f"Block {table_id}: Final composite header (len {len(final_composite_header_list)}): {final_composite_header_list}")
+                            # --- Always log composite header diagnostics ---
+                            logger.info(f"[HEADER DIAG] Block {table_id} (Label: {block['label']}): >> Primary Header Used: {primary_header_row_series.tolist()}")
+                            if row_above_primary_series is not None:
+                                logger.info(f"[HEADER DIAG] Block {table_id} (Label: {block['label']}): >> Row Above Used: {row_above_primary_series.tolist()}")
+                            else:
+                                logger.info(f"[HEADER DIAG] Block {table_id} (Label: {block['label']}): >> Row Above Used: None")
+                            logger.info(f"[HEADER DIAG] Block {table_id} (Label: {block['label']}): >> Final Composite Header Result: {final_composite_header_list}")
+                            # --- Temporary Log for Issue 2 --- END
+                            # --- End Composite Header Merging ---
+
+                            # 4a. Construct Final DataFrame (Modified for composite header)
+                            logger.debug(f"Block {table_id}: Constructing table DataFrame with composite header...")
+                            # Original logic used: header_row = block_data.iloc[header_idx]
+
+                            data_start_idx = header_idx + 1
+                            if data_start_idx >= len(block_data): # No data rows below the header
+                                data_values = np.array([]) # Ensure data_values is an empty array
+                            else:
+                                data_values = block_data.values[data_start_idx:]
+                            
+                            # Check if the number of columns in composite header matches data structure
+                            # This check is crucial if block_data itself has varying column numbers in its raw form
+                            # For now, assume block_data (slice from df_raw) has consistent columns before this point.
+                            # If final_composite_header_list is shorter than expected data columns, pandas will error or truncate.
+                            # If longer, new NaN columns will be added to data.
+
+                            if data_values.size == 0:
+                                table_df = pd.DataFrame(columns=final_composite_header_list)
+                            elif data_values.ndim == 1:
+                                if len(final_composite_header_list) == len(data_values):
+                                    table_df = pd.DataFrame([data_values], columns=final_composite_header_list)
+                                else:
+                                    logger.warning(
+                                        f"Block {table_id}: Header length ({len(final_composite_header_list)}) "
+                                        f"mismatches single data row length ({len(data_values)}). Creating empty DF with composite header."
+                                    )
+                                    table_df = pd.DataFrame(columns=final_composite_header_list)
+                            else:  # ndim is 2 or more (multiple data rows)
+                                if data_values.shape[1] != len(final_composite_header_list):
+                                    logger.warning(
+                                        f"Block {table_id}: Number of data columns ({data_values.shape[1]}) "
+                                        f"mismatches composite header length ({len(final_composite_header_list)}). "
+                                        f"Attempting to align or will result in error/truncation by pandas."
+                                    )
+                                table_df = pd.DataFrame(data_values, columns=final_composite_header_list)
 
                             # Check emptiness *after* DataFrame creation
                             if table_df.empty and header_idx == len(block_data) - 1:
@@ -565,7 +715,8 @@ def _load_raw_sheet_data(fp: str | io.BytesIO, file_type: str, sheet_name: str, 
             sheet_name=sheet_name, 
                 header=None, 
                 keep_default_na=False, 
-            na_values=[''] # Tre    at only empty strings as NA initially
+            na_values=[''], # Tre    at only empty strings as NA initially
+            dtype=object # <<< Ensure all data read as object initially
             )
         elif file_type == 'csv':
             if isinstance(fp, io.BytesIO): fp.seek(0)
@@ -680,21 +831,15 @@ def _read_csv(fp, encoding='utf-8', **kwargs) -> pd.DataFrame:
             # Assumes first line might be header, check second line if possible
             check_line_index = 1 if len(lines_for_check) > 1 else 0
             if check_line_index < len(lines_for_check):
-                expected_cols = lines_for_check[check_line_index].count(delimiter) + 1
-                actual_cols = df.shape[1]
-                logger.debug(f"Consistency Check: Expected cols (line {check_line_index+1}) = {expected_cols}, Actual cols (pandas) = {actual_cols}")
-                # Allow some flexibility if pandas inferred fewer columns than header might suggest
-                # But raise error if pandas found MORE columns than expected, or if data lines are inconsistent
-                if actual_cols != expected_cols:
-                     # Double check against another line if available
-                     if len(lines_for_check) > 2 and check_line_index + 1 < len(lines_for_check):
-                         next_expected_cols = lines_for_check[check_line_index + 1].count(delimiter) + 1
-                         if next_expected_cols != expected_cols:
-                             logger.error(f"Detected inconsistent column count between data lines ({expected_cols} vs {next_expected_cols})")
-                             raise pd.errors.ParserError("Inconsistent number of columns found in CSV data lines.")
-                     # If lines are consistent but pandas differs, raise error
-                     logger.error(f"Pandas column count ({actual_cols}) differs from expected count ({expected_cols}) based on delimiter.")
-                     raise pd.errors.ParserError("Inconsistent column count between header/data and parsed result.")
+                # The explicit column consistency check that naively counted commas on raw lines
+                # has been removed. This check was problematic for valid CSVs where field values
+                # themselves contained the delimiter character (e.g., within quotes).
+                # We now rely primarily on pandas.read_csv (with on_bad_lines='error')
+                # to validate the CSV structure and ensure a consistent number of columns.
+                # If pandas.read_csv succeeds, we assume the column structure is valid.
+                pass
+                # original_actual_cols = df.shape[1] # Example: if we needed to log pandas' interpretation
+                # logger.debug(f"Pandas successfully parsed CSV with {original_actual_cols} columns.")
 
         logger.info(f"Successfully read CSV, shape: {df.shape}")
         return df
@@ -806,12 +951,13 @@ def _find_data_blocks(df_raw: pd.DataFrame) -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 # BLOCK FILTERING & REFINEMENT (NEW)
 # ─────────────────────────────────────────────────────────────────────────────
-def _filter_and_refine_blocks(blocks: list[dict]) -> list[dict]:
+def _filter_and_refine_blocks(df_raw: pd.DataFrame, blocks: list[dict]) -> list[dict]:
     """
     Filters raw blocks based on size, density, and header quality.
     Adds the detected header index to valid blocks.
 
     Args:
+        df_raw: The original raw DataFrame for the entire sheet.
         blocks: List of block dictionaries from _find_data_blocks.
 
     Returns:
@@ -922,6 +1068,7 @@ def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
     # Regex for typical header patterns (allows single words, CamelCase, snake_case, UPPER_CASE, avoids pure numbers/long text)
     header_pattern = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*|[A-Z][A-Z0-9_]*)$') 
     short_len_threshold = 25 # Allow slightly longer headers
+    COMMON_PLACEHOLDERS = {"n/a", "nan", "-", "--", "tbd", "pendiente", "no aplica", "na"} # Added "na"
     # --- END ADDED BACK ---
 
     # --- Reset index for relative iteration ---
@@ -943,13 +1090,25 @@ def _find_real_header_index(df_head: pd.DataFrame, max_rows_to_check=20) -> int:
         components = {
             "non_null": 0.0, "string": 0.0, "numeric_penalty": 0.0, 
             "transition": 0.0, "summary_penalty": 0.0, 
-            "positional": 0.0, "keyword": 0.0, "pattern": 0.0
+            "positional": 0.0, "keyword": 0.0, "pattern": 0.0,
+            "placeholder_penalty": 0.0 # New component
         }
         num_cells = len(row)
         non_null_count = row.notna().sum()
         string_count = sum(isinstance(x, str) for x in row if pd.notna(x))
         numeric_count = sum(isinstance(x, (int, float, np.number)) for x in row if pd.notna(x))
         
+        placeholder_count = 0
+        if non_null_count > 0: # Only count if there are non-nulls
+            for cell_value in row.dropna(): # Iterate only over non-NA values
+                try:
+                    if str(cell_value).strip().lower() in COMMON_PLACEHOLDERS:
+                        placeholder_count += 1
+                except Exception: # Broad exception to catch any conversion errors
+                    pass # Just skip if a cell can't be converted/checked
+            
+            components["placeholder_penalty"] = -(placeholder_count / non_null_count) * 2.5 # Penalty factor 2.5
+
         # Avoid division by zero
         if non_null_count == 0: 
             row_scores[idx] = -50 # Penalize rows with no non-null content slightly less than fully empty

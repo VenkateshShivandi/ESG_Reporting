@@ -74,35 +74,64 @@ export function PieChartCard({ title, tableData, categoryField, valueField, avai
           </div>
         </CardHeader>
         <CardContent>
-          <div className="h-[400px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart margin={{ top: 20, right: 40, bottom: 60, left: 40 }}>
-                <Pie
-                  data={pieChartData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  outerRadius={100}
-                  innerRadius={50}
-                  fill="#8884d8"
-                  dataKey="value"
-                  nameKey="name"
-                  label={({ value }) => `${(value as number).toFixed(1)}%`}
-                >
-                  {pieChartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value, name, props) => [
-                    `${formatNumber(props.payload?.absoluteValue)} (${(value as number).toFixed(1)}%)`,
-                    valueField || 'Value'
-                  ]}
-                  labelFormatter={(label) => label}
-                />
-                <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: '11px', marginTop: '15px' }} />
-              </PieChart>
-            </ResponsiveContainer>
+          <div className="h-[400px] w-full relative">
+            {pieChartData.length === 0 ? (
+              <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-lg">
+                No data to display. All values are zero or missing for the selected field(s).
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart margin={{ top: 20, right: 20, bottom: 70, left: 20 }}>
+                  <Pie
+                    data={pieChartData}
+                    cx="50%"
+                    cy="45%"
+                    labelLine={false}
+                    outerRadius={85}
+                    innerRadius={45}
+                    fill="#8884d8"
+                    dataKey="value"
+                    nameKey="name"
+                    label={({ value }) => {
+                      if (value < 3) return null;
+                      return `${(value as number).toFixed(1)}%`;
+                    }}
+                  >
+                    {pieChartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value, name, props) => [
+                      `${formatNumber(props.payload?.absoluteValue)} (${(value as number).toFixed(1)}%)`,
+                      valueField || 'Value'
+                    ]}
+                    labelFormatter={(label) => label}
+                  />
+                  <Legend 
+                    layout="horizontal" 
+                    verticalAlign="bottom"
+                    align="center"
+                    wrapperStyle={{ 
+                      fontSize: '10px', 
+                      paddingTop: '20px',
+                      width: '100%',
+                      overflowWrap: 'break-word',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      justifyContent: 'center'
+                    }}
+                    formatter={(value, entry, index) => {
+                      // Truncate long names to prevent overflow
+                      if (typeof value === 'string' && value.length > 20) {
+                        return `${value.substring(0, 18)}...`;
+                      }
+                      return value;
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </div>
