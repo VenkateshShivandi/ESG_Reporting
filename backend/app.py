@@ -180,12 +180,52 @@ def list_tree():
         path = request.args.get("path", "")
         app.logger.info(f"📞 API Call - list_tree: Requested path={path}")
 
-        # Get file list from Supabase
-        response = supabase.storage.from_("documents").list(path=path)
+        # Get file list from Supabase storage
+        storage_response = supabase.storage.from_("documents").list(path=path)
+
+        # Create a mapping of file paths to their document records
+        doc_map = {}
+        try:
+            # Get documents data from esg_data.documents table
+            db_result = (
+                supabase.postgrest.schema("esg_data")
+                .table("documents")
+                .select("*")
+                .execute()
+            )
+
+            app.logger.info(f"Retrieved {len(db_result.data)} documents from database")
+
+            if db_result.data:
+                for doc in db_result.data:
+                    file_path = doc.get("file_path", "")
+                    # Convert file_path string to array and handle empty path
+                    path_array = file_path.split("/") if file_path else []
+                    # Remove the filename from path_array as it will be the name field
+                    file_name = (
+                        path_array.pop() if path_array else doc.get("file_name", "")
+                    )
+
+                    # Store both the document and its processed path information
+                    doc_map[file_name] = {
+                        "doc": doc,
+                        "path_array": path_array,
+                        "file_name": file_name,
+                    }
+
+                    # Log the chunked status for debugging
+                    app.logger.debug(
+                        f"Document {file_name} chunked status: {doc.get('chunked', False)}"
+                    )
+        except Exception as db_error:
+            app.logger.warning(f"⚠️ Could not fetch document metadata: {str(db_error)}")
+            # Continue without document metadata
 
         # Process the returned data
         files = []
-        for item in response:
+        current_path_array = path.split("/") if path else []
+
+        for item in storage_response:
             # Skip the .folder placeholder files
             if item["name"] == ".folder":
                 continue
@@ -199,40 +239,48 @@ def list_tree():
                         "type": "folder",
                         "size": 0,
                         "modified": item.get("last_accessed_at"),
-                        "path": path.split("/") if path else [],
-                        "metadata": {
-                            "mimetype": "folder",
-                            "lastModified": None,
-                            "contentLength": 0,
-                        },
+                        "path": current_path_array,
                         "created_at": item.get("created_at"),
                         "updated_at": item.get("updated_at"),
+                        "chunked": False,  # Folders are never chunked
                     }
                 )
             else:
-                # File
-                metadata = item.get("metadata", {}) or {}
-                files.append(
-                    {
-                        "id": item["id"],
-                        "name": item["name"],
-                        "type": "file",
-                        "size": metadata.get("size", 0),
-                        "modified": item.get("last_accessed_at"),
-                        "path": path.split("/") if path else [],
-                        "metadata": {
-                            "mimetype": metadata.get(
-                                "mimetype", "application/octet-stream"
-                            ),
-                            "lastModified": metadata.get("lastModified"),
-                            "contentLength": metadata.get("contentLength"),
-                        },
-                        "created_at": item.get("created_at"),
-                        "updated_at": item.get("updated_at"),
-                    }
-                )
+                # File - check if we have a corresponding document record
+                doc_info = doc_map.get(item["name"], {})
+                doc_record = doc_info.get("doc", {})
+                doc_path_array = doc_info.get("path_array", [])
 
-        app.logger.info(f"📤 Returning response: {files}")
+                # Only include files that are in the current directory
+                if not doc_path_array or doc_path_array == current_path_array:
+                    metadata = item.get("metadata", {}) or {}
+
+                    # Explicitly check for chunked status and log it
+                    chunked_status = False
+                    if doc_record and "chunked" in doc_record:
+                        chunked_status = bool(doc_record.get("chunked"))
+
+                    files.append(
+                        {
+                            "id": doc_record.get("id", item["id"]),
+                            "name": item["name"],
+                            "type": doc_record.get("file_type", "file"),
+                            "size": doc_record.get(
+                                "file_size", metadata.get("size", 0)
+                            ),
+                            "modified": doc_record.get(
+                                "updated_at", item.get("last_accessed_at")
+                            ),
+                            "path": current_path_array,
+                            "created_at": item.get("created_at"),
+                            "updated_at": doc_record.get(
+                                "updated_at", item.get("updated_at")
+                            ),
+                            "chunked": chunked_status,
+                        }
+                    )
+
+        app.logger.info(f"📥 API Response: Found {len(files)} items")
         return jsonify(files), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in list_tree: {str(e)}")
@@ -280,7 +328,7 @@ def upload_file():
         )  # Remove timezone info
 
         response = (
-            supabase.schema("public")
+            supabase.postgrest.schema("public")
             .rpc(
                 "manage_document_metadata",
                 {
@@ -330,8 +378,9 @@ def process_file():
             f"📞 API Call - process_file: Processing file at Supabase path '{storage_path}'"
         )
         try:
+            # Get the file ID from the documents table
             response = (
-                supabase.schema("esg_data")
+                supabase.postgrest.schema("esg_data")
                 .table("documents")
                 .select("id")
                 .eq("file_path", storage_path)
@@ -342,7 +391,6 @@ def process_file():
 
             file_id = response.data[0]["id"]
             app.logger.info(f"📄 File ID: {file_id}")
-
         except Exception as e:
             app.logger.error(f"❌ Error getting file ID: {str(e)}")
             return jsonify({"error": "Failed to get file ID"}), 500
@@ -410,7 +458,6 @@ def process_file():
                 rag_url,
                 files=files_payload,  # Include both user_id and file_id
                 data=form_data,
-                timeout=120,
             )
 
             app.logger.info(
@@ -423,7 +470,14 @@ def process_file():
                     app.logger.info(
                         f"✅ RAG processing successful via process_file for {filename}..."
                     )
-                    # Return only essential info from RAG
+                    # Update the document record with the RAG result
+                    response = (
+                        supabase.postgrest.schema("esg_data")
+                        .table("documents")
+                        .update({"chunked": True})
+                        .eq("id", file_id)
+                        .execute()
+                    )
                     return (
                         jsonify(
                             {
@@ -499,7 +553,7 @@ def create_folder():
             datetime.now().replace(tzinfo=None).isoformat()
         )  # Remove timezone info
         metadata_response = (
-            supabase.schema("public")
+            supabase.postgrest.schema("public")
             .rpc(
                 "manage_document_metadata",
                 {
@@ -853,10 +907,55 @@ def delete_item():
             # It's a file
             app.logger.info(f"🔺 Attempting to delete file: {path}")
 
-            # First delete metadata using RPC
+            try:
+                # Get document_id from database instead of the filename
+                doc_result = (
+                    supabase.postgrest.schema("esg_data")
+                    .table("documents")
+                    .select("id")
+                    .eq("file_path", path)
+                    .execute()
+                )
+
+                if doc_result and doc_result.data and len(doc_result.data) > 0:
+                    document_id = doc_result.data[0]["id"]
+                    app.logger.info(
+                        f"🔍 Found document ID: {document_id} for file: {path}"
+                    )
+
+                    # Call RAG API to delete graph entity
+                    rag_api_url = "http://localhost:6050/api/v1/delete-graph-entity"
+
+                    import requests
+
+                    response = requests.post(
+                        rag_api_url,
+                        json={
+                            "user_id": request.user["id"],
+                            "document_id": document_id,
+                        },
+                        headers={"Content-Type": "application/json"},
+                    )
+
+                    if response.status_code == 200:
+                        app.logger.info(
+                            f"🔺 Successfully deleted Neo4j graph data for file: {path}"
+                        )
+                    else:
+                        app.logger.error(
+                            f"❌ Failed to delete Neo4j graph data with status {response.status_code}: {response.text}"
+                        )
+                else:
+                    app.logger.warning(f"⚠️ Could not find document ID for file: {path}")
+            except Exception as neo4j_error:
+                app.logger.error(
+                    f"❌ Warning: Failed to delete Neo4j graph data: {str(neo4j_error)}"
+                )
+                # Continue even if Neo4j deletion fails, as the primary deletion in Supabase succeeded
+
             try:
                 response = (
-                    supabase.schema("public")
+                    supabase.postgrest.schema("public")
                     .rpc(
                         "manage_document_metadata",
                         {
@@ -876,11 +975,9 @@ def delete_item():
             except Exception as metadata_error:
                 app.logger.error(f"❌ Failed to delete metadata: {str(metadata_error)}")
                 return jsonify({"error": str(metadata_error)}), 500
-                # Continue with file deletion even if metadata deletion fails
 
-            # Then delete the actual file
+            # Delete the actual file
             supabase.storage.from_("documents").remove([path])
-            app.logger.info(f"🔺 Successfully deleted file: {path}")
         else:
             # It's a folder - recursive deletion function
             app.logger.info(f"🔺 Attempting to delete folder: {path}")
@@ -908,7 +1005,7 @@ def delete_item():
                             try:
                                 # Delete metadata first
                                 response = (
-                                    supabase.schema("public")
+                                    supabase.postgrest.schema("public")
                                     .rpc(
                                         "manage_document_metadata",
                                         {
@@ -936,6 +1033,58 @@ def delete_item():
                             # Delete the actual file
                             supabase.storage.from_("documents").remove([item_path])
 
+                            # Delete related Neo4j graph data for this file
+                            try:
+                                # Get document_id from database instead of the filename
+                                doc_result = (
+                                    supabase.postgrest.schema("esg_data")
+                                    .table("documents")
+                                    .select("id")
+                                    .eq("file_path", item_path)
+                                    .execute()
+                                )
+
+                                if (
+                                    doc_result
+                                    and doc_result.data
+                                    and len(doc_result.data) > 0
+                                ):
+                                    document_id = doc_result.data[0]["id"]
+                                    app.logger.info(
+                                        f"🔍 Found document ID: {document_id} for file: {item_path}"
+                                    )
+
+                                    rag_api_url = "http://localhost:6050/api/v1/delete-graph-entity"
+
+                                    import requests
+
+                                    response = requests.post(
+                                        rag_api_url,
+                                        json={
+                                            "user_id": request.user["id"],
+                                            "document_id": document_id,
+                                        },
+                                        headers={"Content-Type": "application/json"},
+                                    )
+
+                                    if response.status_code == 200:
+                                        app.logger.info(
+                                            f"🔺 Successfully deleted Neo4j graph data for file: {item_path}"
+                                        )
+                                    else:
+                                        app.logger.error(
+                                            f"❌ Failed to delete Neo4j graph data with status {response.status_code}: {response.text}"
+                                        )
+                                else:
+                                    app.logger.warning(
+                                        f"⚠️ Could not find document ID for file: {item_path}"
+                                    )
+                            except Exception as neo4j_error:
+                                app.logger.error(
+                                    f"❌ Warning: Failed to delete Neo4j graph data: {str(neo4j_error)}"
+                                )
+                                # Continue with file deletion even if Neo4j deletion fails
+
                     # Finally delete the folder placeholder
                     folder_placeholder = os.path.join(folder_path, ".folder")
                     app.logger.info(
@@ -946,7 +1095,7 @@ def delete_item():
                     # Delete the folder's metadata
                     try:
                         response = (
-                            supabase.schema("public")
+                            supabase.postgrest.schema("public")
                             .rpc(
                                 "manage_document_metadata",
                                 {
@@ -1159,7 +1308,7 @@ def rename_item():
                 if upload_response:
                     # Create new metadata for the new path
                     try:
-                        supabase.schema("public").rpc(
+                        supabase.postgrest.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "create",
@@ -1186,7 +1335,7 @@ def rename_item():
 
                     # Delete old metadata
                     try:
-                        supabase.schema("public").rpc(
+                        supabase.postgrest.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "delete",
@@ -1245,7 +1394,7 @@ def rename_item():
                 # Update folder metadata
                 try:
                     # Create new metadata for the folder
-                    supabase.schema("public").rpc(
+                    supabase.postgrest.schema("public").rpc(
                         "manage_document_metadata",
                         {
                             "p_action": "create",
@@ -1284,7 +1433,7 @@ def rename_item():
                                 {"contentType": "application/x-directory"},
                             )
                             # Update subfolder metadata
-                            supabase.schema("public").rpc(
+                            supabase.postgrest.schema("public").rpc(
                                 "manage_document_metadata",
                                 {
                                     "p_action": "create",
@@ -1322,7 +1471,7 @@ def rename_item():
 
                             if upload_response:
                                 # Update file metadata
-                                supabase.schema("public").rpc(
+                                supabase.postgrest.schema("public").rpc(
                                     "manage_document_metadata",
                                     {
                                         "p_action": "create",
@@ -1349,8 +1498,8 @@ def rename_item():
                     for old_path_item in moved_files:
                         try:
                             supabase.storage.from_("documents").remove([old_path_item])
-                            # Delete old metadata
-                            supabase.schema("public").rpc(
+                            # Delete old metadata entry if it exists
+                            supabase.postgrest.schema("public").rpc(
                                 "manage_document_metadata",
                                 {
                                     "p_action": "delete",
@@ -1368,7 +1517,7 @@ def rename_item():
                         supabase.storage.from_("documents").remove(
                             [f"{old_path}/.folder"]
                         )
-                        supabase.schema("public").rpc(
+                        supabase.postgrest.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "delete",
@@ -1411,7 +1560,7 @@ def rename_item():
                                             [item_path]
                                         )
                                         # Delete new metadata entry if it exists
-                                        supabase.schema("public").rpc(
+                                        supabase.postgrest.schema("public").rpc(
                                             "manage_document_metadata",
                                             {
                                                 "p_action": "delete",
@@ -1435,7 +1584,7 @@ def rename_item():
                                     [placeholder]
                                 )
                                 # Delete folder metadata
-                                supabase.schema("public").rpc(
+                                supabase.postgrest.schema("public").rpc(
                                     "manage_document_metadata",
                                     {
                                         "p_action": "delete",
@@ -2008,6 +2157,130 @@ def create_embeddings_batch(
     except Exception as e:
         app.logger.error(f"❌ Error creating embeddings batch: {str(e)}")
         raise Exception(f"Failed to create embeddings batch: {str(e)}")
+
+
+@app.route("/api/chunked-files", methods=["GET"])
+@require_auth
+def get_chunked_files():
+    """
+    Return a list of files that have been chunked, with chunk count and latest chunked time.
+    """
+    try:
+        # 1. query all chunk stats
+        chunk_stats_resp = (
+            supabase.postgrest.schema("esg_data")
+            .table("document_chunks")
+            .select("document_id, created_at")
+            .execute()
+        )
+        chunk_rows = chunk_stats_resp.data
+
+        # 2. count chunk number and latest time for each document_id
+        from collections import defaultdict
+
+        chunk_map = defaultdict(lambda: {"chunk_count": 0, "chunked_at": None})
+        for row in chunk_rows:
+            doc_id = row["document_id"]
+            chunk_map[doc_id]["chunk_count"] += 1
+            # get the latest created_at
+            if (
+                chunk_map[doc_id]["chunked_at"] is None
+                or row["created_at"] > chunk_map[doc_id]["chunked_at"]
+            ):
+                chunk_map[doc_id]["chunked_at"] = row["created_at"]
+
+        document_ids = list(chunk_map.keys())
+        if not document_ids:
+            return jsonify({"chunked_files": []}), 200
+
+        # 3. batch query file names
+        docs_resp = (
+            supabase.postgrest.schema("esg_data")
+            .table("documents")
+            .select("id, file_name")
+            .in_("id", document_ids)
+            .execute()
+        )
+        docs = {doc["id"]: doc["file_name"] for doc in docs_resp.data}
+
+        # 4. assemble the result
+        result = []
+        for doc_id, stats in chunk_map.items():
+            result.append(
+                {
+                    "id": doc_id,
+                    "name": docs.get(doc_id, "Unknown"),
+                    "chunk_count": stats["chunk_count"],
+                    "chunked_at": stats["chunked_at"],
+                }
+            )
+
+        return jsonify({"chunked_files": result}), 200
+
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_chunked_files: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/create-graph", methods=["POST"])
+@require_auth
+def create_graph():
+    """
+    Create a subgraph in neo4j for a specific user, given the attached document ids for the platform.
+
+    Args:
+        document_ids (list[str]): List of document ids to create a subgraph for
+        user_id (str): The user id to create the subgraph for
+
+    Returns:
+        str: The id of the created subgraph
+
+    Raises:
+        Exception: If the subgraph creation fails
+    """
+    # Enforce application/json content type
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 415
+    try:
+        app.logger.info("📊 API Call - create_graph")
+        data = request.get_json()
+        document_ids = data.get("document_ids")
+        user_id = data.get("user_id")
+
+        # 1. get the entities and relationships from supabase based on the chunk ids/ document ids
+        entities = (
+            supabase.postgrest.schema("esg_data")
+            .table("entities")
+            .select("*")
+            .in_("document_id", document_ids)
+            .execute()
+        )
+
+        relationships = (
+            supabase.postgrest.schema("esg_data")
+            .table("relationships")
+            .select("*")
+            .in_("document_id", document_ids)
+            .execute()
+        )
+
+        # call the rag/app.py create_graph endpoint to create the subgraph
+        response = requests.post(
+            "http://localhost:6050/api/v1/create-graph",
+            json={
+                "entities": entities.data,
+                "relationships": relationships.data,
+                "user_id": user_id,
+            },
+        )
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to create subgraph"}), response.status_code
+
+        return jsonify({"subgraph_id": "123"}), 200
+
+    except Exception as e:
+        app.logger.error(f"❌ API Error in create_graph: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

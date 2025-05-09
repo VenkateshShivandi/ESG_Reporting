@@ -30,7 +30,7 @@ def store_document_record(filename: str, file_type: str, status: str = "processi
 
     try:
         logger.info(f"Attempting to insert document record: {data_to_insert}")
-        response = supabase.schema(DB_SCHEMA).table(DOCUMENTS_TABLE).insert(data_to_insert).execute()
+        response = supabase.postgrest.schema(DB_SCHEMA).table(DOCUMENTS_TABLE).insert(data_to_insert).execute()
         logger.info(f"Successfully inserted document record. ID: {doc_id}")
         return doc_id
     except Exception as e:
@@ -65,7 +65,7 @@ def store_chunks(document_id: str, chunks: List[Dict], embeddings: List[List[flo
     try:
         logger.info(f"Attempting to insert {len(records_to_insert)} chunks for document ID: {document_id}")
         # Ensure insertion happens within the correct schema
-        response = supabase.schema(DB_SCHEMA).table(CHUNKS_TABLE).insert(records_to_insert).execute()
+        response = supabase.postgrest.schema(DB_SCHEMA).table(CHUNKS_TABLE).insert(records_to_insert).execute()
         # Check response? Supabase client might raise exception on failure
         logger.info(f"Successfully inserted {len(records_to_insert)} chunks for document ID: {document_id}")
         return True
