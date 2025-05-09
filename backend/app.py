@@ -187,10 +187,15 @@ def list_tree():
         doc_map = {}
         try:
             # Get documents data from esg_data.documents table
-            db_result = supabase.postgrest.schema("esg_data").table("documents").select("*").execute()
-            
+            db_result = (
+                supabase.postgrest.schema("esg_data")
+                .table("documents")
+                .select("*")
+                .execute()
+            )
+
             app.logger.info(f"Retrieved {len(db_result.data)} documents from database")
-            
+
             if db_result.data:
                 for doc in db_result.data:
                     file_path = doc.get("file_path", "")
@@ -207,9 +212,11 @@ def list_tree():
                         "path_array": path_array,
                         "file_name": file_name,
                     }
-                    
+
                     # Log the chunked status for debugging
-                    app.logger.debug(f"Document {file_name} chunked status: {doc.get('chunked', False)}")
+                    app.logger.debug(
+                        f"Document {file_name} chunked status: {doc.get('chunked', False)}"
+                    )
         except Exception as db_error:
             app.logger.warning(f"⚠️ Could not fetch document metadata: {str(db_error)}")
             # Continue without document metadata
@@ -247,13 +254,12 @@ def list_tree():
                 # Only include files that are in the current directory
                 if not doc_path_array or doc_path_array == current_path_array:
                     metadata = item.get("metadata", {}) or {}
-                    
+
                     # Explicitly check for chunked status and log it
                     chunked_status = False
                     if doc_record and "chunked" in doc_record:
                         chunked_status = bool(doc_record.get("chunked"))
-                        app.logger.info(f"File {item['name']} has chunked status: {chunked_status}")
-                    
+
                     files.append(
                         {
                             "id": doc_record.get("id", item["id"]),
@@ -472,7 +478,59 @@ def process_file():
                         .eq("id", file_id)
                         .execute()
                     )
-                    app.logger.info(f"📥 API Response - Chunked State: {response}")
+                    # app.logger.info(f"📥 API Response - Chunked State: {response}")
+
+                    # # Call create-graph endpoint to create the graph
+                    # try:
+                    #     app.logger.info(f"🚀 Creating graph for document: {file_id}")
+                    #     graph_url = "http://localhost:6050/api/v1/create-graph"
+
+                    #     # Get entities and relationships from the document
+                    #     entities_response = (
+                    #         supabase.postgrest.schema("esg_data")
+                    #         .table("entities")
+                    #         .select("*")
+                    #         .eq("document_id", file_id)
+                    #         .execute()
+                    #     )
+
+                    #     relationships_response = (
+                    #         supabase.postgrest.schema("esg_data")
+                    #         .table("relationships")
+                    #         .select("*")
+                    #         .eq("document_id", file_id)
+                    #         .execute()
+                    #     )
+
+                    #     if entities_response.data and relationships_response.data:
+                    #         graph_payload = {
+                    #             "entities": entities_response.data,
+                    #             "relationships": relationships_response.data,
+                    #             "user_id": request.user["id"],
+                    #         }
+
+                    #         graph_response = requests.post(
+                    #             graph_url, json=graph_payload
+                    #         )
+
+                    #         if graph_response.ok:
+                    #             graph_result = graph_response.json()
+                    #             app.logger.info(
+                    #                 f"✅ Graph created successfully: {graph_result}"
+                    #             )
+                    #         else:
+                    #             app.logger.warning(
+                    #                 f"⚠️ Failed to create graph: {graph_response.text}"
+                    #             )
+                    #     else:
+                    #         app.logger.warning(
+                    #             f"⚠️ No entities or relationships found for document {file_id}"
+                    #         )
+
+                    # except Exception as graph_error:
+                    #     app.logger.error(f"❌ Error creating graph: {str(graph_error)}")
+                    #     # Continue with the response even if graph creation fails
+
                     # Return only essential info from RAG
                     return (
                         jsonify(
@@ -903,7 +961,52 @@ def delete_item():
             # It's a file
             app.logger.info(f"🔺 Attempting to delete file: {path}")
 
-            # First delete metadata using RPC
+            try:
+                # Get document_id from database instead of the filename
+                doc_result = (
+                    supabase.postgrest.schema("esg_data")
+                    .table("documents")
+                    .select("id")
+                    .eq("file_path", path)
+                    .execute()
+                )
+
+                if doc_result and doc_result.data and len(doc_result.data) > 0:
+                    document_id = doc_result.data[0]["id"]
+                    app.logger.info(
+                        f"🔍 Found document ID: {document_id} for file: {path}"
+                    )
+
+                    # Call RAG API to delete graph entity
+                    rag_api_url = "http://localhost:6050/api/v1/delete-graph-entity"
+
+                    import requests
+
+                    response = requests.post(
+                        rag_api_url,
+                        json={
+                            "user_id": request.user["id"],
+                            "document_id": document_id,
+                        },
+                        headers={"Content-Type": "application/json"},
+                    )
+
+                    if response.status_code == 200:
+                        app.logger.info(
+                            f"🔺 Successfully deleted Neo4j graph data for file: {path}"
+                        )
+                    else:
+                        app.logger.error(
+                            f"❌ Failed to delete Neo4j graph data with status {response.status_code}: {response.text}"
+                        )
+                else:
+                    app.logger.warning(f"⚠️ Could not find document ID for file: {path}")
+            except Exception as neo4j_error:
+                app.logger.error(
+                    f"❌ Warning: Failed to delete Neo4j graph data: {str(neo4j_error)}"
+                )
+                # Continue even if Neo4j deletion fails, as the primary deletion in Supabase succeeded
+
             try:
                 response = (
                     supabase.postgrest.schema("public")
@@ -926,11 +1029,9 @@ def delete_item():
             except Exception as metadata_error:
                 app.logger.error(f"❌ Failed to delete metadata: {str(metadata_error)}")
                 return jsonify({"error": str(metadata_error)}), 500
-                # Continue with file deletion even if metadata deletion fails
 
-            # Then delete the actual file
+            # Delete the actual file
             supabase.storage.from_("documents").remove([path])
-            app.logger.info(f"🔺 Successfully deleted file: {path}")
         else:
             # It's a folder - recursive deletion function
             app.logger.info(f"🔺 Attempting to delete folder: {path}")
@@ -985,6 +1086,58 @@ def delete_item():
 
                             # Delete the actual file
                             supabase.storage.from_("documents").remove([item_path])
+
+                            # Delete related Neo4j graph data for this file
+                            try:
+                                # Get document_id from database instead of the filename
+                                doc_result = (
+                                    supabase.postgrest.schema("esg_data")
+                                    .table("documents")
+                                    .select("id")
+                                    .eq("file_path", item_path)
+                                    .execute()
+                                )
+
+                                if (
+                                    doc_result
+                                    and doc_result.data
+                                    and len(doc_result.data) > 0
+                                ):
+                                    document_id = doc_result.data[0]["id"]
+                                    app.logger.info(
+                                        f"🔍 Found document ID: {document_id} for file: {item_path}"
+                                    )
+
+                                    rag_api_url = "http://localhost:6050/api/v1/delete-graph-entity"
+
+                                    import requests
+
+                                    response = requests.post(
+                                        rag_api_url,
+                                        json={
+                                            "user_id": request.user["id"],
+                                            "document_id": document_id,
+                                        },
+                                        headers={"Content-Type": "application/json"},
+                                    )
+
+                                    if response.status_code == 200:
+                                        app.logger.info(
+                                            f"🔺 Successfully deleted Neo4j graph data for file: {item_path}"
+                                        )
+                                    else:
+                                        app.logger.error(
+                                            f"❌ Failed to delete Neo4j graph data with status {response.status_code}: {response.text}"
+                                        )
+                                else:
+                                    app.logger.warning(
+                                        f"⚠️ Could not find document ID for file: {item_path}"
+                                    )
+                            except Exception as neo4j_error:
+                                app.logger.error(
+                                    f"❌ Warning: Failed to delete Neo4j graph data: {str(neo4j_error)}"
+                                )
+                                # Continue with file deletion even if Neo4j deletion fails
 
                     # Finally delete the folder placeholder
                     folder_placeholder = os.path.join(folder_path, ".folder")
@@ -2132,7 +2285,7 @@ def create_graph():
     Args:
         document_ids (list[str]): List of document ids to create a subgraph for
         user_id (str): The user id to create the subgraph for
-    
+
     Returns:
         str: The id of the created subgraph
 
@@ -2149,20 +2302,36 @@ def create_graph():
         user_id = data.get("user_id")
 
         # 1. get the entities and relationships from supabase based on the chunk ids/ document ids
-        entities = supabase.postgrest.schema("esg_data").table("entities").select("*").in_("document_id", document_ids).execute()
+        entities = (
+            supabase.postgrest.schema("esg_data")
+            .table("entities")
+            .select("*")
+            .in_("document_id", document_ids)
+            .execute()
+        )
 
-        relationships = supabase.postgrest.schema("esg_data").table("relationships").select("*").in_("document_id", document_ids).execute()
-        
+        relationships = (
+            supabase.postgrest.schema("esg_data")
+            .table("relationships")
+            .select("*")
+            .in_("document_id", document_ids)
+            .execute()
+        )
+
         # call the rag/app.py create_graph endpoint to create the subgraph
         response = requests.post(
             "http://localhost:6050/api/v1/create-graph",
-            json={"entities": entities.data, "relationships": relationships.data, "user_id": user_id},
+            json={
+                "entities": entities.data,
+                "relationships": relationships.data,
+                "user_id": user_id,
+            },
         )
         if response.status_code != 200:
             return jsonify({"error": "Failed to create subgraph"}), response.status_code
 
         return jsonify({"subgraph_id": "123"}), 200
-    
+
     except Exception as e:
         app.logger.error(f"❌ API Error in create_graph: {str(e)}")
         return jsonify({"error": str(e)}), 500
