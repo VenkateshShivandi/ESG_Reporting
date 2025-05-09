@@ -478,60 +478,6 @@ def process_file():
                         .eq("id", file_id)
                         .execute()
                     )
-                    # app.logger.info(f"📥 API Response - Chunked State: {response}")
-
-                    # # Call create-graph endpoint to create the graph
-                    # try:
-                    #     app.logger.info(f"🚀 Creating graph for document: {file_id}")
-                    #     graph_url = "http://localhost:6050/api/v1/create-graph"
-
-                    #     # Get entities and relationships from the document
-                    #     entities_response = (
-                    #         supabase.postgrest.schema("esg_data")
-                    #         .table("entities")
-                    #         .select("*")
-                    #         .eq("document_id", file_id)
-                    #         .execute()
-                    #     )
-
-                    #     relationships_response = (
-                    #         supabase.postgrest.schema("esg_data")
-                    #         .table("relationships")
-                    #         .select("*")
-                    #         .eq("document_id", file_id)
-                    #         .execute()
-                    #     )
-
-                    #     if entities_response.data and relationships_response.data:
-                    #         graph_payload = {
-                    #             "entities": entities_response.data,
-                    #             "relationships": relationships_response.data,
-                    #             "user_id": request.user["id"],
-                    #         }
-
-                    #         graph_response = requests.post(
-                    #             graph_url, json=graph_payload
-                    #         )
-
-                    #         if graph_response.ok:
-                    #             graph_result = graph_response.json()
-                    #             app.logger.info(
-                    #                 f"✅ Graph created successfully: {graph_result}"
-                    #             )
-                    #         else:
-                    #             app.logger.warning(
-                    #                 f"⚠️ Failed to create graph: {graph_response.text}"
-                    #             )
-                    #     else:
-                    #         app.logger.warning(
-                    #             f"⚠️ No entities or relationships found for document {file_id}"
-                    #         )
-
-                    # except Exception as graph_error:
-                    #     app.logger.error(f"❌ Error creating graph: {str(graph_error)}")
-                    #     # Continue with the response even if graph creation fails
-
-                    # Return only essential info from RAG
                     return (
                         jsonify(
                             {
