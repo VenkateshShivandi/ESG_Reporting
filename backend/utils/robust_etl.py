@@ -352,7 +352,9 @@ def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None 
 
                     # 3. Filter and Refine Blocks within the sheet
                     logger.debug(f"Sheet '{sheet_name}': Step 3: Filtering and refining blocks...")
-                    validated_blocks = _filter_and_refine_blocks(df_raw, initial_blocks)
+                    validated_blocks = _filter_and_refine_blocks(df_raw, initial_blocks, file_type)
+                    logger.info(f"Sheet '{sheet_name}': file_type='{file_type}', Number of validated_blocks found: {len(validated_blocks)}") # <-- ADDED LOG
+
                     if not validated_blocks:
                         logger.warning(f"Sheet '{sheet_name}': No blocks remained after filtering.")
                         sheet_result["message"] = "No valid data tables found after filtering noise."
@@ -558,7 +560,18 @@ def etl_to_chart_payload(fp: str | io.BytesIO, *, original_filename: str | None 
 
                             # 4c. Classify Columns
                             logger.debug(f"Block {table_id}: Classifying columns...")
+                            # <<< ADDED LOGS BEFORE _classify_columns >>>
+                            logger.info(f"Block {table_id} (Sheet: {sheet_name}): PRE-CLASSIFICATION table_df.shape: {table_df.shape}")
+                            logger.info(f"Block {table_id} (Sheet: {sheet_name}): PRE-CLASSIFICATION table_df.dtypes: {table_df.dtypes.to_dict()}")
+                            try:
+                                logger.info(f"Block {table_id} (Sheet: {sheet_name}): PRE-CLASSIFICATION table_df.head(): {table_df.head().to_dict(orient='list')}")
+                            except Exception as e_head_log:
+                                logger.warning(f"Block {table_id} (Sheet: {sheet_name}): Error logging table_df.head(): {e_head_log}")
+                            # <<< END ADDED LOGS >>>
                             column_types = _classify_columns(table_df)
+                            # <<< ADDED LOG AFTER _classify_columns >>>
+                            logger.info(f"Block {table_id} (Sheet: {sheet_name}): POST-CLASSIFICATION numericalColumns: {column_types.get('numericalColumns', [])}")
+                            # <<< END ADDED LOG >>>
 
                             # 4d. Build Chart Payloads
                             logger.debug(f"Block {table_id}: Building chart payloads...")
@@ -754,6 +767,7 @@ def _load_raw_sheet_data(fp: str | io.BytesIO, file_type: str, sheet_name: str, 
 def _read_csv(fp, encoding='utf-8', **kwargs) -> pd.DataFrame:
     """
     Read a CSV file with robust error handling, including checks for inconsistent columns.
+    Skips comment lines (starting with #) for CSV files only.
     
     Args:
         fp: File path or BytesIO object
@@ -798,49 +812,28 @@ def _read_csv(fp, encoding='utf-8', **kwargs) -> pd.DataFrame:
                 logger.warning(f"Empty content detected in file: {fp}")
                 raise pd.errors.EmptyDataError("CSV file is empty")
 
-        # Attempt to read CSV
+        # Always skip comment lines for CSV
+        kwargs_for_pandas = kwargs.copy()
+        if 'sep' in kwargs_for_pandas:
+            del kwargs_for_pandas['sep']
+        kwargs_for_pandas['comment'] = '#'
+
         try:
-            logger.debug("Attempting to read CSV with strict error checking")
+            logger.debug("Attempting to read CSV with strict error checking (skipping comment lines)")
             if isinstance(fp, io.BytesIO):
                 fp.seek(0)  # Reset position
-            
-            # --- FIX: Remove explicit 'sep' from kwargs before spreading --- 
-            kwargs_for_pandas = kwargs.copy()
-            if 'sep' in kwargs_for_pandas:
-                 del kwargs_for_pandas['sep']
-            # --- END FIX ---
-            
+            # Try strict parsing first
             df = pd.read_csv(fp, encoding=encoding, on_bad_lines='error', sep=delimiter, **kwargs_for_pandas)
-        except Exception as e:
-            logger.warning(f"Initial CSV read failed: {type(e).__name__}: {str(e)}")
+        except pd.errors.ParserError as e:
+            logger.warning(f"Strict CSV read failed: {e}. Trying with on_bad_lines='skip'.")
             if isinstance(fp, io.BytesIO):
                 fp.seek(0)
-            if "inconsistent" in str(e).lower() or "expected" in str(e).lower() or "bad line" in str(e).lower():
-                logger.error(f"Detected inconsistent CSV structure during initial read: {str(e)}")
-                raise pd.errors.ParserError(f"Inconsistent columns in CSV: {str(e)}")
-            raise # Re-raise other errors
-            
-        # Check if the dataframe is empty but the content wasn't
+            # Try again, skipping bad lines
+            df = pd.read_csv(fp, encoding=encoding, on_bad_lines='skip', sep=delimiter, **kwargs_for_pandas)
+            logger.info("Loaded CSV with on_bad_lines='skip'. Some rows may have been dropped due to inconsistent columns.")
         if df.empty:
              logger.warning("CSV resulted in empty DataFrame despite having content")
              raise pd.errors.ParserError("CSV resulted in an empty DataFrame, possibly due to format issues.")
-                
-        # *** Explicit check for column consistency ***
-        if lines_for_check:
-            # Find the expected number of columns based on the first data line (heuristic)
-            # Assumes first line might be header, check second line if possible
-            check_line_index = 1 if len(lines_for_check) > 1 else 0
-            if check_line_index < len(lines_for_check):
-                # The explicit column consistency check that naively counted commas on raw lines
-                # has been removed. This check was problematic for valid CSVs where field values
-                # themselves contained the delimiter character (e.g., within quotes).
-                # We now rely primarily on pandas.read_csv (with on_bad_lines='error')
-                # to validate the CSV structure and ensure a consistent number of columns.
-                # If pandas.read_csv succeeds, we assume the column structure is valid.
-                pass
-                # original_actual_cols = df.shape[1] # Example: if we needed to log pandas' interpretation
-                # logger.debug(f"Pandas successfully parsed CSV with {original_actual_cols} columns.")
-
         logger.info(f"Successfully read CSV, shape: {df.shape}")
         return df
         
@@ -951,14 +944,16 @@ def _find_data_blocks(df_raw: pd.DataFrame) -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 # BLOCK FILTERING & REFINEMENT (NEW)
 # ─────────────────────────────────────────────────────────────────────────────
-def _filter_and_refine_blocks(df_raw: pd.DataFrame, blocks: list[dict]) -> list[dict]:
+def _filter_and_refine_blocks(df_raw: pd.DataFrame, blocks: list[dict], file_type: str = 'csv') -> list[dict]:
     """
     Filters raw blocks based on size, density, and header quality.
     Adds the detected header index to valid blocks.
+    For CSVs, allows 1x1 blocks; for Excel, keeps original thresholds.
 
     Args:
         df_raw: The original raw DataFrame for the entire sheet.
         blocks: List of block dictionaries from _find_data_blocks.
+        file_type: 'csv' or 'excel'.
 
     Returns:
         List of validated block dictionaries, including 'header_idx'.
@@ -966,9 +961,13 @@ def _filter_and_refine_blocks(df_raw: pd.DataFrame, blocks: list[dict]) -> list[
     logger = get_logger()
     validated_blocks = []
 
-    # Define MIN constants here if not global, or ensure they are accessible
-    MIN_BLOCK_ROWS = 2
-    MIN_BLOCK_COLS = 2
+    # Loosen thresholds for CSVs
+    if file_type == 'csv':
+        MIN_BLOCK_ROWS = 1
+        MIN_BLOCK_COLS = 1
+    else:
+        MIN_BLOCK_ROWS = 2
+        MIN_BLOCK_COLS = 2
     MIN_BLOCK_DENSITY = 0.25
 
     for block in blocks:
@@ -976,7 +975,6 @@ def _filter_and_refine_blocks(df_raw: pd.DataFrame, blocks: list[dict]) -> list[
         slice_obj = block['slice']
         block_data = block['data']
         rows, cols = block_data.shape
-        # Create a user-friendly slice representation for logging
         slice_repr = f"rows {slice_obj[0].start}:{slice_obj[0].stop}, cols {slice_obj[1].start}:{slice_obj[1].stop}"
 
         # 1. Filter by Size
@@ -988,8 +986,6 @@ def _filter_and_refine_blocks(df_raw: pd.DataFrame, blocks: list[dict]) -> list[
             continue
 
         # 2. Filter by Density
-        # Use notna() as we load with keep_default_na=False, na_values=['']
-        # Empty strings are considered content, only actual NaNs are counted as empty
         non_empty_count = block_data.notna().sum().sum()
         total_cells = rows * cols
         density = non_empty_count / total_cells if total_cells > 0 else 0
@@ -1002,39 +998,28 @@ def _filter_and_refine_blocks(df_raw: pd.DataFrame, blocks: list[dict]) -> list[
 
         # 3. Header Detection & Quality Check
         try:
-            # Note: _find_real_header_index works on relative row indices within the block_data
             header_idx = _find_real_header_index(block_data)
-
-            # Basic Quality Check: Ensure header is found within the block's rows
             if header_idx < 0 or header_idx >= rows:
                  logger.info(
                     f"Block {label} discarded: Invalid header index ({header_idx}) found " 
                     f"relative to block shape ({rows}x{cols}). Slice: {slice_repr}"
                  )
                  continue
-            
-            # Additional Quality Check: Ensure header row isn't the *last* row (needs data below)
             if header_idx == rows - 1:
                  logger.info(
                      f"Block {label} discarded: Header index ({header_idx}) is the last row. "
                      f"No data found below header. Slice: {slice_repr}"
                  )
                  continue
-                 
-            # Optional: Add more checks here based on header score if needed later
-
         except Exception as e:
             logger.warning(
                 f"Block {label} discarded: Error during header detection: {e}. Slice: {slice_repr}",
-                exc_info=True # Log traceback for header detection errors
+                exc_info=True
             )
             continue
-        
-        # If all checks passed, add header_idx and keep the block
         block['header_idx'] = header_idx 
         validated_blocks.append(block)
         logger.debug(f"Block {label} validated. Shape: {rows}x{cols}, Density: {density:.2f}, Header Index: {header_idx}. Slice: {slice_repr}")
-
     logger.info(f"Validated {len(validated_blocks)} out of {len(blocks)} initial blocks.")
     return validated_blocks
 
@@ -1484,36 +1469,43 @@ def _classify_columns(df):
             else:
                 # Try cleaning potential non-numeric chars before numeric check
                 try:
+                    # Check if the original series (as string) contains any alphabetic characters.
+                    original_series_has_letters = df[col].astype(str).str.contains(r'[a-zA-Z]', regex=True).any()
+
                     # Convert to string, remove common noise like *, ,, $, spaces
                     # Keep decimal point and minus sign
                     cleaned_series = df[col].astype(str).str.replace(r'[^\d.\-]', '', regex=True)
                     # Attempt conversion to numeric on the cleaned series
                     converted_series = pd.to_numeric(cleaned_series, errors='coerce')
+                    
                     # Check if a significant portion could be converted
                     if converted_series.notna().mean() > 0.7: # Threshold for considering it numeric after cleaning
-                        numeric_check_passed = True
-                        logger.debug(f"Column '{col}' deemed numeric after cleaning non-numeric characters.")
+                        # If the original had letters AND the cleaned version is purely digits (e.g. "FAC001" -> "001"),
+                        # it's likely an ID. Don't classify as numeric here; let it fall to categorical.
+                        if original_series_has_letters and converted_series.dropna().astype(str).str.match(r'^\d+$').all():
+                            logger.debug(f"Column '{col}' converted to numeric but original had letters and became purely digits after cleaning (e.g. ID like 'FAC001'). Postponing numeric classification.")
+                            numeric_check_passed = False
+                        else:
+                            numeric_check_passed = True
+                            logger.debug(f"Column '{col}' deemed numeric after cleaning non-numeric characters.")
+                    else:
+                        numeric_check_passed = False # Failed to convert sufficiently
+
                 except Exception as clean_err:
                     logger.debug(f"Could not clean/check column '{col}' as numeric: {clean_err}")
+                    numeric_check_passed = False # Ensure it's false on error
             
             if numeric_check_passed:
-                # Check if it genuinely contains numbers, not just IDs/codes
-                # Heuristic: High unique ratio suggests ID, low suggests measurement
-                # We already check unique ratio for categorical, let's reuse that logic implicitly
-                # If it didn't get classified as categorical based on low unique ratio, 
-                # and it passes numeric checks, treat as numerical.
-                
-                # Further check: Avoid classifying columns that are almost all integers as numeric 
-                # if they look like typical ID columns (e.g., high unique ratio, few duplicates)
-                # However, let's keep it simple for now and rely on the categorical unique check.
-                
-                success_ratio = df[col].notna().mean() # Check original column density
-                if success_ratio > 0.5:
-                    numerical_cols.append(col)
-                    classified_order_log.append(f"{col} (Numeric)")
-                    metrics["numeric_detected"] += 1
-                    get_logger().debug(f"Classified {col} as numeric (density: {success_ratio:.2f})")
-                    continue
+                # Removed the original column density check (success_ratio > 0.5).
+                # Now, if numeric_check_passed is true (meaning it's either already numeric 
+                # or became numeric after cleaning with >70% success), we classify it as numeric.
+                # This is less strict for sparse CSVs where many entries might be blank
+                # but the column itself is still intended to be numeric.
+                numerical_cols.append(col)
+                classified_order_log.append(f"{col} (Numeric)")
+                metrics["numeric_detected"] += 1
+                get_logger().debug(f"Classified {col} as numeric (based on numeric_check_passed criteria)")
+                continue
             
             # 4. Check for date columns
             try:
@@ -1713,42 +1705,38 @@ def _build_chart_payloads(df, meta):
 # HELPERS (Including new delimiter detection)
 # ─────────────────────────────────────────────────────────────────────────────
 def _detect_delimiter(fp: str | io.BytesIO, encoding: str) -> str:
-    """Detect the delimiter of a CSV file using csv.Sniffer."""
-    # --- FIX: Define logger within this function's scope --- 
+    """Detect the delimiter of a CSV file using csv.Sniffer, ignoring comment lines."""
     logger = get_logger()
-    # --- END FIX ---
     sample_bytes = b''
     try:
         if isinstance(fp, io.BytesIO):
             original_pos = fp.tell()
             fp.seek(0)
-            # Read a decent amount for sniffing (e.g., 4KB)
             sample_bytes = fp.read(4096)
-            fp.seek(original_pos) # Reset position
-        else: # It's a file path
+            fp.seek(original_pos)
+        else:
             with open(fp, 'rb') as f_sniff:
                 sample_bytes = f_sniff.read(4096)
-                
         if not sample_bytes:
-             logger.warning("No content to sniff delimiter, defaulting to ','")
-             return ','
-             
-        # Decode the sample using the detected encoding
+            logger.warning("No content to sniff delimiter, defaulting to ','")
+            return ','
+        # Decode and filter out comment lines
         sample_text = sample_bytes.decode(encoding, errors='replace')
-        
-        # Use Sniffer
+        sample_text = '\n'.join(line for line in sample_text.splitlines() if not line.strip().startswith('#'))
+        if not sample_text.strip():
+            logger.warning("No non-comment content to sniff delimiter, defaulting to ','")
+            return ','
         sniffer = csv.Sniffer()
         dialect = sniffer.sniff(sample_text)
         logger.debug(f"Sniffer detected delimiter: {repr(dialect.delimiter)}")
         return dialect.delimiter
     except (csv.Error, UnicodeDecodeError, Exception) as e:
         logger.warning(f"Could not sniff delimiter: {type(e).__name__} - {str(e)}. Defaulting to ','.")
-        # Ensure BytesIO position is reset even on error
         if isinstance(fp, io.BytesIO):
             try: fp.seek(original_pos)
-            except NameError: fp.seek(0) # If original_pos wasn't set
-        return ',' # Default to comma on any error
-        
+            except NameError: fp.seek(0)
+        return ','
+
 def _infer_extension(fp, original):
     if original:
         return os.path.splitext(original)[1].lower()

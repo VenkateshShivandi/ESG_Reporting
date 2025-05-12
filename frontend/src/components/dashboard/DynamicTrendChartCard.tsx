@@ -147,6 +147,29 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
   const scenario = scenarios.find(s => s.key === selectedScenario) || scenarios[1];
   const projectionPercent = customPercent;
 
+  // Add state for projections here, before it's used in chartData
+  const [showProjection, setShowProjection] = useState(false);
+  const [projections, setProjections] = useState<{ name: string; percent: number; scenario: string }[]>([]);
+  // Add state to force chart updates
+  const [chartKey, setChartKey] = useState(0);
+
+  // Restore the addProjection function
+  const addProjection = () => {
+    setProjections(prev => {
+      // Find the next available projection number
+      let num = 1;
+      let name = `Projection ${num}`;
+      const existingNames = new Set(prev.map(p => p.name));
+      while (existingNames.has(name)) {
+        num++;
+        name = `Projection ${num}`;
+      }
+      return [...prev, { name, percent: projectionPercent, scenario: selectedScenario }];
+    });
+    // Force chart to update when a projection is added
+    setChartKey(prev => prev + 1);
+  };
+
   // --- Projected line calculation ---
   // Assume X-axis is months if detected, else use all X values
   const xValues = useMemo(() => {
@@ -185,19 +208,42 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
   // Build chart data with nulls for missing/unparseable values
   const chartData = useMemo(() => {
     if (!xAxis || yAxes.length === 0) return [];
+    
+    console.log("Recalculating chart data with projections:", projections);
+    
+    // Get unique X values
+    const uniqueXValues = Array.from(new Set(tableData.map(row => row[xAxis])));
+    
     // Build a row for each unique X value
-    return Array.from(new Set(tableData.map(row => row[xAxis])))
-      .map(xVal => {
-        const baseRow = tableData.find(row => row[xAxis] === xVal) || {};
-        const rowObj: Record<string, any> = { [xAxis]: xVal };
-        yAxes.forEach(y => {
-          rowObj[y] = getNumericOrNull(baseRow[y]);
-        });
-        // Add projections if needed (existing logic)
-        // ...
-        return rowObj;
+    const baseChartData = uniqueXValues.map(xVal => {
+      const baseRow = tableData.find(row => row[xAxis] === xVal) || {};
+      const rowObj: Record<string, any> = { [xAxis]: xVal };
+      yAxes.forEach(y => {
+        rowObj[y] = getNumericOrNull(baseRow[y]);
       });
-  }, [tableData, xAxis, yAxes /*, projectedLine, etc. */]);
+      return rowObj;
+    });
+    
+    // Add projection data if we have projections
+    if (projections.length > 0 && projectedY) {
+      // For each data point, calculate what it would be with the projection applied
+      projections.forEach(proj => {
+        // Calculate projected values for each existing data point
+        baseChartData.forEach((dataPoint, i) => {
+          // If there's a valid value for this point in the selected Y series
+          if (dataPoint[projectedY] !== null && dataPoint[projectedY] !== undefined) {
+            // Apply the percentage change to create the projection
+            dataPoint[proj.name] = dataPoint[projectedY] * (1 + proj.percent / 100);
+          }
+        });
+        
+        console.log(`Projection '${proj.name}' with ${proj.percent}%:`, 
+          baseChartData.map(row => ({ x: row[xAxis], actual: row[projectedY], projected: row[proj.name] })));
+      });
+    }
+    
+    return baseChartData;
+  }, [tableData, xAxis, yAxes, projections, projectedY, chartKey]);
 
   const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#4f46e5", "#be123c"];
 
@@ -248,31 +294,6 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
       options: group.options.filter(opt => !selected.has(opt)),
     }));
   };
-
-  const [showProjection, setShowProjection] = useState(false);
-
-  // 1. Add state for projections: an array of { name: string, percent: number, scenario: string }
-  const [projections, setProjections] = useState<{ name: string; percent: number; scenario: string }[]>([]);
-
-  // 2. When "+ Add Projection" is clicked, add a new projection with a unique default name
-  const addProjection = () => {
-    setProjections(prev => {
-      // Find the next available projection number
-      let num = 1;
-      let name = `Projection ${num}`;
-      const existingNames = new Set(prev.map(p => p.name));
-      while (existingNames.has(name)) {
-        num++;
-        name = `Projection ${num}`;
-      }
-      return [...prev, { name, percent: projectionPercent, scenario: selectedScenario }];
-    });
-  };
-
-  // 3. Render each projection as a line, with an inline-editable name, a percent/slider, and remove (x) button
-  // 4. Allow adding more projections with a "+" button
-  // 5. Each projection line is calculated from the last real data point, using its percent
-  // 6. Show all projections in the chart, with their custom names in the legend
 
   // --- Determine which series have all nulls or all zeros ---
   const seriesStatus = useMemo(() => {
@@ -433,6 +454,8 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
                       onChange={e => {
                         const newName = e.target.value;
                         setProjections(prev => prev.map((p, i) => i === idx ? { ...p, name: newName } : p));
+                        // Force chart to update when name changes
+                        setChartKey(prev => prev + 1);
                       }}
                       className="w-32 px-2 py-1 rounded border border-gray-200 text-sm font-semibold text-green-700 bg-white focus:outline-none focus:border-green-400"
                     />
@@ -442,7 +465,11 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
                           key={s.key}
                           type="button"
                           className={`px-3 py-1 rounded border font-semibold text-xs transition-all shadow-sm ${proj.scenario === s.key ? `bg-${s.color}-600 text-white border-${s.color}-700` : `bg-white border-gray-200 text-${s.color}-700 hover:bg-${s.color}-50`}`}
-                          onClick={() => setProjections(prev => prev.map((p, i) => i === idx ? { ...p, scenario: s.key, percent: s.percent } : p))}
+                          onClick={() => {
+                            setProjections(prev => prev.map((p, i) => i === idx ? { ...p, scenario: s.key, percent: s.percent } : p));
+                            // Force chart to update when scenario changes
+                            setChartKey(prev => prev + 1);
+                          }}
                         >
                           {s.label[lang]}
                         </button>
@@ -454,11 +481,24 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
                       max={100}
                       step={0.1}
                       value={proj.percent}
-                      onChange={e => setProjections(prev => prev.map((p, i) => i === idx ? { ...p, percent: Number(e.target.value), scenario: "" } : p))}
+                      onChange={e => {
+                        setProjections(prev => prev.map((p, i) => i === idx ? { ...p, percent: Number(e.target.value), scenario: "" } : p));
+                        // Force chart to update when percentage changes
+                        setChartKey(prev => prev + 1);
+                      }}
                       className="w-32 accent-green-600"
                     />
                     <span className="text-base font-bold text-green-700 min-w-[40px] text-right">{proj.percent}%</span>
-                    <button type="button" className="text-gray-400 hover:text-red-500 ml-2" onClick={() => setProjections(prev => prev.filter((_, i) => i !== idx))} title={lang === "es" ? "Eliminar Proyección" : "Remove Projection"}>
+                    <button 
+                      type="button" 
+                      className="text-gray-400 hover:text-red-500 ml-2" 
+                      onClick={() => {
+                        setProjections(prev => prev.filter((_, i) => i !== idx));
+                        // Force chart to update when projection is removed
+                        setChartKey(prev => prev + 1);
+                      }} 
+                      title={lang === "es" ? "Eliminar Proyección" : "Remove Projection"}
+                    >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
@@ -467,7 +507,15 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
               <button type="button" className="flex items-center gap-1 text-green-600 hover:text-green-800 text-sm font-medium mt-1" onClick={addProjection}>
                 <Plus className="w-4 h-4" /> {lang === "es" ? "Agregar Proyección" : "Add Projection"}
               </button>
+
+              {/* Explanatory text about projections */}
+              {projections.length > 0 && (
+                <div className="mt-2 text-sm text-gray-500">
+                  Projections show what each data point would look like with the percentage change applied.
+                </div>
+              )}
             </div>
+            
             {/* Chart remains below */}
             <div className="mt-6 relative">
               <div className="h-[500px] w-full relative" ref={chartRef}>
@@ -476,7 +524,7 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
                     No data available for selected series.
                   </div>
                 ) : (
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" key={`chart-${chartKey}`}>
                     <LineChart data={chartData} margin={{ top: 50, right: 40, left: 0, bottom: 90 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                     <XAxis dataKey={xAxis} tick={renderCustomAxisTick} height={80} interval={0} />
@@ -503,6 +551,22 @@ export default function DynamicTrendChartCard({ headers, tableData, yAxisScale =
                       />
                         ) : null
                       )}
+                      
+                      {/* Render projection lines */}
+                      {projections.map((proj, idx) => (
+                        <Line
+                          key={`projection-${proj.name}`}
+                          type="monotone"
+                          dataKey={proj.name}
+                          stroke={COLORS[(yAxes.length + idx) % COLORS.length]}
+                          strokeWidth={2}
+                          strokeDasharray="5 5"
+                          dot={false}
+                          legendType="line"
+                          name={proj.name}
+                          connectNulls={true}
+                        />
+                      ))}
                   </LineChart>
                 </ResponsiveContainer>
                 )}
