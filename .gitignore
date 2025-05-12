@@ -85,4 +85,6 @@ uploads/
 # Ignore data files (if not sample/test data)
 data/
 
-mcp.json 
+mcp.json
+
+.windsurfrules 
