@@ -1369,7 +1369,12 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
     <div className={`w-full max-w-6xl mx-auto mt-12`}> 
       <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
         {/* Header Section */}
-        <div className="bg-gradient-to-r from-teal-50 to-cyan-50 px-8 py-7 flex items-center justify-between">
+        <div className="bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 px-8 py-8 flex items-center justify-between relative overflow-hidden">
+          {/* Animated background elements */}
+          <div className="absolute inset-0 opacity-30">
+            <div className="absolute top-0 left-0 w-64 h-64 bg-gradient-to-br from-emerald-200 to-transparent rounded-full blur-3xl transform -translate-x-1/2 -translate-y-1/2 animate-pulse"></div>
+            <div className="absolute bottom-0 right-0 w-64 h-64 bg-gradient-to-br from-cyan-200 to-transparent rounded-full blur-3xl transform translate-x-1/2 translate-y-1/2 animate-pulse delay-1000"></div>
+          </div>
           <div>
             <div className="flex items-center gap-3 mb-1">
               <BarChart3 className="h-7 w-7 text-teal-500" />
@@ -1383,25 +1388,30 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
         <div className="px-8 pt-8 pb-6">
           <div className="mb-7">
             <Label htmlFor="file-type-select" className="mb-2 block text-gray-700 font-semibold text-base">File Format</Label>
-            <div className="flex w-full max-w-md rounded-full overflow-hidden border border-gray-200 bg-gray-50">
+            <div className="flex w-full max-w-md rounded-lg overflow-hidden border border-gray-200 bg-white p-1">
               <button
                 type="button"
-                className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-base font-semibold transition-all
-                  ${selectedFileType === 'excel' ? 'bg-teal-500 text-white shadow-md scale-[1.02] z-10' : 'bg-gray-100 text-gray-500 hover:bg-emerald-50 z-0'}
-                  rounded-none rounded-l-full focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-1`}
+                className={`flex-1 flex items-center justify-center gap-2 h-11 px-3 text-sm font-medium rounded-xl shadow-md border-0 transition-all duration-300
+                  ${selectedFileType === 'excel'
+                    ? 'bg-gradient-to-br from-emerald-400 to-teal-500 text-white hover:from-emerald-500 hover:to-teal-600 hover:shadow-xl hover:scale-[1.01] active:scale-[0.99] z-10'
+                    : 'bg-white text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 border border-emerald-100 z-0'}
+                `}
                 onClick={() => handleFileTypeChange('excel')}
-                style={{ borderRight: '1px solid #e5e7eb' }}
               >
-                <FileSpreadsheet className="h-5 w-5" /> Excel
+                <FileSpreadsheet className="h-4 w-4" />
+                <span>Excel</span>
               </button>
               <button
                 type="button"
-                className={`flex-1 flex items-center justify-center gap-2 py-3 px-2 text-base font-semibold transition-all
-                  ${selectedFileType === 'csv' ? 'bg-teal-500 text-white shadow-md scale-[1.02] z-10' : 'bg-gray-100 text-gray-500 hover:bg-emerald-50 z-0'}
-                  rounded-none rounded-r-full focus:outline-none focus:ring-2 focus:ring-teal-400 focus:ring-offset-1`}
+                className={`flex-1 flex items-center justify-center gap-2 h-11 px-3 text-sm font-medium rounded-xl shadow-md border-0 transition-all duration-300
+                  ${selectedFileType === 'csv'
+                    ? 'bg-gradient-to-br from-emerald-400 to-teal-500 text-white hover:from-emerald-500 hover:to-teal-600 hover:shadow-xl hover:scale-[1.01] active:scale-[0.99] z-10'
+                    : 'bg-white text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 border border-emerald-100 z-0'}
+                `}
                 onClick={() => handleFileTypeChange('csv')}
               >
-                <FileType className="h-5 w-5" /> CSV
+                <FileText className="h-4 w-4" />
+                <span>CSV</span>
               </button>
             </div>
           </div>
@@ -1479,11 +1489,24 @@ export function ExcelAnalytics({ className }: ExcelAnalyticsProps) {
             <Button
               onClick={() => fetchExcelFileDirectly(selectedFile, selectedFileIndex)}
               disabled={!selectedFile || processingFile || loading}
-              className="w-full py-4 text-lg font-bold rounded-xl shadow-md bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white border-none focus:ring-2 focus:ring-emerald-400 focus:outline-none flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed"
-              variant="default"
+              className={`w-full h-14 text-lg font-bold rounded-xl shadow-md border-0 transition-all duration-300
+                ${!selectedFile || processingFile || loading
+                  ? 'opacity-60 cursor-not-allowed bg-gradient-to-br from-gray-400 to-gray-500'
+                  : 'bg-gradient-to-br from-emerald-400 to-teal-500 hover:from-emerald-500 hover:to-teal-600 hover:shadow-xl hover:scale-[1.01] active:scale-[0.99]'}`}
             >
-              <BarChart3 className="h-6 w-6 mr-2" />
-              Analyze Data
+              <div className="flex items-center justify-center gap-3">
+                {processingFile ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <BarChart3 className="h-5 w-5" />
+                    <span>Analyze Data</span>
+                  </>
+                )}
+              </div>
             </Button>
           </div>
         </div>
