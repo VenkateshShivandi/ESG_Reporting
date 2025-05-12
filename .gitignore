@@ -74,4 +74,13 @@ dev-debug.log
 # OS specific
 # Task files
 tasks.json
-tasks/ 
+tasks/
+
+# Ignore ETL cache
+cache/etl/
+
+# Ignore user uploads
+uploads/
+
+# Ignore data files (if not sample/test data)
+data/ 
