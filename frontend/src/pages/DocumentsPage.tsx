@@ -69,8 +69,8 @@ import DroppableFolderItem from "@/components/documents/DroppableFolderItem"
 import { DragItem } from "@/lib/hooks/useDragDrop"
 import { useFilesStore } from "@/lib/store/files-store"
 import { motion, AnimatePresence } from "framer-motion"
-import 'react-pdf/dist/esm/Page/AnnotationLayer.css';
-import 'react-pdf/dist/esm/Page/TextLayer.css';
+import '@/styles/react-pdf/AnnotationLayer.css';
+import '@/styles/react-pdf/TextLayer.css';
 
 const MotionTable = motion(Table)
 
@@ -102,17 +102,37 @@ const getFileIcon = (filename: string, type?: string) => {
   }
 }
 
-const getFileTypeBadge = (filename: string) => {
+const getFileTypeBadge = (filename: string, chunked?: boolean) => {
+  const badges = [];
+
+  // File type badge
   const ext = filename.split('.').pop()?.toLowerCase();
-  if (!ext) return null;
-  let color = 'bg-slate-200 text-slate-700';
-  if (ext === 'pdf') color = 'bg-red-100 text-red-700';
-  if (ext === 'docx' || ext === 'doc') color = 'bg-blue-100 text-blue-700';
-  if (ext === 'xlsx' || ext === 'xls') color = 'bg-green-100 text-green-700';
-  if (ext === 'csv') color = 'bg-green-50 text-green-700';
-  return (
-    <span className={`ml-2 px-2 py-0.5 rounded text-xs font-semibold ${color}`}>{ext.toUpperCase()}</span>
-  );
+  if (ext) {
+    let color = 'bg-slate-200 text-slate-700';
+    if (ext === 'pdf') color = 'bg-red-100 text-red-700';
+    if (ext === 'docx' || ext === 'doc') color = 'bg-blue-100 text-blue-700';
+    if (ext === 'xlsx' || ext === 'xls') color = 'bg-green-100 text-green-700';
+    if (ext === 'csv') color = 'bg-green-50 text-green-700';
+    badges.push(
+      <span key="type" className={`ml-2 px-2 py-0.5 rounded text-xs font-semibold ${color}`}>
+        {ext.toUpperCase()}
+      </span>
+    );
+  }
+
+  // Chunked status badge
+  if (chunked !== undefined) {
+    const chunkedColor = chunked
+      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'
+      : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300';
+    badges.push(
+      <span key="chunked" className={`ml-2 px-2 py-0.5 rounded text-xs font-semibold ${chunkedColor}`}>
+        {chunked ? 'Chunked' : 'Not Chunked'}
+      </span>
+    );
+  }
+
+  return badges.length > 0 ? badges : null;
 };
 
 interface FileInfo {
@@ -1339,7 +1359,7 @@ const DocumentsPage: NextPage<Props> = () => {
                                           {getFileIcon(item.name, item.type)}
                                           <span className="ml-1 cursor-default">
                                             {item.name}
-                                            {getFileTypeBadge(item.name)}
+                                            {getFileTypeBadge(item.name, item.chunked)}
                                           </span>
                                         </div>
                                       </DraggableFileItem>

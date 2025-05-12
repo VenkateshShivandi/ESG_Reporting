@@ -3,7 +3,7 @@
 
 import logging
 import uuid
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
 
 # Import the Supabase client utility
@@ -15,51 +15,94 @@ logger = logging.getLogger(__name__)
 DOCUMENTS_TABLE = "documents"  # Updated table name
 CHUNKS_TABLE = "document_chunks"  # Updated table name
 
-# --- Document Storage ---
+# --- Validation Functions ---
 
+def validate_chunk_storage_request(
+    supabase: Any,
+    document_id: str,
+    chunks: List[Dict[str, Any]],
+    embeddings: List[List[float]]
+) -> Tuple[bool, str, List[Dict[str, Any]]]:
+    """
+    Validates the request to store chunks and their embeddings.
+    
+    Args:
+        supabase: The Supabase client instance
+        document_id (str): The UUID of the parent document
+        chunks (List[Dict[str, Any]]): The list of chunks to store
+        embeddings (List[List[float]]): The list of embedding vectors
 
-# def update_document_status(document_id: str, status: str) -> bool:
-#     """
-#     Updates the status of an existing document record in the Supabase documents table.
+    Returns:
+        Tuple[bool, str, List[Dict[str, Any]]]: A tuple containing:
+            - bool: True if validation passed, False otherwise
+            - str: Error message if validation failed, empty string if passed
+            - List[Dict[str, Any]]: Processed records to insert if validation passed, empty list if failed
+    """
+    logger.info(f"Starting validation for chunk storage request - Document ID: {document_id}")
+    
+    # Check Supabase client
+    if not supabase:
+        msg = "Supabase client not available"
+        logger.error(f"Validation failed: {msg}")
+        return False, msg, []
 
-#     Args:
-#         document_id (str): The ID of the existing document record.
-#         status (str): The new status to set.
+    # Check document_id
+    if not document_id or not isinstance(document_id, str):
+        msg = f"Invalid document_id: {document_id}"
+        logger.error(f"Validation failed: {msg}")
+        return False, msg, []
 
-#     Returns:
-#         bool: True if update was successful, False otherwise.
-#     """
-#     supabase = get_supabase_client()
-#     if not supabase:
-#         logger.error("Supabase client not available. Cannot update document status.")
-#         return False
+    # Check chunks and embeddings existence
+    if not chunks or not embeddings:
+        msg = "Empty chunks or embeddings list provided"
+        logger.error(f"Validation failed: {msg}")
+        return False, msg, []
 
-#     try:
-#         logger.info(f"Updating document status for ID {document_id} to {status}")
-        
-#         # Update document status
-#         response = (
-#             supabase.schema("esg_data")
-#             .table(DOCUMENTS_TABLE)
-#             .update({"status": status})
-#             .eq("id", document_id)
-#             .execute()
-#         )
+    # Check length match between chunks and embeddings
+    if len(chunks) != len(embeddings):
+        msg = f"Mismatch between chunks ({len(chunks)}) and embeddings ({len(embeddings)})"
+        logger.error(f"Validation failed: {msg}")
+        return False, msg, []
 
-#         if hasattr(response, "error") and response.error:
-#             logger.error(f"Error updating document status: {response.error}")
-#             return False
+    # Validate individual chunks and prepare records
+    records_to_insert = []
+    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        # Validate chunk structure
+        if not isinstance(chunk, dict) or 'text' not in chunk:
+            msg = f"Invalid chunk structure at index {i}"
+            logger.error(f"Validation failed: {msg}")
+            return False, msg, []
 
-#         logger.info(f"Successfully updated status for document ID: {document_id}")
-#         return True
+        # Validate embedding format
+        if not isinstance(embedding, list) or not all(isinstance(x, (int, float)) for x in embedding):
+            msg = f"Invalid embedding format at index {i}"
+            logger.error(f"Validation failed: {msg}")
+            return False, msg, []
 
-#     except Exception as e:
-#         logger.exception(f"Exception updating document status: {e}")
-#         return False
+        # Default chunk_type, maybe enhance later if chunk metadata provides it
+        chunk_type = chunk.get("metadata", {}).get("type", "text")
+
+        record = {
+            "document_id": document_id,
+            "chunk_text": chunk.get("text"),
+            "embedding": embedding,
+            "chunk_id": i,
+            "chunk_type": chunk_type,
+        }
+        records_to_insert.append(record)
+
+    # Check total size of records (rough estimation)
+    total_size = sum(len(str(record)) for record in records_to_insert)
+    if total_size > 10 * 1024 * 1024:  # 10MB limit as an example
+        msg = f"Total payload size ({total_size / 1024 / 1024:.2f}MB) exceeds limit"
+        logger.error(f"Validation failed: {msg}")
+        return False, msg, []
+
+    logger.info(f"Validation passed successfully for {len(records_to_insert)} chunks")
+    return True, "", records_to_insert
 
 
 # --- Chunk Storage ---
-
 
 def store_chunks(
     document_id: str, chunks: List[Dict[str, Any]], embeddings: List[List[float]]
@@ -76,35 +119,15 @@ def store_chunks(
         bool: True if all chunks were stored successfully, False otherwise.
     """
     supabase = get_supabase_client()
-    if not supabase:
-        logger.error("Supabase client not available. Cannot store chunks.")
+    
+    # Validate request
+    is_valid, error_msg, records_to_insert = validate_chunk_storage_request(
+        supabase, document_id, chunks, embeddings
+    )
+    
+    if not is_valid:
+        logger.error(f"Validation failed for chunk storage: {error_msg}")
         return False
-
-    if len(chunks) != len(embeddings):
-        logger.error("Mismatch between number of chunks and embeddings. Cannot store.")
-        return False
-
-    if not chunks:
-        logger.info(
-            f"No chunks provided for document ID {document_id}. Nothing to store."
-        )
-        return True
-
-    records_to_insert = []
-    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-        # Default chunk_type, maybe enhance later if chunk metadata provides it
-        chunk_type = chunk.get("source_type", "text")
-
-        record = {
-            "document_id": document_id,  # FK to documents.id
-            "chunk_text": chunk.get("text"),
-            "embedding": embedding,  # Map to DB column 'embedding'
-            # "metadata": chunk.get("metadata", {}), # Column does not exist
-            "chunk_id": i,  # Map chunk_index to DB column 'chunk_id'
-            "chunk_type": chunk_type,  # Populate the existing chunk_type column
-            # DB columns id (PK) and created_at are auto-populated
-        }
-        records_to_insert.append(record)
 
     try:
         logger.info(
@@ -112,7 +135,7 @@ def store_chunks(
         )
         # Specify schema using .schema() method before .table()
         response = (
-            supabase.schema("esg_data")
+            supabase.postgrest.schema("esg_data")
             .table(CHUNKS_TABLE)
             .insert(records_to_insert)
             .execute()
