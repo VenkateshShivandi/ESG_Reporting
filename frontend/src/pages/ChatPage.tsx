@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useMemo } from "react"
+import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { useAssistant } from '@ai-sdk/react'
 import { Button } from "@/components/ui/button"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -19,6 +19,10 @@ import ReactMarkdown from 'react-markdown'
 import { useAuth, withAuth } from '@/hooks/use-auth'
 import { useChatStore } from '@/lib/store/chat-store'
 import { useEffect as useLoadEffect } from "react"
+import { supabase } from "../lib/supabase"
+import { useRouter } from "next/navigation"
+import { documentsApi } from "@/lib/api/documents"
+import type { FileItem } from "@/lib/types/documents"
 
 // Define a type for reports
 interface Report {
@@ -30,6 +34,7 @@ interface Report {
   status?: string;
   generated_at?: string;
   scheduled_for?: string;
+  content?: string;
   metrics?: {
     environmental_score: number;
     social_score: number;
@@ -37,10 +42,21 @@ interface Report {
   };
 }
 
+// Define a type for chunked files
+interface ChunkedFile {
+  id: string;
+  name: string;
+  chunk_count: number;
+  chunked_at: string;
+}
+
 function ChatPage() {
   const { session, isLoading: authLoading } = useAuth()
   const initRef = useRef(false)
   const { messages: storedMessages, setMessages: setStoredMessages } = useChatStore()
+  const router = useRouter()
+  const [files, setFiles] = useState<FileItem[]>([])
+  const [currentPath, setCurrentPath] = useState<string[]>([])
 
   // Initialize chat with proper auth token
   const chatConfig = useMemo(() => ({
@@ -51,6 +67,45 @@ function ChatPage() {
   }), [session?.access_token])
 
   const { messages, handleInputChange, input, setInput, setMessages } = useAssistant(chatConfig)
+
+  // Add state for OpenAI file upload
+  const [uploadedOpenAIFiles, setUploadedOpenAIFiles] = useState<{
+    id: string;
+    filename: string;
+    addedToFileSearch?: boolean;
+  }[]>([])
+  const [isUploadingToOpenAI, setIsUploadingToOpenAI] = useState(false)
+  const [reportContent, setReportContent] = useState<string>('')
+
+  // Load files using documentsApi
+  const loadFiles = useCallback(async () => {
+    try {
+      const chunked = await documentsApi.getChunkedFiles()
+      const chunkedFileItems = chunked.map(f => ({
+        id: f.id,
+        name: f.name,
+        type: 'file' as const,
+        size: 0,
+        modified: new Date(f.chunked_at),
+        path: [],
+        metadata: { mimetype: '', lastModified: f.chunked_at, contentLength: 0 },
+        created_at: f.chunked_at,
+        updated_at: f.chunked_at,
+      }))
+      setFiles(chunkedFileItems)
+    } catch (error) {
+      console.error("Error loading chunked files:", error)
+      toast.error("Failed to load chunked files")
+      setFiles([])
+    }
+  }, [])
+
+  // Load files when component mounts or path changes
+  useEffect(() => {
+    if (session?.access_token) {
+      loadFiles()
+    }
+  }, [session?.access_token, loadFiles])
 
   // Handle initial messages setup
   useEffect(() => {
@@ -64,7 +119,7 @@ function ChatPage() {
         } else if (messages.length === 0) {
           // Set welcome message if no stored messages
           setMessages([{
-            id: 'welcome',
+            id: `welcome-${Date.now()}`,
             role: 'assistant',
             content: 'Hello! I am your ESG Analytics Assistant. How can I help you today?'
           }]);
@@ -110,7 +165,7 @@ function ChatPage() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isReportListOpen, setIsReportListOpen] = useState(false)
   const [selectedType, setSelectedType] = useState<string>("")
-  const { files, fetchFiles } = useFilesStore()
+  const { files: storedFiles, fetchFiles } = useFilesStore()
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set())
   const [searchQuery, setSearchQuery] = useState("")
   const [isSearching, setIsSearching] = useState(false)
@@ -138,6 +193,8 @@ function ChatPage() {
 
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
   const [isGeneratingResponse, setIsGeneratingResponse] = useState(false)
+
+  const [isUploadingToGraph, setIsUploadingToGraph] = useState(false)
 
   // Define status messages only once at the component level
   const statusMessages = [
@@ -185,28 +242,37 @@ function ChatPage() {
 
     // When opening the sidebar, load files if none exist
     if (!isSidebarOpen && files.length === 0 && session?.access_token) {
-      fetchFiles(session.access_token)
+      loadFiles()
     }
   }
 
   // Function to toggle the reports list sidebar
-  const toggleReportList = () => {
-    const newState = !isReportListOpen
-    setIsReportListOpen(newState)
+  const toggleReportList = async () => {
+    try {
+      setIsLoadingReports(true);
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/list-reports`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        }
+      });
 
-    // Close the files sidebar if it's open
-    if (isSidebarOpen) {
-      setIsSidebarOpen(false)
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to fetch reports');
+      }
+
+      const reports = await response.json();
+      setReports(reports);
+      setIsReportListOpen(!isReportListOpen);
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      toast.error('Failed to fetch reports');
+    } finally {
+      setIsLoadingReports(false);
     }
-
-    // Fetch reports if opening the list
-    if (newState && reports.length === 0) {
-      fetchReports()
-    }
-
-    // Dispatch a custom event to collapse the main navigation sidebar if it's expanded
-    window.dispatchEvent(new CustomEvent('collapseMainSidebar'))
-  }
+  };
 
   const handleFileSelect = (fileId: string) => {
     setSelectedFiles((prev) => {
@@ -285,95 +351,91 @@ function ChatPage() {
     }
   }
 
-  const handleGenerateReport = () => {
+  const handleGenerateReport = async () => {
     const selectedFilesList = files.filter((file) => selectedFiles.has(file.id))
     if (selectedType && selectedFilesList.length > 0) {
-      // Store report data for later creation
-      const reportData = {
-        type: selectedType,
-        files: selectedFilesList.map(file => file.id)
-      }
+      setIsGeneratingReport(true);
 
-      // Set generating state to true
-      setIsGeneratingReport(true)
-
-      // Clear any existing toasts
-      toast.dismiss();
-
-      // Use a consistent toast ID to ensure proper replacement
       const toastId = "report-generation-toast";
-
-      // Show first toast - Report generation started
-      toast(`${selectedType} report generation started`, {
+      toast("Starting report generation...", {
         id: toastId,
-        icon: <CheckCircle className="h-4 w-4" />,
-        duration: 3000
+        icon: <Loader2 className="h-4 w-4 animate-spin" />,
       });
 
-      // Create a sequence of toasts with proper timing
-      const sequence = [
-        {
-          message: "Generating your report...",
-          icon: <Loader2 className="h-4 w-4 animate-spin" />,
-          delay: 3000
-        },
-        {
-          message: "Analyzing documents...",
-          icon: <Loader2 className="h-4 w-4 animate-spin" />,
-          delay: 3000
-        },
-        {
-          message: "Finalizing report...",
-          icon: <Loader2 className="h-4 w-4 animate-spin" />,
-          delay: 3000
+      try {
+        // Create FormData object
+        const formData = new FormData();
+
+        // Get the first selected file's data from Supabase
+        const firstFile = selectedFilesList[0];
+        console.log("First file:", firstFile);
+        console.log("Selected files list:", selectedFilesList);
+        console.log("Supabase:", supabase);
+        console.log("Attempting to download file with ID:", firstFile.id);
+
+        const { data: fileData, error } = await supabase.storage
+          .from('documents')
+          .download(firstFile.name);
+
+        if (error) {
+          console.error("Supabase storage error:", error);
+          throw new Error(`Failed to download file: ${error.message}`);
         }
-      ];
 
-      // Execute the sequence with proper timing
-      let cumulativeDelay = 0;
-      sequence.forEach((item) => {
-        cumulativeDelay += item.delay;
-        setTimeout(() => {
-          toast(item.message, {
-            id: toastId,
-            icon: item.icon,
-            duration: item.delay
-          });
-        }, cumulativeDelay);
-      });
+        if (!fileData) {
+          throw new Error("No file data received from storage");
+        }
 
-      // After all processing toasts, show success and create report
-      setTimeout(() => {
-        // Create and add the new report
+        // Log successful download
+        console.log("File downloaded successfully:", {
+          fileName: firstFile.name,
+          fileSize: fileData.size
+        });
+
+        // Add the file to FormData
+        formData.append('file', fileData, firstFile.name);
+
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/generate-gri-report`, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'Authorization': `Bearer ${session?.access_token}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to generate report');
+        }
+
+        const reportData = await response.json();
+
+        // Create new report with the API response data
         const newReport: Report = {
           id: `report-${Date.now()}`,
           name: `${selectedType} Report - ${new Date().toLocaleDateString()}`,
-          type: reportData.type,
+          type: selectedType,
           timestamp: new Date(),
-          files: reportData.files,
-          // Add sample metrics for demonstration
+          files: selectedFilesList.map(file => file.id),
           metrics: {
-            environmental_score: Math.floor(Math.random() * 30) + 70, // Random score between 70-100
-            social_score: Math.floor(Math.random() * 30) + 70,
-            governance_score: Math.floor(Math.random() * 30) + 70
-          }
+            environmental_score: 85,
+            social_score: 80,
+            governance_score: 90
+          },
+          generated_at: new Date().toISOString(),
+          status: 'completed'
         };
 
-        // Add to reports list - add new report at the beginning of the array
+        // Update reports state and localStorage
         setReports(prev => [newReport, ...prev]);
-        
         // Save to localStorage for persistence
         try {
           // Get existing reports from localStorage
           const savedReportsJson = localStorage.getItem('generatedReports');
           let savedReports = savedReportsJson ? JSON.parse(savedReportsJson) : [];
-          
           // Add new report at the beginning
           savedReports = [newReport, ...savedReports];
-          
           // Save back to localStorage
           localStorage.setItem('generatedReports', JSON.stringify(savedReports));
-          
           // Dispatch event for ReportsPage to listen to
           const newReportEvent = new CustomEvent('newReportGenerated', {
             detail: { report: newReport }
@@ -383,21 +445,32 @@ function ChatPage() {
           console.error('Error saving report to localStorage:', error);
         }
 
-        // Set generating state to false
+        // Save to localStorage
+        try {
+          const savedReportsJson = localStorage.getItem('generatedReports');
+          let savedReports = savedReportsJson ? JSON.parse(savedReportsJson) : [];
+          savedReports = [newReport, ...savedReports];
+          localStorage.setItem('generatedReports', JSON.stringify(savedReports));
+
+          window.dispatchEvent(new CustomEvent('newReportGenerated', {
+            detail: { report: newReport }
+          }));
+        } catch (error) {
+          console.error('Error saving report to localStorage:', error);
+        }
+
+        toast.success("Report generated successfully", { id: toastId });
+      } catch (error) {
+        console.error('Detailed error:', error);
+        toast.error("Failed to generate report");
+        throw error;
+      } finally {
         setIsGeneratingReport(false);
-
-        // Show success toast
-        toast("Report generated successfully", {
-          id: toastId,
-          icon: <CheckCircle className="h-4 w-4 text-green-500" />,
-          duration: 5000
-        });
-      }, cumulativeDelay + 3000);
-
-      setIsModalOpen(false);
-      setSelectedType("");
-      setSelectedFiles(new Set());
-      setReportPrompt("Generate a detailed ESG report based on the selected files, focusing on environmental, social, and governance performance.");
+        setIsModalOpen(false);
+        setSelectedType("");
+        setSelectedFiles(new Set());
+        setReportPrompt("Generate a detailed ESG report based on the selected files, focusing on environmental, social, and governance performance.");
+      }
     } else {
       toast.error("Please select a report type and at least one file");
     }
@@ -558,7 +631,7 @@ function ChatPage() {
         const mockFile = {
           id: 'test-file-1',
           name: '4_Entrevista_a_ejidatarios.docx',
-          type: 'file',
+          type: 'file' as const,
           size: 1740000, // 1.74 MB
           modified: new Date('2025-03-14'),
           path: ['test'],
@@ -640,7 +713,7 @@ function ChatPage() {
     if (!input.trim() || !session?.access_token || isGeneratingResponse) return;
 
     const userMessage = {
-      id: String(Date.now()),
+      id: `user-${Date.now()}`,
       role: "user" as const,
       content: input
     };
@@ -651,8 +724,9 @@ function ChatPage() {
     setIsGeneratingResponse(true);
 
     // Add temporary loading message with typing animation
+    const loadingId = `loading-${Date.now()}`;
     const loadingMessage = {
-      id: 'loading',
+      id: loadingId,
       role: 'assistant' as const,
       content: '●●●'
     };
@@ -664,7 +738,7 @@ function ChatPage() {
       dots = (dots + 1) % 4;
       setMessages(prev =>
         prev.map(msg =>
-          msg.id === 'loading'
+          msg.id === loadingId
             ? { ...msg, content: '●'.repeat(dots + 1) }
             : msg
         )
@@ -690,10 +764,10 @@ function ChatPage() {
 
       // Replace loading message with actual response
       setMessages(prev => {
-        const messages = prev.filter(msg => msg.id !== 'loading');
+        const messages = prev.filter(msg => msg.id !== loadingId);
         if (data) {
           messages.push({
-            id: data.id || String(Date.now()),
+            id: data.id || `assistant-${Date.now()}`,
             role: "assistant",
             content: data.content
           });
@@ -703,7 +777,7 @@ function ChatPage() {
     } catch (error) {
       // Remove loading message and show error
       setMessages(prev => {
-        const messages = prev.filter(msg => msg.id !== 'loading');
+        const messages = prev.filter(msg => msg.id !== loadingId);
         return messages;
       });
       console.error('Error sending message:', error);
@@ -723,7 +797,7 @@ function ChatPage() {
     setIsLoadingReports(true)
     try {
       console.log("Fetching reports list...")
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/analytics/reports`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/list-reports`, {
         headers: {
           'Authorization': `Bearer ${session.access_token}`
         }
@@ -800,9 +874,275 @@ function ChatPage() {
   useLoadEffect(() => {
     // Ensure files are loaded when initializing
     if (session?.access_token && files.length === 0) {
-      fetchFiles(session.access_token)
+      loadFiles()
     }
-  }, [session, fetchFiles, files.length])
+  }, [session, loadFiles, files.length])
+
+  // Update the uploadSelectedFilesToOpenAI function to use documentsApi
+  const uploadSelectedFilesToOpenAI = async () => {
+    if (!session?.access_token || selectedFiles.size === 0) return
+
+    setIsUploadingToOpenAI(true)
+    const uploadedFiles: Array<{
+      id: string;
+      filename: string;
+      addedToFileSearch?: boolean;
+    }> = []
+    let hasErrors = false
+
+    try {
+      // Get the thread ID from the chat configuration
+      let threadId = null
+      if (messages.length > 0) {
+        const threadIdRegex = /thread_([a-zA-Z0-9]+)/
+        const threadMatch = messages.find(m => m.content?.match?.(threadIdRegex))
+        if (threadMatch) {
+          const match = threadMatch.content.match(threadIdRegex)
+          if (match && match[1]) {
+            threadId = match[1]
+          }
+        }
+      }
+
+      // Process each selected file
+      for (const fileId of selectedFiles) {
+        const file = files.find(f => f.id === fileId)
+        if (!file) continue
+
+        try {
+          console.log("Uploading file to OpenAI:", file);
+
+          // Create form data with file information
+          const formData = new FormData()
+
+          // Create a blob with detailed file info that backend can use to identify the file
+          const fileInfo = {
+            id: file.id,
+            name: file.name,
+            path: file.path || [],
+            type: file.type || 'file' as const,
+            size: file.size,
+            modified: file.modified,
+            metadata: (file as any).metadata || {},
+            created_at: (file as any).created_at,
+            updated_at: (file as any).updated_at
+          }
+
+          const infoBlob = new Blob([JSON.stringify(fileInfo, null, 2)],
+            { type: 'application/json' })
+
+          // Add the file info as the main file
+          formData.append('file', infoBlob, file.name)
+
+          // Add individual properties as form fields for easier access on the backend
+          formData.append('supabase_file_id', file.id)
+          formData.append('file_name', file.name)
+
+          // Add path information if available
+          if (file.path) {
+            if (Array.isArray(file.path)) {
+              formData.append('file_path', file.path.join('/'))
+            } else {
+              formData.append('file_path', String(file.path))
+            }
+          }
+
+          // Include the current folder path if navigating folders
+          if (currentPath) {
+            formData.append('current_folder', currentPath.join('/'))
+          }
+
+          if (threadId) {
+            formData.append('thread_id', threadId)
+          }
+
+          // Upload to OpenAI via our backend
+          const uploadResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/upload-to-openai`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`
+            },
+            body: formData
+          })
+
+          if (!uploadResponse.ok) {
+            const errorData = await uploadResponse.json()
+            console.error("Upload error response:", errorData)
+            throw new Error(errorData.error || `Failed to upload ${file.name}`)
+          }
+
+          const uploadData = await uploadResponse.json()
+          uploadedFiles.push({
+            id: uploadData.file_id,
+            filename: file.name,
+            addedToFileSearch: uploadData.added_to_file_search
+          })
+
+          // Show progress toast with improved information
+          const fileSearchStatus = uploadData.added_to_file_search
+            ? "and added to File Search"
+            : ""
+          toast.success(`Uploaded ${file.name}`, {
+            description: fileSearchStatus ? `File is now searchable via File Search` : undefined
+          })
+        } catch (error) {
+          console.error(`Error uploading file ${file.name}:`, error)
+          toast.error(`Failed to upload ${file.name}`)
+          hasErrors = true
+        }
+      }
+
+      if (uploadedFiles.length > 0) {
+        // Update the state with uploaded files
+        setUploadedOpenAIFiles(prev => [...prev, ...uploadedFiles])
+
+        // Clear selected files after successful upload
+        setSelectedFiles(new Set())
+
+        // Check if all files were added to File Search
+        const allAddedToFileSearch = uploadedFiles.every(f => (f as any).addedToFileSearch)
+
+        // Show success message with file details and File Search status
+        const fileNames = uploadedFiles.map(f => f.filename).join(', ')
+        const fileSearchInfo = allAddedToFileSearch
+          ? "Files are searchable via File Search"
+          : ""
+
+        toast.success(`Files uploaded to AI Assistant`, {
+          description: `You can now ask questions about: ${fileNames}. ${fileSearchInfo}`
+        })
+      } else if (hasErrors) {
+        toast.error('Failed to upload all files')
+      }
+    } catch (error) {
+      console.error('Error uploading files to OpenAI:', error)
+      toast.error('Failed to upload files to AI assistant')
+      hasErrors = true
+    } finally {
+      setIsUploadingToOpenAI(false)
+    }
+
+    return !hasErrors
+  }
+
+  const uploadDocumentsToGraph = async () => {
+    if (!session?.access_token || selectedFiles.size === 0) return
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/create-graph`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          document_ids: Array.from(selectedFiles),
+          user_id: session.user.id
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error("Upload error response:", errorData)
+        throw new Error(errorData.error || "Failed to upload documents to graph")
+      }
+
+      const data = await response.json()
+      console.log("Graph creation response:", data)
+
+      toast.success("Documents uploaded to graph successfully")
+    } catch (error) {
+      console.error("Error uploading documents to graph:", error)
+      toast.error("Failed to upload documents to graph")
+    } finally {
+      setIsUploadingToGraph(false)
+    }
+  }
+
+  // Add UI for upload button in the sidebar
+  const renderOpenAIUploadSection = () => {
+    if (selectedFiles.size === 0) return null
+
+    return (
+      <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
+        <h3 className="text-sm font-medium text-blue-800 flex items-center gap-1.5 mb-2">
+          <Bot className="h-4 w-4 text-blue-500" />
+          Share with AI Assistant
+        </h3>
+        <p className="text-xs text-blue-700 mb-3">
+          Upload selected files to make them available in your chat conversation.
+          Files will be added to File Search for better document analysis.
+        </p>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={uploadDocumentsToGraph}
+          disabled={isUploadingToOpenAI}
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+        >
+          {isUploadingToOpenAI ? (
+            <>
+              <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+              Uploading...
+            </>
+          ) : (
+            <>
+              <Bot className="h-3 w-3 mr-2" />
+              Share {selectedFiles.size} {selectedFiles.size === 1 ? 'file' : 'files'} with AI
+            </>
+          )}
+        </Button>
+      </div>
+    )
+  }
+
+  // Add this function near your other handlers
+  const handleViewReport = async (report: Report) => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/view-report/${report.name}/content`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+      });
+
+      if (response.status === 401) {
+        router.push('/auth');
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to view report');
+      }
+
+      const data = await response.json();
+      // Update the selected report with the content
+      setSelectedReport({ ...report, content: data.content });
+
+    } catch (error) {
+      console.error('Error viewing report:', error);
+    }
+  };
+
+  const [chunkedFiles, setChunkedFiles] = useState<ChunkedFile[]>([])
+  const [isLoadingChunkedFiles, setIsLoadingChunkedFiles] = useState(false)
+
+  // Fetch chunked files on mount
+  useEffect(() => {
+    if (!session?.access_token) return;
+    setIsLoadingChunkedFiles(true)
+    documentsApi.getChunkedFiles()
+      .then(setChunkedFiles)
+      .catch((err) => {
+        console.error('Error loading chunked files:', err)
+        setChunkedFiles([])
+      })
+      .finally(() => setIsLoadingChunkedFiles(false))
+  }, [session?.access_token])
+
+  const chunkedFileIdSet = useMemo(() => new Set(chunkedFiles.map(f => f.id)), [chunkedFiles])
+  const getChunkInfo = (fileId: string) => chunkedFiles.find(f => f.id === fileId)
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -958,6 +1298,9 @@ function ChatPage() {
                 </div>
               )}
 
+              {/* Add OpenAI upload section */}
+              {renderOpenAIUploadSection()}
+
               {/* Add folder navigation */}
               {currentFolderPath && (
                 <div className="mt-4 bg-slate-50 rounded-lg p-2">
@@ -991,10 +1334,10 @@ function ChatPage() {
                       <>
                         {filteredFiles.map((file) => (
                           <div
-                            key={file.id}
+                            key={file.id || `file-${Math.random().toString(36).substr(2, 9)}`}
                             className={`flex items-center gap-3 p-2.5 rounded-lg transition-all
-                              ${selectedFiles.has(file.id) 
-                                ? "bg-emerald-50 border border-emerald-100 shadow-sm" 
+                              ${file.id && selectedFiles.has(file.id)
+                                ? "bg-emerald-50 border border-emerald-100 shadow-sm"
                                 : "hover:bg-slate-50 border border-transparent"
                               }
                               ${file.type === "folder" ? "cursor-pointer" : ""}`}
@@ -1003,13 +1346,19 @@ function ChatPage() {
                             {file.type === "file" ? (
                               <div className="flex items-center gap-3 flex-1">
                                 <Checkbox
-                                  checked={selectedFiles.has(file.id)}
-                                  onCheckedChange={() => handleFileSelect(file.id)}
-                                  className={selectedFiles.has(file.id) ? "border-emerald-500 bg-emerald-500 text-white" : ""}
+                                  checked={file.id && selectedFiles.has(file.id)}
+                                  onCheckedChange={() => file.id && handleFileSelect(file.id)}
+                                  className={file.id && selectedFiles.has(file.id) ? "border-emerald-500 bg-emerald-500 text-white" : ""}
                                 />
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <FileText className="h-4 w-4 flex-shrink-0 text-blue-500" />
-                                  <span className="text-sm text-slate-700 truncate">{file.name}</span>
+                                  <span className="text-sm text-slate-700 truncate">
+                                    {file.name}
+                                    <span className="ml-2 w-24 justify-center px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold flex items-center gap-1">
+                                      <Bot className="h-3 w-3 text-emerald-500" /> Chunked
+                                      <span className="ml-1 text-[10px] text-emerald-600">({getChunkInfo(file.id)?.chunk_count})</span>
+                                    </span>
+                                  </span>
                                 </div>
                               </div>
                             ) : (
@@ -1042,7 +1391,7 @@ function ChatPage() {
                       variant="outline"
                       size="sm"
                       className="mt-4 border-slate-200 text-slate-700"
-                      onClick={() => session?.access_token && fetchFiles(session.access_token)}
+                      onClick={() => session?.access_token && loadFiles()}
                     >
                       <Loader2 className="h-3 w-3 mr-2" />
                       Refresh Files
@@ -1126,17 +1475,14 @@ function ChatPage() {
                   <div className="space-y-6 min-h-[200px] pb-4 max-w-[800px] mx-auto">
                     {messages.map((message, index) => (
                       <div
-                        key={message.id}
+                        key={message.id || `msg-${Math.random().toString(36).substr(2, 9)}`}
                         className={`flex ${message.role === "assistant" ? "justify-start" : "justify-end"}`}
                       >
                         <div
                           className={`flex items-start gap-3 max-w-[85%] ${message.role === "assistant" ? "flex-row" : "flex-row-reverse"}`}
                         >
                           <Avatar className={`${message.role === "assistant" ? "h-8 w-8" : "h-7 w-7"} mt-1 rounded-full ${message.role === "assistant" ? "border-2 border-emerald-100" : ""}`}>
-                            <AvatarImage
-                              src={message.role === "assistant" ? "/bot-avatar.png" : "/user-avatar.png"}
-                              className="object-cover"
-                            />
+
                             <AvatarFallback className={message.role === "assistant" ? "bg-gradient-to-br from-emerald-400 to-emerald-600" : "bg-blue-600"}>
                               {message.role === "assistant" ? <Bot className="h-4 w-4 text-white" /> : <User className="h-4 w-4 text-white" />}
                             </AvatarFallback>
@@ -1151,13 +1497,13 @@ function ChatPage() {
                             {message.role === "assistant" ? (
                               <ReactMarkdown
                                 components={{
-                                  a: ({node, ...props}) => <a className="text-emerald-600" {...props} />,
-                                  h1: ({node, ...props}) => <h1 className="text-slate-800 font-bold text-2xl mt-6 mb-4" {...props} />,
-                                  h2: ({node, ...props}) => <h2 className="text-slate-800 font-bold text-xl mt-5 mb-3" {...props} />,
-                                  h3: ({node, ...props}) => <h3 className="text-slate-800 font-bold text-lg mt-4 mb-2" {...props} />,
-                                  h4: ({node, ...props}) => <h4 className="text-slate-800 font-semibold mt-4 mb-2" {...props} />,
-                                  h5: ({node, ...props}) => <h5 className="text-slate-800 font-semibold mt-3 mb-1" {...props} />,
-                                  h6: ({node, ...props}) => <h6 className="text-slate-800 font-semibold mt-3 mb-1" {...props} />
+                                  a: ({ node, ...props }) => <a className="text-emerald-600" {...props} />,
+                                  h1: ({ node, ...props }) => <h1 className="text-slate-800 font-bold text-2xl mt-6 mb-4" {...props} />,
+                                  h2: ({ node, ...props }) => <h2 className="text-slate-800 font-bold text-xl mt-5 mb-3" {...props} />,
+                                  h3: ({ node, ...props }) => <h3 className="text-slate-800 font-bold text-lg mt-4 mb-2" {...props} />,
+                                  h4: ({ node, ...props }) => <h4 className="text-slate-800 font-semibold mt-4 mb-2" {...props} />,
+                                  h5: ({ node, ...props }) => <h5 className="text-slate-800 font-semibold mt-3 mb-1" {...props} />,
+                                  h6: ({ node, ...props }) => <h6 className="text-slate-800 font-semibold mt-3 mb-1" {...props} />
                                 }}
                               >
                                 {message.content}
@@ -1314,9 +1660,12 @@ function ChatPage() {
                       <div className="space-y-2.5">
                         {reports.map((report) => (
                           <div
-                            key={report.id}
+                            key={report.id || `report-${Math.random().toString(36).substr(2, 9)}`}
                             className="p-3 rounded-lg border border-slate-200 hover:border-emerald-200 hover:shadow-sm hover:bg-emerald-50/30 cursor-pointer transition-all"
-                            onClick={() => handleSelectReport(report)}
+                            onClick={() => {
+                              handleSelectReport(report);
+                              handleViewReport(report);
+                            }}
                           >
                             <div className="flex items-start gap-3">
                               <div className={`p-1.5 rounded-md ${report.type === 'GRI' ? 'bg-emerald-100' : 'bg-blue-100'} flex-shrink-0`}>
@@ -1327,7 +1676,7 @@ function ChatPage() {
                                 <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
                                   <Calendar className="h-3 w-3" />
                                   <span className="truncate">
-                                    {report.timestamp.toLocaleDateString()} {report.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    {new Date(report.timestamp).toLocaleDateString()} {new Date(report.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {report.type}
                                   </span>
                                 </div>
                                 {report.status && (
@@ -1336,7 +1685,7 @@ function ChatPage() {
                                       report.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
                                         report.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
                                           'bg-slate-100 text-slate-800'
-                                      }`}>
+                                    }`}>
                                     {report.status === 'completed' ? 'Completed' :
                                       report.status === 'pending_review' ? 'Pending Review' :
                                         report.status === 'scheduled' ? 'Scheduled' :
@@ -1418,17 +1767,17 @@ function ChatPage() {
                 {files.filter((file) => selectedFiles.has(file.id)).length > 0 ? (
                   <ul className="space-y-2">
                     {files
-                      .filter((file) => selectedFiles.has(file.id))
+                      .filter((file) => file.id && selectedFiles.has(file.id))
                       .map((file) => (
-                        <li key={file.id} className="flex items-center gap-2 text-sm text-slate-700 bg-white p-2 rounded-md border border-slate-100">
+                        <li key={file.id || `selected-file-${Math.random().toString(36).substr(2, 9)}`} className="flex items-center gap-2 text-sm text-slate-700 bg-white p-2 rounded-md border border-slate-100">
                           <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
                           <span className="truncate">{file.name}</span>
                           <Button
                             type="button"
-                            variant="ghost" 
+                            variant="ghost"
                             size="icon"
                             className="h-5 w-5 ml-auto text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full"
-                            onClick={() => handleFileSelect(file.id)}
+                            onClick={() => file.id && handleFileSelect(file.id)}
                           >
                             <X className="h-3 w-3" />
                             <span className="sr-only">Remove</span>
@@ -1450,9 +1799,9 @@ function ChatPage() {
           </div>
 
           <div className="flex items-center justify-end gap-3 p-6 border-t bg-slate-50">
-            <Button 
-              variant="outline" 
-              onClick={() => setIsModalOpen(false)} 
+            <Button
+              variant="outline"
+              onClick={() => setIsModalOpen(false)}
               className="h-10 px-4 border-slate-200 text-slate-700"
             >
               Cancel
@@ -1483,4 +1832,3 @@ function ChatPage() {
 
 // Export with auth protection
 export default withAuth(ChatPage)
-

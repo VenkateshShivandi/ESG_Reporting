@@ -53,14 +53,6 @@ interface DashboardTab {
 // Define dashboard tabs
 const dashboardTabs: DashboardTab[] = [
   {
-    id: "analytics",
-    label: "Analytics",
-    icon: BarChart3,
-    component: <AnalyticsPage />,
-    color: "text-emerald-500",
-    description: "View ESG metrics and reports",
-  },
-  {
     id: "documents",
     label: "Documents",
     icon: FileText,
@@ -69,12 +61,12 @@ const dashboardTabs: DashboardTab[] = [
     description: "Manage and upload reports",
   },
   {
-    id: "reports",
-    label: "Reports",
-    icon: FileBarChart,
-    component: <ReportsPage />,
-    color: "text-purple-500",
-    description: "View generated ESG reports",
+    id: "analytics",
+    label: "Analytics",
+    icon: BarChart3,
+    component: <AnalyticsPage />,
+    color: "text-emerald-500",
+    description: "View ESG metrics and reports",
   },
   {
     id: "chat",
@@ -83,6 +75,14 @@ const dashboardTabs: DashboardTab[] = [
     component: <ChatPage />,
     color: "text-teal-500",
     description: "AI-powered ESG assistant",
+  },
+  {
+    id: "reports",
+    label: "Reports",
+    icon: FileBarChart,
+    component: <ReportsPage />,
+    color: "text-purple-500",
+    description: "View generated ESG reports",
   },
   {
     id: "profile",
@@ -106,7 +106,7 @@ export function Container() {
 
   // Create a state to directly control which tab is active
   const [activeTabId, setActiveTabId] = useState<string>(() => {
-    return tabParam || "analytics"
+    return tabParam || "documents"
   })
 
   // Update document count from DocumentsPage
@@ -146,8 +146,8 @@ export function Container() {
   useEffect(() => {
     if (tabParam && tabParam !== activeTabId) {
       setActiveTabId(tabParam)
-    } else if (!tabParam && activeTabId !== "analytics") {
-      setActiveTabId("analytics")
+    } else if (!tabParam && activeTabId !== "documents") {
+      setActiveTabId("documents")
     }
   }, [tabParam, activeTabId])
 
@@ -536,4 +536,3 @@ export function Container() {
     </div>
   )
 }
-
