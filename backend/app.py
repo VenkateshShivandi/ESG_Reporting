@@ -328,12 +328,13 @@ def upload_file():
     """
     Endpoint to upload a file directly to Supabase storage.
     """
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part in the request"}), 400
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file part in the request"}), 400
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({"error": "No selected file"}), 400
 
         # Use the original filename, just make it secure
         filename = secure_filename(file.filename)
@@ -349,6 +350,8 @@ def upload_file():
         # Read the file data
         file_data = file.read()
 
+        # Get path from form or default to root
+        path = request.form.get('path', '')
         # Upload to Supabase with original filename
         file_path = os.path.join(path, filename) if path else filename
         response = supabase.storage.from_("documents").upload(
@@ -366,7 +369,7 @@ def upload_file():
                 "manage_document_metadata",
                 {
                     "p_action": "create",
-                    "p_user_id": request.user["id"],
+                    "p_user_id": request.user["id"] if hasattr(request, 'user') and request.user else None,
                     "p_file_name": filename,
                     "p_file_type": file_type,
                     "p_uploaded_at": uploaded_at,
@@ -391,7 +394,6 @@ def upload_file():
             200,
         )
     except Exception as e:
-        # Reverted error logging and response
         app.logger.error(f"❌ API Error in upload_file: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
