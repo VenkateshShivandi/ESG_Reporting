@@ -1285,13 +1285,51 @@ export function AnalyticsPage() {
   };
 
   return (
-    <div className="relative min-h-[60vh] bg-gray-50">
-      {/* Centered analytics card with reduced margin */}
-      <div className="flex justify-center items-start w-full mt-0 px-8">
-        <div className="w-full max-w-6xl mx-auto">
-          <ExcelAnalytics />
+    <div className="container mx-auto p-6 max-w-7xl space-y-8 overflow-x-hidden relative">
+      {/* Floating Notification */}
+      {showRefreshNotification && (
+        <div className="fixed top-4 right-4 bg-emerald-100 text-emerald-800 p-4 rounded-lg shadow-lg animate-fade-in flex items-center z-50">
+          <RefreshCw className="h-5 w-5 mr-2 text-emerald-600 animate-spin-slow" />
+          <div>
+            <p className="font-medium">Data Refreshed</p>
+            <p className="text-sm text-emerald-700">Dashboard updated with latest metrics</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-4 text-emerald-700 hover:text-emerald-900 hover:bg-emerald-200"
+            onClick={() => setShowRefreshNotification(false)}
+          >
+            <XCircle className="h-4 w-4" />
+          </Button>
         </div>
-      </div>
+      )}
+
+      {/* Main Tabs */}
+      <Tabs defaultValue="excel" className="space-y-4">
+        <div className="flex items-center justify-between">
+          <TabsList className="grid grid-cols-1 w-fit">
+            <TabsTrigger value="excel">Excel Analytics</TabsTrigger>
+          </TabsList>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isLoading}>
+              {isLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+              Refresh
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={isLoading}>
+              <Download className="h-4 w-4 mr-1" />
+              Export
+            </Button>
+          </div>
+        </div>
+
+        {/* Excel Analytics Tab Content */}
+        <TabsContent value="excel" className="space-y-4">
+          <div className="grid gap-4">
+            <ExcelAnalytics />
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

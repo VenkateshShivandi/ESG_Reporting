@@ -5,7 +5,6 @@ from flask import (
     jsonify,
     send_from_directory,
     send_file,
-    Request,
 )
 import os
 from dotenv import load_dotenv
@@ -13,7 +12,7 @@ from security import require_auth, require_role
 from flask_cors import CORS, cross_origin
 import uuid
 from werkzeug.utils import secure_filename
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 from openai import OpenAI
 import time
@@ -26,17 +25,6 @@ import tempfile
 import requests
 from pathlib import Path
 from pathlib import Path
-import logging
-from logging.handlers import RotatingFileHandler
-import re
-import io
-import pandas as pd
-import numpy as np
-from typing import List, Dict, Any, Optional, Union, Tuple
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy import Column, Integer, String, DateTime, Text
-import traceback
 
 # Load environment variables
 load_dotenv(".env.local")
@@ -69,53 +57,29 @@ CORS(
 )
 
 # Configure logging
-log_formatter = logging.Formatter(
-    '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-)
-# Ensure log directory exists
-log_dir = "logs"
-os.makedirs(log_dir, exist_ok=True)
+if not app.debug:
+    import logging
+    from logging.handlers import RotatingFileHandler
 
-# File Handler (INFO level)
-log_file = os.path.join(log_dir, "app.log")
-file_handler = RotatingFileHandler(
-    log_file,
-    maxBytes=10485760,  # 10MB
-    backupCount=3,
-)
-file_handler.setFormatter(log_formatter)
-file_handler.setLevel(logging.INFO)
-app.logger.addHandler(file_handler)
+    # Ensure log directory exists
+    os.makedirs("logs", exist_ok=True)
 
-# --- Force Console Handler (DEBUG level) for Troubleshooting ---
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(log_formatter)
-console_handler.setLevel(logging.DEBUG) # Force DEBUG for console
-# Remove existing StreamHandlers to avoid duplicates
-for handler in app.logger.handlers[:]:
-    if isinstance(handler, logging.StreamHandler):
-        app.logger.removeHandler(handler)
-app.logger.addHandler(console_handler)
-app.logger.setLevel(logging.DEBUG) # Set app logger to DEBUG
-# --- End Force Console Handler ---
-
-app.logger.debug("TEST DEBUG MESSAGE: Confirming DEBUG logging is active.")
-app.logger.info("ESG Reporting API startup (DEBUG logging forced to console)")
-
-# Force DEBUG level if app.debug is True
-if app.debug:
-    app.logger.setLevel(logging.DEBUG)
-    # Also log to console when debugging
-    stream_handler = logging.StreamHandler()
-    stream_handler.setLevel(logging.DEBUG)
-    stream_handler.setFormatter(logging.Formatter(
-        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-    ))
-    # Prevent duplicate console logs if root logger also has handler
-    if not any(isinstance(h, logging.StreamHandler) for h in app.logger.handlers):
-        app.logger.addHandler(stream_handler)
-else:
+    # Use RotatingFileHandler which handles file rotation automatically
+    log_file = "logs/app.log"
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10485760,  # 10MB max file size
+        backupCount=3,  # Keep 3 backup files
+    )
+    file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]"
+        )
+    )
+    file_handler.setLevel(logging.INFO)
+    app.logger.addHandler(file_handler)
     app.logger.setLevel(logging.INFO)
+    app.logger.info("ESG Reporting API startup")
 
 # Configure upload folder
 UPLOAD_FOLDER = "uploads"
@@ -324,16 +288,18 @@ def list_tree():
 
 
 @app.route("/api/upload-file", methods=["POST"])
+@require_auth
 def upload_file():
-    """
-    Endpoint to upload a file directly to Supabase storage.
-    """
+    """Upload a file to a specific path."""
     try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file part in the request"}), 400
+        app.logger.info("📞 API Call - upload_file")
+        if "file" not in request.files:
+            return jsonify({"error": "No file part"}), 400
 
-        file = request.files['file']
-        if file.filename == '':
+        file = request.files["file"]
+        path = request.form.get("path", "")
+
+        if file.filename == "":
             return jsonify({"error": "No selected file"}), 400
 
         # Use the original filename, just make it secure
@@ -350,8 +316,6 @@ def upload_file():
         # Read the file data
         file_data = file.read()
 
-        # Get path from form or default to root
-        path = request.form.get('path', '')
         # Upload to Supabase with original filename
         file_path = os.path.join(path, filename) if path else filename
         response = supabase.storage.from_("documents").upload(
@@ -369,7 +333,7 @@ def upload_file():
                 "manage_document_metadata",
                 {
                     "p_action": "create",
-                    "p_user_id": request.user["id"] if hasattr(request, 'user') and request.user else None,
+                    "p_user_id": request.user["id"],
                     "p_file_name": filename,
                     "p_file_type": file_type,
                     "p_uploaded_at": uploaded_at,
@@ -394,6 +358,7 @@ def upload_file():
             200,
         )
     except Exception as e:
+        # Reverted error logging and response
         app.logger.error(f"❌ API Error in upload_file: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
@@ -1687,34 +1652,44 @@ def get_metrics():
 @app.route("/api/analytics/data-chunks", methods=["GET"])
 @require_auth
 def get_data_chunks():
-    """Get available data chunks for a specific document."""
+    """Get available data chunks for chart generation."""
     try:
         app.logger.info("📊 API Call - get_data_chunks")
-        document_id = request.args.get("document_id")
 
-        if not document_id:
-            app.logger.warning("⚠️ Missing document_id parameter")
-            return jsonify({"error": "Missing document_id parameter"}), 400
+        # Mock response with available data chunks
+        chunks = [
+            {
+                "id": "carbon_emissions_2023",
+                "name": "Carbon Emissions 2023",
+                "description": "Monthly carbon emissions data for 2023",
+                "category": "Environmental",
+                "updated_at": datetime.now().isoformat(),
+            },
+            {
+                "id": "energy_consumption_quarterly",
+                "name": "Energy Consumption (Quarterly)",
+                "description": "Quarterly energy consumption over the past 3 years",
+                "category": "Environmental",
+                "updated_at": datetime.now().isoformat(),
+            },
+            {
+                "id": "diversity_metrics_2023",
+                "name": "Diversity Metrics 2023",
+                "description": "Diversity statistics across departments",
+                "category": "Social",
+                "updated_at": datetime.now().isoformat(),
+            },
+            {
+                "id": "governance_compliance",
+                "name": "Governance Compliance",
+                "description": "Compliance metrics by region",
+                "category": "Governance",
+                "updated_at": datetime.now().isoformat(),
+            },
+        ]
 
-        app.logger.info(f"🔍 Fetching chunks for document_id: {document_id}")
-
-        # Query Supabase for chunks related to the document_id
-        response = (
-            supabase.schema("esg_data")
-            .table("document_chunks")
-            .select("id, chunk_text, chunk_type, created_at, chunk_id, document_id")
-            .eq("document_id", document_id)
-            .execute()
-        )
-
-        if response.data:
-            chunks = response.data
-            app.logger.info(f"📥 API Response: Sent {len(chunks)} data chunks for document {document_id}")
-            return jsonify(chunks), 200
-        else:
-            app.logger.info(f"🤷 No chunks found for document_id: {document_id}")
-            return jsonify([]), 200  # Return empty list if no chunks found
-
+        app.logger.info(f"📥 API Response: Sent {len(chunks)} data chunks")
+        return jsonify(chunks), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in get_data_chunks: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -2309,5 +2284,4 @@ def create_graph():
 
 
 if __name__ == "__main__":
-    # Use HOST='0.0.0.0' to make accessible outside Docker container if needed
-    app.run(host='0.0.0.0', debug=True, port=5050) 
+    app.run(debug=True, port=5050)
