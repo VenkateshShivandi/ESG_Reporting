@@ -8,6 +8,7 @@ from flask import (
 )
 import os
 from dotenv import load_dotenv
+from backend.llmservice import LLMService
 from security import require_auth, require_role
 from flask_cors import CORS, cross_origin
 import uuid
@@ -35,6 +36,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
+OPENAI_ASSISTANT_ID_2 = os.getenv("OPENAI_ASSISTANT_ID_2")
 REDIS_URL = os.getenv("REDIS_URL")
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -805,8 +807,8 @@ def initialize_assistant():
 def chat():
     """Chat with the AI."""
     try:
-        if OPENAI_ASSISTANT_ID:
-            assistant_id = OPENAI_ASSISTANT_ID
+        if OPENAI_ASSISTANT_ID_2:
+            assistant_id = OPENAI_ASSISTANT_ID_2
             print("OPENAI_ASSISTANT_ID: ", assistant_id)
         else:
             assistant_id = initialize_assistant()
@@ -834,6 +836,14 @@ def chat():
             thread = client.beta.threads.create()
             thread_id = thread.id
 
+        print("thread_id: ", thread_id)
+        print("assistant_id: ", assistant_id)
+
+        # use llm service to process the query
+        llm_service = LLMService()
+        response = llm_service.handle_query(message)
+        print("response: ", response)
+            
         # Add the user's message to the thread
         client.beta.threads.messages.create(
             thread_id=thread_id,  # Use thread_id instead of thread.id
@@ -2282,6 +2292,21 @@ def create_graph():
         app.logger.error(f"❌ API Error in create_graph: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/generate-report", methods=["POST"])
+@require_auth
+def generate_report():
+    """
+    Generate a report for a specific user, given the attached document ids for the platform.
+    """
+    try:
+        app.logger.info("📊 API Call - generate_report")
+        data = request.get_json()
+        document_ids = data.get("document_ids")
+        llm_service = LLMService()
+        llm_service.generate_report(document_ids)
+    except Exception as e:
+        app.logger.error(f"❌ API Error in generate_report: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)
