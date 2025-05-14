@@ -16,6 +16,9 @@ from typing import Dict, List, Any, Union
 # Import utility functions
 from .utils import safe_parse, create_result_dict
 
+# Import header detection
+from utils.robust_etl import _find_real_header_index
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -80,9 +83,52 @@ def detect_delimiter(file_path: str, encoding: str) -> str:
         logger.warning(f"Error detecting delimiter: {str(e)}")
         return ','
 
+def detect_header_row(file_path: str, encoding: str, delimiter: str, max_rows: int = 30) -> int:
+    """
+    Detect the most likely header row in a CSV file using heuristics.
+    Scans the first N non-comment, non-blank lines, and returns the 0-based file line index.
+    
+    Args:
+        file_path (str): Path to the CSV file
+        encoding (str): File encoding
+        delimiter (str): CSV delimiter
+        max_rows (int): Number of lines to scan for header detection
+    
+    Returns:
+        int: 0-based file line index of the detected header row
+    """
+    import pandas as pd
+    import io
+    rows = []
+    file_line_indices = []
+    with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+        for i, line in enumerate(f):
+            if len(rows) >= max_rows:
+                break
+            if line.strip() == '' or line.strip().startswith('#'):
+                continue
+            rows.append(line)
+            file_line_indices.append(i)
+    if not rows:
+        return 0
+    # Read as DataFrame (no header)
+    sample_csv = io.StringIO(''.join(rows))
+    try:
+        df_sample = pd.read_csv(sample_csv, sep=delimiter, header=None, engine='python')
+    except Exception:
+        return 0
+    header_idx_in_sample = _find_real_header_index(df_sample, max_rows_to_check=max_rows)
+    # Map back to the file line index
+    if header_idx_in_sample < len(file_line_indices):
+        header_file_line_idx = file_line_indices[header_idx_in_sample]
+    else:
+        header_file_line_idx = 0
+    logger.info(f"Detected header row at file line index {header_file_line_idx} for file {file_path}")
+    return header_file_line_idx
+
 def extract_data_with_pandas(file_path: str, encoding: str = 'utf-8', delimiter: str = ',') -> Dict[str, Any]:
     """
-    Extract data from a CSV file using pandas.
+    Extract data from a CSV file using pandas, with robust header detection.
     
     Args:
         file_path (str): Path to the CSV file
@@ -94,17 +140,27 @@ def extract_data_with_pandas(file_path: str, encoding: str = 'utf-8', delimiter:
     """
     if not PANDAS_AVAILABLE:
         return create_result_dict(error="pandas is not available for CSV parsing.")
-    
     try:
-        # Read CSV file into DataFrame
-        df = pd.read_csv(file_path, encoding=encoding, sep=delimiter, na_filter=True)
-        
+        # Detect header row (file line index)
+        header_row = detect_header_row(file_path, encoding, delimiter)
+        # Read CSV file into DataFrame using detected header
+        # Skip all lines before the header row
+        df = pd.read_csv(
+            file_path,
+            encoding=encoding,
+            sep=delimiter,
+            na_filter=True,
+            header=0,  # Use first row after skiprows as header
+            skiprows=header_row  # Skip all lines before the detected header
+        )
         # Extract column names
         columns = df.columns.tolist()
-        
         # Extract data
         data = df.values.tolist()
-        
+        # Debug logging for diagnosis
+        logger.info(f"[DEBUG] Header row used (file line index): {header_row}")
+        logger.info(f"[DEBUG] Columns detected: {columns}")
+        logger.info(f"[DEBUG] First 3 data rows: {data[:3]}")
         # Generate statistics for numerical columns
         stats = {}
         for column in df.select_dtypes(include=['number']).columns:
@@ -115,17 +171,14 @@ def extract_data_with_pandas(file_path: str, encoding: str = 'utf-8', delimiter:
                 "median": df[column].median(),
                 "std": df[column].std()
             }
-        
         result = {
             "columns": columns,
             "data": data,
             "shape": df.shape,
             "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
         }
-        
         if stats:
             result["statistics"] = stats
-            
         return result
     except Exception as e:
         logger.error(f"Error extracting data with pandas: {str(e)}")
