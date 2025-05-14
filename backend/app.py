@@ -2295,7 +2295,7 @@ def get_excel_files():
             return jsonify({"excel": [], "csv": []}), 200
 
     except Exception as e:
-        app.logger.error(f"❌ API Error in get_excel_files: {str(e)}")
+        app.logger.error(f"❌ API Error in get_chunked_files: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 
