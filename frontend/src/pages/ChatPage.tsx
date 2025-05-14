@@ -42,6 +42,14 @@ interface Report {
   };
 }
 
+// Define a type for chunked files
+interface ChunkedFile {
+  id: string;
+  name: string;
+  chunk_count: number;
+  chunked_at: string;
+}
+
 function ChatPage() {
   const { session, isLoading: authLoading } = useAuth()
   const initRef = useRef(false)
@@ -72,13 +80,25 @@ function ChatPage() {
   // Load files using documentsApi
   const loadFiles = useCallback(async () => {
     try {
-      const fetchedFiles = await documentsApi.listFiles(currentPath)
-      setFiles(fetchedFiles)
+      const chunked = await documentsApi.getChunkedFiles()
+      const chunkedFileItems = chunked.map(f => ({
+        id: f.id,
+        name: f.name,
+        type: 'file' as const,
+        size: 0,
+        modified: new Date(f.chunked_at),
+        path: [],
+        metadata: { mimetype: '', lastModified: f.chunked_at, contentLength: 0 },
+        created_at: f.chunked_at,
+        updated_at: f.chunked_at,
+      }))
+      setFiles(chunkedFileItems)
     } catch (error) {
-      console.error("Error loading files:", error)
-      toast.error("Failed to load files")
+      console.error("Error loading chunked files:", error)
+      toast.error("Failed to load chunked files")
+      setFiles([])
     }
-  }, [currentPath])
+  }, [])
 
   // Load files when component mounts or path changes
   useEffect(() => {
@@ -173,6 +193,8 @@ function ChatPage() {
 
   const [isGeneratingReport, setIsGeneratingReport] = useState(false)
   const [isGeneratingResponse, setIsGeneratingResponse] = useState(false)
+
+  const [isUploadingToGraph, setIsUploadingToGraph] = useState(false)
 
   // Define status messages only once at the component level
   const statusMessages = [
@@ -405,19 +427,15 @@ function ChatPage() {
 
         // Update reports state and localStorage
         setReports(prev => [newReport, ...prev]);
-        
         // Save to localStorage for persistence
         try {
           // Get existing reports from localStorage
           const savedReportsJson = localStorage.getItem('generatedReports');
           let savedReports = savedReportsJson ? JSON.parse(savedReportsJson) : [];
-          
           // Add new report at the beginning
           savedReports = [newReport, ...savedReports];
-          
           // Save back to localStorage
           localStorage.setItem('generatedReports', JSON.stringify(savedReports));
-          
           // Dispatch event for ReportsPage to listen to
           const newReportEvent = new CustomEvent('newReportGenerated', {
             detail: { report: newReport }
@@ -613,7 +631,7 @@ function ChatPage() {
         const mockFile = {
           id: 'test-file-1',
           name: '4_Entrevista_a_ejidatarios.docx',
-          type: 'file',
+          type: 'file' as const,
           size: 1740000, // 1.74 MB
           modified: new Date('2025-03-14'),
           path: ['test'],
@@ -902,7 +920,7 @@ function ChatPage() {
             id: file.id,
             name: file.name,
             path: file.path || [],
-            type: file.type || 'file',
+            type: file.type || 'file' as const,
             size: file.size,
             modified: file.modified,
             metadata: (file as any).metadata || {},
@@ -1007,6 +1025,40 @@ function ChatPage() {
     return !hasErrors
   }
 
+  const uploadDocumentsToGraph = async () => {
+    if (!session?.access_token || selectedFiles.size === 0) return
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/create-graph`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          document_ids: Array.from(selectedFiles),
+          user_id: session.user.id
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error("Upload error response:", errorData)
+        throw new Error(errorData.error || "Failed to upload documents to graph")
+      }
+
+      const data = await response.json()
+      console.log("Graph creation response:", data)
+
+      toast.success("Documents uploaded to graph successfully")
+    } catch (error) {
+      console.error("Error uploading documents to graph:", error)
+      toast.error("Failed to upload documents to graph")
+    } finally {
+      setIsUploadingToGraph(false)
+    }
+  }
+
   // Add UI for upload button in the sidebar
   const renderOpenAIUploadSection = () => {
     if (selectedFiles.size === 0) return null
@@ -1024,7 +1076,7 @@ function ChatPage() {
         <Button
           variant="default"
           size="sm"
-          onClick={uploadSelectedFilesToOpenAI}
+          onClick={uploadDocumentsToGraph}
           disabled={isUploadingToOpenAI}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white"
         >
@@ -1072,6 +1124,25 @@ function ChatPage() {
       console.error('Error viewing report:', error);
     }
   };
+
+  const [chunkedFiles, setChunkedFiles] = useState<ChunkedFile[]>([])
+  const [isLoadingChunkedFiles, setIsLoadingChunkedFiles] = useState(false)
+
+  // Fetch chunked files on mount
+  useEffect(() => {
+    if (!session?.access_token) return;
+    setIsLoadingChunkedFiles(true)
+    documentsApi.getChunkedFiles()
+      .then(setChunkedFiles)
+      .catch((err) => {
+        console.error('Error loading chunked files:', err)
+        setChunkedFiles([])
+      })
+      .finally(() => setIsLoadingChunkedFiles(false))
+  }, [session?.access_token])
+
+  const chunkedFileIdSet = useMemo(() => new Set(chunkedFiles.map(f => f.id)), [chunkedFiles])
+  const getChunkInfo = (fileId: string) => chunkedFiles.find(f => f.id === fileId)
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -1281,7 +1352,13 @@ function ChatPage() {
                                 />
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <FileText className="h-4 w-4 flex-shrink-0 text-blue-500" />
-                                  <span className="text-sm text-slate-700 truncate">{file.name}</span>
+                                  <span className="text-sm text-slate-700 truncate">
+                                    {file.name}
+                                    <span className="ml-2 w-24 justify-center px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold flex items-center gap-1">
+                                      <Bot className="h-3 w-3 text-emerald-500" /> Chunked
+                                      <span className="ml-1 text-[10px] text-emerald-600">({getChunkInfo(file.id)?.chunk_count})</span>
+                                    </span>
+                                  </span>
                                 </div>
                               </div>
                             ) : (

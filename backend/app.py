@@ -5,15 +5,16 @@ from flask import (
     jsonify,
     send_from_directory,
     send_file,
-    Request,
 )
 import os
+import traceback
+import io
 from dotenv import load_dotenv
 from security import require_auth, require_role
 from flask_cors import CORS, cross_origin
 import uuid
 from werkzeug.utils import secure_filename
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from supabase import create_client, Client
 from openai import OpenAI
 import time
@@ -26,17 +27,6 @@ import tempfile
 import requests
 from pathlib import Path
 from pathlib import Path
-import logging
-from logging.handlers import RotatingFileHandler
-import re
-import io
-import pandas as pd
-import numpy as np
-from typing import List, Dict, Any, Optional, Union, Tuple
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy import Column, Integer, String, DateTime, Text
-import traceback
 
 # Load environment variables
 load_dotenv(".env.local")
@@ -69,53 +59,29 @@ CORS(
 )
 
 # Configure logging
-log_formatter = logging.Formatter(
-    '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-)
-# Ensure log directory exists
-log_dir = "logs"
-os.makedirs(log_dir, exist_ok=True)
+if not app.debug:
+    import logging
+    from logging.handlers import RotatingFileHandler
 
-# File Handler (INFO level)
-log_file = os.path.join(log_dir, "app.log")
-file_handler = RotatingFileHandler(
-    log_file,
-    maxBytes=10485760,  # 10MB
-    backupCount=3,
-)
-file_handler.setFormatter(log_formatter)
-file_handler.setLevel(logging.INFO)
-app.logger.addHandler(file_handler)
+    # Ensure log directory exists
+    os.makedirs("logs", exist_ok=True)
 
-# --- Force Console Handler (DEBUG level) for Troubleshooting ---
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(log_formatter)
-console_handler.setLevel(logging.DEBUG) # Force DEBUG for console
-# Remove existing StreamHandlers to avoid duplicates
-for handler in app.logger.handlers[:]:
-    if isinstance(handler, logging.StreamHandler):
-        app.logger.removeHandler(handler)
-app.logger.addHandler(console_handler)
-app.logger.setLevel(logging.DEBUG) # Set app logger to DEBUG
-# --- End Force Console Handler ---
-
-app.logger.debug("TEST DEBUG MESSAGE: Confirming DEBUG logging is active.")
-app.logger.info("ESG Reporting API startup (DEBUG logging forced to console)")
-
-# Force DEBUG level if app.debug is True
-if app.debug:
-    app.logger.setLevel(logging.DEBUG)
-    # Also log to console when debugging
-    stream_handler = logging.StreamHandler()
-    stream_handler.setLevel(logging.DEBUG)
-    stream_handler.setFormatter(logging.Formatter(
-        '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-    ))
-    # Prevent duplicate console logs if root logger also has handler
-    if not any(isinstance(h, logging.StreamHandler) for h in app.logger.handlers):
-        app.logger.addHandler(stream_handler)
-else:
+    # Use RotatingFileHandler which handles file rotation automatically
+    log_file = "logs/app.log"
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10485760,  # 10MB max file size
+        backupCount=3,  # Keep 3 backup files
+    )
+    file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]"
+        )
+    )
+    file_handler.setLevel(logging.INFO)
+    app.logger.addHandler(file_handler)
     app.logger.setLevel(logging.INFO)
+    app.logger.info("ESG Reporting API startup")
 
 # Configure upload folder
 UPLOAD_FOLDER = "uploads"
@@ -216,12 +182,52 @@ def list_tree():
         path = request.args.get("path", "")
         app.logger.info(f"📞 API Call - list_tree: Requested path={path}")
 
-        # Get file list from Supabase
-        response = supabase.storage.from_("documents").list(path=path)
+        # Get file list from Supabase storage
+        storage_response = supabase.storage.from_("documents").list(path=path)
+
+        # Create a mapping of file paths to their document records
+        doc_map = {}
+        try:
+            # Get documents data from esg_data.documents table
+            db_result = (
+                supabase.postgrest.schema("esg_data")
+                .table("documents")
+                .select("*")
+                .execute()
+            )
+
+            app.logger.info(f"Retrieved {len(db_result.data)} documents from database")
+
+            if db_result.data:
+                for doc in db_result.data:
+                    file_path = doc.get("file_path", "")
+                    # Convert file_path string to array and handle empty path
+                    path_array = file_path.split("/") if file_path else []
+                    # Remove the filename from path_array as it will be the name field
+                    file_name = (
+                        path_array.pop() if path_array else doc.get("file_name", "")
+                    )
+
+                    # Store both the document and its processed path information
+                    doc_map[file_name] = {
+                        "doc": doc,
+                        "path_array": path_array,
+                        "file_name": file_name,
+                    }
+
+                    # Log the chunked status for debugging
+                    app.logger.debug(
+                        f"Document {file_name} chunked status: {doc.get('chunked', False)}"
+                    )
+        except Exception as db_error:
+            app.logger.warning(f"⚠️ Could not fetch document metadata: {str(db_error)}")
+            # Continue without document metadata
 
         # Process the returned data
         files = []
-        for item in response:
+        current_path_array = path.split("/") if path else []
+
+        for item in storage_response:
             # Skip the .folder placeholder files
             if item["name"] == ".folder":
                 continue
@@ -235,40 +241,48 @@ def list_tree():
                         "type": "folder",
                         "size": 0,
                         "modified": item.get("last_accessed_at"),
-                        "path": path.split("/") if path else [],
-                        "metadata": {
-                            "mimetype": "folder",
-                            "lastModified": None,
-                            "contentLength": 0,
-                        },
+                        "path": current_path_array,
                         "created_at": item.get("created_at"),
                         "updated_at": item.get("updated_at"),
+                        "chunked": False,  # Folders are never chunked
                     }
                 )
             else:
-                # File
-                metadata = item.get("metadata", {}) or {}
-                files.append(
-                    {
-                        "id": item["id"],
-                        "name": item["name"],
-                        "type": "file",
-                        "size": metadata.get("size", 0),
-                        "modified": item.get("last_accessed_at"),
-                        "path": path.split("/") if path else [],
-                        "metadata": {
-                            "mimetype": metadata.get(
-                                "mimetype", "application/octet-stream"
-                            ),
-                            "lastModified": metadata.get("lastModified"),
-                            "contentLength": metadata.get("contentLength"),
-                        },
-                        "created_at": item.get("created_at"),
-                        "updated_at": item.get("updated_at"),
-                    }
-                )
+                # File - check if we have a corresponding document record
+                doc_info = doc_map.get(item["name"], {})
+                doc_record = doc_info.get("doc", {})
+                doc_path_array = doc_info.get("path_array", [])
 
-        app.logger.info(f"📤 Returning response: {files}")
+                # Only include files that are in the current directory
+                if not doc_path_array or doc_path_array == current_path_array:
+                    metadata = item.get("metadata", {}) or {}
+
+                    # Explicitly check for chunked status and log it
+                    chunked_status = False
+                    if doc_record and "chunked" in doc_record:
+                        chunked_status = bool(doc_record.get("chunked"))
+
+                    files.append(
+                        {
+                            "id": doc_record.get("id", item["id"]),
+                            "name": item["name"],
+                            "type": doc_record.get("file_type", "file"),
+                            "size": doc_record.get(
+                                "file_size", metadata.get("size", 0)
+                            ),
+                            "modified": doc_record.get(
+                                "updated_at", item.get("last_accessed_at")
+                            ),
+                            "path": current_path_array,
+                            "created_at": item.get("created_at"),
+                            "updated_at": doc_record.get(
+                                "updated_at", item.get("updated_at")
+                            ),
+                            "chunked": chunked_status,
+                        }
+                    )
+
+        app.logger.info(f"📥 API Response: Found {len(files)} items")
         return jsonify(files), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in list_tree: {str(e)}")
@@ -276,58 +290,79 @@ def list_tree():
 
 
 @app.route("/api/upload-file", methods=["POST"])
+@require_auth
 def upload_file():
-    """
-    Endpoint to upload a file directly to Supabase storage.
-    """
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part in the request"}), 400
+    """Upload a file to a specific path."""
+    try:
+        app.logger.info("📞 API Call - upload_file")
+        if "file" not in request.files:
+            return jsonify({"error": "No file part"}), 400
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
+        file = request.files["file"]
+        path = request.form.get("path", "")
 
-    if file:
-        try:
-            # Ensure filename is secure
-            filename = secure_filename(file.filename)
-            print(f"Attempting to upload file: {filename}")
+        if file.filename == "":
+            return jsonify({"error": "No selected file"}), 400
 
-            # Read file content into memory
-            file_content = file.read()
-            file.seek(0) # Reset file pointer if needed elsewhere
+        # Use the original filename, just make it secure
+        filename = secure_filename(file.filename)
 
-            # Upload to Supabase storage
-            res = supabase.storage.from_('documents').upload(
-                path=filename,
-                file=file_content,
-                file_options={"content-type": file.content_type, "upsert": "true"}
+        # Get file size from request headers or calculate it
+        file_size = request.content_length
+        if not file_size or file_size == 0:
+            # If content_length is not in headers, calculate from file
+            file.seek(0, 2)  # Seek to end of file
+            file_size = file.tell()  # Get current position (file size)
+            file.seek(0)  # Reset to beginning of file
+
+        # Read the file data
+        file_data = file.read()
+
+        # Upload to Supabase with original filename
+        file_path = os.path.join(path, filename) if path else filename
+        response = supabase.storage.from_("documents").upload(
+            file_path, file_data, file_options={"contentType": file.content_type}
+        )
+
+        file_type = str(file.content_type)  # Ensure it's text type
+        uploaded_at = (
+            datetime.now().replace(tzinfo=None).isoformat()
+        )  # Remove timezone info
+
+        response = (
+            supabase.postgrest.schema("public")
+            .rpc(
+                "manage_document_metadata",
+                {
+                    "p_action": "create",
+                    "p_user_id": request.user["id"],
+                    "p_file_name": filename,
+                    "p_file_type": file_type,
+                    "p_uploaded_at": uploaded_at,
+                    "p_size": str(file_size),
+                    "p_file_path": file_path,
+                },
             )
+            .execute()
+        )
 
-            print(f"Supabase upload response status: {res.status_code}")
+        app.logger.info(f"📥 API Response: {response}")
 
-            # Check status code for success
-            if 200 <= res.status_code < 300:
-                return jsonify({"message": f"File '{filename}' uploaded successfully."}), 200
-            else:
-                # Attempt to parse error from Supabase response
-                error_details = "Unknown Supabase error"
-                try:
-                    error_json = res.json()
-                    error_details = error_json.get('message', error_details)
-                except Exception:
-                    pass # Ignore parsing errors
-                print(f"Supabase upload failed with status {res.status_code}: {error_details}")
-                return jsonify({"error": f"Failed to upload file to storage. Status: {res.status_code}. Details: {error_details}"}), res.status_code
-
-        except Exception as e:
-            # Log the detailed exception
-            traceback.print_exc()
-            # Return a generic server error message
-            return jsonify({"error": f"An unexpected error occurred during file upload: {str(e)}"}), 500
-    else:
-        # This case should ideally be caught by earlier checks
-        return jsonify({"error": "File processing failed unexpectedly."}), 500
+        # Return the file path as the ID since Supabase storage doesn't return an ID
+        return (
+            jsonify(
+                {
+                    "fileId": file_path,
+                    "name": filename,
+                    "path": path.split("/") if path else [],
+                }
+            ),
+            200,
+        )
+    except Exception as e:
+        # Reverted error logging and response
+        app.logger.error(f"❌ API Error in upload_file: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/process-file", methods=["POST"])
@@ -345,8 +380,9 @@ def process_file():
             f"📞 API Call - process_file: Processing file at Supabase path '{storage_path}'"
         )
         try:
+            # Get the file ID from the documents table
             response = (
-                supabase.schema("esg_data")
+                supabase.postgrest.schema("esg_data")
                 .table("documents")
                 .select("id")
                 .eq("file_path", storage_path)
@@ -357,7 +393,6 @@ def process_file():
 
             file_id = response.data[0]["id"]
             app.logger.info(f"📄 File ID: {file_id}")
-
         except Exception as e:
             app.logger.error(f"❌ Error getting file ID: {str(e)}")
             return jsonify({"error": "Failed to get file ID"}), 500
@@ -425,7 +460,6 @@ def process_file():
                 rag_url,
                 files=files_payload,  # Include both user_id and file_id
                 data=form_data,
-                timeout=120,
             )
 
             app.logger.info(
@@ -438,7 +472,14 @@ def process_file():
                     app.logger.info(
                         f"✅ RAG processing successful via process_file for {filename}..."
                     )
-                    # Return only essential info from RAG
+                    # Update the document record with the RAG result
+                    response = (
+                        supabase.postgrest.schema("esg_data")
+                        .table("documents")
+                        .update({"chunked": True})
+                        .eq("id", file_id)
+                        .execute()
+                    )
                     return (
                         jsonify(
                             {
@@ -514,7 +555,7 @@ def create_folder():
             datetime.now().replace(tzinfo=None).isoformat()
         )  # Remove timezone info
         metadata_response = (
-            supabase.schema("public")
+            supabase.postgrest.schema("public")
             .rpc(
                 "manage_document_metadata",
                 {
@@ -868,10 +909,55 @@ def delete_item():
             # It's a file
             app.logger.info(f"🔺 Attempting to delete file: {path}")
 
-            # First delete metadata using RPC
+            try:
+                # Get document_id from database instead of the filename
+                doc_result = (
+                    supabase.postgrest.schema("esg_data")
+                    .table("documents")
+                    .select("id")
+                    .eq("file_path", path)
+                    .execute()
+                )
+
+                if doc_result and doc_result.data and len(doc_result.data) > 0:
+                    document_id = doc_result.data[0]["id"]
+                    app.logger.info(
+                        f"🔍 Found document ID: {document_id} for file: {path}"
+                    )
+
+                    # Call RAG API to delete graph entity
+                    rag_api_url = "http://localhost:6050/api/v1/delete-graph-entity"
+
+                    import requests
+
+                    response = requests.post(
+                        rag_api_url,
+                        json={
+                            "user_id": request.user["id"],
+                            "document_id": document_id,
+                        },
+                        headers={"Content-Type": "application/json"},
+                    )
+
+                    if response.status_code == 200:
+                        app.logger.info(
+                            f"🔺 Successfully deleted Neo4j graph data for file: {path}"
+                        )
+                    else:
+                        app.logger.error(
+                            f"❌ Failed to delete Neo4j graph data with status {response.status_code}: {response.text}"
+                        )
+                else:
+                    app.logger.warning(f"⚠️ Could not find document ID for file: {path}")
+            except Exception as neo4j_error:
+                app.logger.error(
+                    f"❌ Warning: Failed to delete Neo4j graph data: {str(neo4j_error)}"
+                )
+                # Continue even if Neo4j deletion fails, as the primary deletion in Supabase succeeded
+
             try:
                 response = (
-                    supabase.schema("public")
+                    supabase.postgrest.schema("public")
                     .rpc(
                         "manage_document_metadata",
                         {
@@ -891,11 +977,9 @@ def delete_item():
             except Exception as metadata_error:
                 app.logger.error(f"❌ Failed to delete metadata: {str(metadata_error)}")
                 return jsonify({"error": str(metadata_error)}), 500
-                # Continue with file deletion even if metadata deletion fails
 
-            # Then delete the actual file
+            # Delete the actual file
             supabase.storage.from_("documents").remove([path])
-            app.logger.info(f"🔺 Successfully deleted file: {path}")
         else:
             # It's a folder - recursive deletion function
             app.logger.info(f"🔺 Attempting to delete folder: {path}")
@@ -923,7 +1007,7 @@ def delete_item():
                             try:
                                 # Delete metadata first
                                 response = (
-                                    supabase.schema("public")
+                                    supabase.postgrest.schema("public")
                                     .rpc(
                                         "manage_document_metadata",
                                         {
@@ -951,6 +1035,58 @@ def delete_item():
                             # Delete the actual file
                             supabase.storage.from_("documents").remove([item_path])
 
+                            # Delete related Neo4j graph data for this file
+                            try:
+                                # Get document_id from database instead of the filename
+                                doc_result = (
+                                    supabase.postgrest.schema("esg_data")
+                                    .table("documents")
+                                    .select("id")
+                                    .eq("file_path", item_path)
+                                    .execute()
+                                )
+
+                                if (
+                                    doc_result
+                                    and doc_result.data
+                                    and len(doc_result.data) > 0
+                                ):
+                                    document_id = doc_result.data[0]["id"]
+                                    app.logger.info(
+                                        f"🔍 Found document ID: {document_id} for file: {item_path}"
+                                    )
+
+                                    rag_api_url = "http://localhost:6050/api/v1/delete-graph-entity"
+
+                                    import requests
+
+                                    response = requests.post(
+                                        rag_api_url,
+                                        json={
+                                            "user_id": request.user["id"],
+                                            "document_id": document_id,
+                                        },
+                                        headers={"Content-Type": "application/json"},
+                                    )
+
+                                    if response.status_code == 200:
+                                        app.logger.info(
+                                            f"🔺 Successfully deleted Neo4j graph data for file: {item_path}"
+                                        )
+                                    else:
+                                        app.logger.error(
+                                            f"❌ Failed to delete Neo4j graph data with status {response.status_code}: {response.text}"
+                                        )
+                                else:
+                                    app.logger.warning(
+                                        f"⚠️ Could not find document ID for file: {item_path}"
+                                    )
+                            except Exception as neo4j_error:
+                                app.logger.error(
+                                    f"❌ Warning: Failed to delete Neo4j graph data: {str(neo4j_error)}"
+                                )
+                                # Continue with file deletion even if Neo4j deletion fails
+
                     # Finally delete the folder placeholder
                     folder_placeholder = os.path.join(folder_path, ".folder")
                     app.logger.info(
@@ -961,7 +1097,7 @@ def delete_item():
                     # Delete the folder's metadata
                     try:
                         response = (
-                            supabase.schema("public")
+                            supabase.postgrest.schema("public")
                             .rpc(
                                 "manage_document_metadata",
                                 {
@@ -1174,7 +1310,7 @@ def rename_item():
                 if upload_response:
                     # Create new metadata for the new path
                     try:
-                        supabase.schema("public").rpc(
+                        supabase.postgrest.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "create",
@@ -1201,7 +1337,7 @@ def rename_item():
 
                     # Delete old metadata
                     try:
-                        supabase.schema("public").rpc(
+                        supabase.postgrest.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "delete",
@@ -1260,7 +1396,7 @@ def rename_item():
                 # Update folder metadata
                 try:
                     # Create new metadata for the folder
-                    supabase.schema("public").rpc(
+                    supabase.postgrest.schema("public").rpc(
                         "manage_document_metadata",
                         {
                             "p_action": "create",
@@ -1299,7 +1435,7 @@ def rename_item():
                                 {"contentType": "application/x-directory"},
                             )
                             # Update subfolder metadata
-                            supabase.schema("public").rpc(
+                            supabase.postgrest.schema("public").rpc(
                                 "manage_document_metadata",
                                 {
                                     "p_action": "create",
@@ -1337,7 +1473,7 @@ def rename_item():
 
                             if upload_response:
                                 # Update file metadata
-                                supabase.schema("public").rpc(
+                                supabase.postgrest.schema("public").rpc(
                                     "manage_document_metadata",
                                     {
                                         "p_action": "create",
@@ -1364,8 +1500,8 @@ def rename_item():
                     for old_path_item in moved_files:
                         try:
                             supabase.storage.from_("documents").remove([old_path_item])
-                            # Delete old metadata
-                            supabase.schema("public").rpc(
+                            # Delete old metadata entry if it exists
+                            supabase.postgrest.schema("public").rpc(
                                 "manage_document_metadata",
                                 {
                                     "p_action": "delete",
@@ -1383,7 +1519,7 @@ def rename_item():
                         supabase.storage.from_("documents").remove(
                             [f"{old_path}/.folder"]
                         )
-                        supabase.schema("public").rpc(
+                        supabase.postgrest.schema("public").rpc(
                             "manage_document_metadata",
                             {
                                 "p_action": "delete",
@@ -1426,7 +1562,7 @@ def rename_item():
                                             [item_path]
                                         )
                                         # Delete new metadata entry if it exists
-                                        supabase.schema("public").rpc(
+                                        supabase.postgrest.schema("public").rpc(
                                             "manage_document_metadata",
                                             {
                                                 "p_action": "delete",
@@ -1450,7 +1586,7 @@ def rename_item():
                                     [placeholder]
                                 )
                                 # Delete folder metadata
-                                supabase.schema("public").rpc(
+                                supabase.postgrest.schema("public").rpc(
                                     "manage_document_metadata",
                                     {
                                         "p_action": "delete",
@@ -1518,34 +1654,44 @@ def get_metrics():
 @app.route("/api/analytics/data-chunks", methods=["GET"])
 @require_auth
 def get_data_chunks():
-    """Get available data chunks for a specific document."""
+    """Get available data chunks for chart generation."""
     try:
         app.logger.info("📊 API Call - get_data_chunks")
-        document_id = request.args.get("document_id")
 
-        if not document_id:
-            app.logger.warning("⚠️ Missing document_id parameter")
-            return jsonify({"error": "Missing document_id parameter"}), 400
+        # Mock response with available data chunks
+        chunks = [
+            {
+                "id": "carbon_emissions_2023",
+                "name": "Carbon Emissions 2023",
+                "description": "Monthly carbon emissions data for 2023",
+                "category": "Environmental",
+                "updated_at": datetime.now().isoformat(),
+            },
+            {
+                "id": "energy_consumption_quarterly",
+                "name": "Energy Consumption (Quarterly)",
+                "description": "Quarterly energy consumption over the past 3 years",
+                "category": "Environmental",
+                "updated_at": datetime.now().isoformat(),
+            },
+            {
+                "id": "diversity_metrics_2023",
+                "name": "Diversity Metrics 2023",
+                "description": "Diversity statistics across departments",
+                "category": "Social",
+                "updated_at": datetime.now().isoformat(),
+            },
+            {
+                "id": "governance_compliance",
+                "name": "Governance Compliance",
+                "description": "Compliance metrics by region",
+                "category": "Governance",
+                "updated_at": datetime.now().isoformat(),
+            },
+        ]
 
-        app.logger.info(f"🔍 Fetching chunks for document_id: {document_id}")
-
-        # Query Supabase for chunks related to the document_id
-        response = (
-            supabase.schema("esg_data")
-            .table("document_chunks")
-            .select("id, chunk_text, chunk_type, created_at, chunk_id, document_id")
-            .eq("document_id", document_id)
-            .execute()
-        )
-
-        if response.data:
-            chunks = response.data
-            app.logger.info(f"📥 API Response: Sent {len(chunks)} data chunks for document {document_id}")
-            return jsonify(chunks), 200
-        else:
-            app.logger.info(f"🤷 No chunks found for document_id: {document_id}")
-            return jsonify([]), 200  # Return empty list if no chunks found
-
+        app.logger.info(f"📥 API Response: Sent {len(chunks)} data chunks")
+        return jsonify(chunks), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in get_data_chunks: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -1936,40 +2082,6 @@ def get_report_status(report_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/rag/query", methods=["POST"])
-@require_auth
-def rag_query():
-    """Proxy ESG RAG query to the RAG microservice."""
-    try:
-        app.logger.info(f"🔄 Creating embedding for text of length {len(text)}")
-
-        # Create the embedding using OpenAI's API
-        response = client.embeddings.create(
-            model=model, input=text, encoding_format="float"
-        )
-
-        # Extract the embedding from the response
-        embedding = response.data[0].embedding
-
-        # Create metadata about the embedding
-        metadata = {
-            "model": model,
-            "timestamp": datetime.now().isoformat(),
-            "dimensions": len(embedding),
-            "text_length": len(text),
-        }
-
-        app.logger.info(
-            f"✅ Successfully created embedding with {len(embedding)} dimensions"
-        )
-
-        return {"embedding": embedding, "metadata": metadata}
-
-    except Exception as e:
-        app.logger.error(f"❌ Error creating embedding: {str(e)}")
-        raise Exception(f"Failed to create embedding: {str(e)}")
-
-
 def create_embeddings_batch(
     texts: list[str], model: str = "text-embedding-3-small"
 ) -> list[dict]:
@@ -2015,162 +2127,128 @@ def create_embeddings_batch(
         raise Exception(f"Failed to create embeddings batch: {str(e)}")
 
 
-@app.route("/api/documents/<document_id>/chunks", methods=["GET"])
+@app.route("/api/chunked-files", methods=["GET"])
 @require_auth
-def get_document_chunks(document_id):
-    """Retrieve all chunks associated with a specific document ID, optionally filtering by type."""
+def get_chunked_files():
+    """
+    Return a list of files that have been chunked, with chunk count and latest chunked time.
+    """
     try:
-        chunk_type_filter = request.args.get("type") # Get optional 'type' query param
+        # 1. query all chunk stats
+        chunk_stats_resp = (
+            supabase.postgrest.schema("esg_data")
+            .table("document_chunks")
+            .select("document_id, created_at")
+            .execute()
+        )
+        chunk_rows = chunk_stats_resp.data
 
-        app.logger.info(
-            f"📞 API Call - get_document_chunks: Fetching chunks for doc ID {document_id}"
-            + (f" with type '{chunk_type_filter}'" if chunk_type_filter else "")
+        # 2. count chunk number and latest time for each document_id
+        from collections import defaultdict
+
+        chunk_map = defaultdict(lambda: {"chunk_count": 0, "chunked_at": None})
+        for row in chunk_rows:
+            doc_id = row["document_id"]
+            chunk_map[doc_id]["chunk_count"] += 1
+            # get the latest created_at
+            if (
+                chunk_map[doc_id]["chunked_at"] is None
+                or row["created_at"] > chunk_map[doc_id]["chunked_at"]
+            ):
+                chunk_map[doc_id]["chunked_at"] = row["created_at"]
+
+        document_ids = list(chunk_map.keys())
+        if not document_ids:
+            return jsonify({"chunked_files": []}), 200
+
+        # 3. batch query file names
+        docs_resp = (
+            supabase.postgrest.schema("esg_data")
+            .table("documents")
+            .select("id, file_name")
+            .in_("id", document_ids)
+            .execute()
+        )
+        docs = {doc["id"]: doc["file_name"] for doc in docs_resp.data}
+
+        # 4. assemble the result
+        result = []
+        for doc_id, stats in chunk_map.items():
+            result.append(
+                {
+                    "id": doc_id,
+                    "name": docs.get(doc_id, "Unknown"),
+                    "chunk_count": stats["chunk_count"],
+                    "chunked_at": stats["chunked_at"],
+                }
+            )
+
+        return jsonify({"chunked_files": result}), 200
+
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_chunked_files: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/create-graph", methods=["POST"])
+@require_auth
+def create_graph():
+    """
+    Create a subgraph in neo4j for a specific user, given the attached document ids for the platform.
+
+    Args:
+        document_ids (list[str]): List of document ids to create a subgraph for
+        user_id (str): The user id to create the subgraph for
+
+    Returns:
+        str: The id of the created subgraph
+
+    Raises:
+        Exception: If the subgraph creation fails
+    """
+    # Enforce application/json content type
+    if not request.is_json:
+        return jsonify({"error": "Content-Type must be application/json"}), 415
+    try:
+        app.logger.info("📊 API Call - create_graph")
+        data = request.get_json()
+        document_ids = data.get("document_ids")
+        user_id = data.get("user_id")
+
+        # 1. get the entities and relationships from supabase based on the chunk ids/ document ids
+        entities = (
+            supabase.postgrest.schema("esg_data")
+            .table("entities")
+            .select("*")
+            .in_("document_id", document_ids)
+            .execute()
         )
 
-        # Basic validation for document_id format (assuming UUID)
-        try:
-            uuid.UUID(document_id)
-        except ValueError:
-            app.logger.warning(f"Invalid document_id format received: {document_id}")
-            return jsonify({"error": "Invalid document_id format"}), 400
+        relationships = (
+            supabase.postgrest.schema("esg_data")
+            .table("relationships")
+            .select("*")
+            .in_("document_id", document_ids)
+            .execute()
+        )
 
-        # Build the query
-        query = supabase.schema("esg_data").table("document_chunks").select(
-            "id, chunk_id, chunk_text, chunk_type, created_at" # Select desired columns
-        ).eq("document_id", document_id)
+        # call the rag/app.py create_graph endpoint to create the subgraph
+        response = requests.post(
+            "http://localhost:6050/api/v1/create-graph",
+            json={
+                "entities": entities.data,
+                "relationships": relationships.data,
+                "user_id": user_id,
+            },
+        )
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to create subgraph"}), response.status_code
 
-        # Add optional type filter
-        if chunk_type_filter:
-            query = query.eq("chunk_type", chunk_type_filter)
-
-        # Order by chunk_id to maintain sequence
-        query = query.order("chunk_id", desc=False)
-
-        response = query.execute()
-
-        if hasattr(response, "error") and response.error:
-            app.logger.error(f"❌ Error fetching chunks for doc {document_id}: {response.error}")
-            return jsonify({"error": "Failed to fetch chunks"}), 500
-
-        app.logger.info(f"📥 API Response: Found {len(response.data)} chunks for doc {document_id}")
-        return jsonify(response.data), 200
+        return jsonify({"subgraph_id": "123"}), 200
 
     except Exception as e:
-        app.logger.exception(f"❌ API Error in get_document_chunks: {str(e)}")
-        return jsonify({"error": f"An unexpected server error occurred: {str(e)}"}), 500
-
-
-@app.route("/api/analytics/excel-data", methods=["GET"])
-@require_auth
-def get_excel_data():
-    """
-    Process Excel/CSV file directly from Supabase storage and return the processed data.
-    Uses robust_etl utility for advanced file parsing, layout detection, and data transformation.
-    Returns a structured response with potentially multiple detected tables.
-    """
-    try:
-        file_name = request.args.get("file_name")
-        
-        if not file_name:
-            app.logger.warning("Missing file_name parameter in get_excel_data")
-            return jsonify({"error": "Missing file_name parameter"}), 400
-            
-        app.logger.info(f"API Call - get_excel_data for file: {file_name}")
-            
-        # 1. Download the file from Supabase storage
-        app.logger.info(f"Downloading file from Supabase: {file_name}")
-        try:
-            # Download file data
-            download_response = supabase.storage.from_("documents").download(file_name)
-            file_data = download_response
-            ext = file_name.split(".")[-1].lower() if "." in file_name else ""
-            
-            # Basic check for supported extensions (can be expanded)
-            supported_extensions = {"xlsx", "xls", "csv", "xlsb", "tsv"}
-            if ext not in supported_extensions:
-                app.logger.warning(f"Unsupported file type requested: {ext}")
-                return jsonify({"error": f"Unsupported file type: {ext}. Only Excel and CSV files are supported."}), 400
-                
-            app.logger.info(f"Downloaded {len(file_data)} bytes for {file_name}")
-            
-        except Exception as download_error:
-            # More specific error handling for Supabase Storage
-            error_message = str(download_error)
-            status_code = 500
-            if "NotFound" in error_message or "does not exist" in error_message: 
-                status_code = 404
-                error_message = f"File not found in storage: {file_name}"
-            else:
-                error_message = f"Error downloading file from storage: {error_message}"
-            
-            app.logger.error(f"❌ Failed to download file from Supabase storage '{file_name}': {error_message}")
-            return jsonify({"error": error_message}), status_code
-                
-        # 2. Process the file using robust_etl utility
-        try:
-            from utils.robust_etl import etl_to_chart_payload
-            import io
-            
-            # Use BytesIO to treat the downloaded bytes as a file
-            file_stream = io.BytesIO(file_data)
-            file_stream.seek(0) # Ensure stream position is at the beginning
-            
-            # Call our robust ETL utility
-            # Pass the original filename to ensure correct extension detection within ETL
-            etl_response = etl_to_chart_payload(fp=file_stream, original_filename=file_name)
-            
-            # Close the stream
-            file_stream.close()
-            
-            app.logger.info(f"Successfully processed {file_name} using robust ETL. Detected tables: {etl_response.get('tableCount', 0)}")
-            
-            # Log the full payload before sending (optional, for debugging)
-            # try:
-            #     import json
-            #     payload_str = json.dumps(etl_response, indent=2, default=str) # Use default=str for non-serializable types
-            #     app.logger.debug(f"Payload being sent to frontend for {file_name}:\n{payload_str}")
-            # except Exception as log_e:
-            #     app.logger.error(f"Failed to log payload: {str(log_e)}")
-            #     app.logger.debug(f"Raw payload (may contain non-serializable types): {etl_response}")
-                
-            # Return the structured response directly from the ETL function
-            # Determine status code based on whether ETL reported an error
-            status_code = 500 if etl_response.get("error") else 200
-            return jsonify(etl_response), status_code
-            
-        except ValueError as ve:
-            # Handle validation errors specifically from ETL utility
-            app.logger.error(f"❌ File processing validation error for {file_name}: {str(ve)}")
-            # Return the error in the standard ETL response format
-            error_payload = {
-                "tables": [],
-                "tableCount": 0,
-                "fileMetadata": {"filename": file_name, "duration": 0},
-                "error": True,
-                "errorType": "etl_validation",
-                "message": f"File processing error: {str(ve)}",
-                "errorDetails": str(ve)
-            }
-            return jsonify(error_payload), 400 # Bad Request for validation issues
-            
-        except Exception as e:
-            app.logger.error(f"❌ Unhandled error during ETL processing for {file_name}: {str(e)}", exc_info=True) # Log traceback
-            # Return the error in the standard ETL response format
-            error_payload = {
-                "tables": [],
-                "tableCount": 0,
-                "fileMetadata": {"filename": file_name, "duration": 0},
-                "error": True,
-                "errorType": "etl_runtime",
-                "message": f"Internal server error during ETL processing: {str(e)}",
-                "errorDetails": traceback.format_exc() # Include traceback in details for debugging
-            }
-            return jsonify(error_payload), 500
-            
-    except Exception as e:
-        app.logger.error(f"❌ API Error in get_excel_data (outer try): {str(e)}", exc_info=True)
-        # Generic API error response
-        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+        app.logger.error(f"❌ API Error in create_graph: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/analytics/excel-files", methods=["GET"])
@@ -2179,10 +2257,10 @@ def get_excel_files():
     """Get list of available Excel and CSV files from Supabase storage."""
     try:
         app.logger.info("📊 API Call - get_excel_files")
-        
+
         # List all files in the documents bucket
         response = supabase.storage.from_("documents").list()
-        
+
         if response:
             # Filter Excel files
             excel_files = [
@@ -2190,30 +2268,32 @@ def get_excel_files():
                     "name": item["name"],
                     "path": item["name"],
                     "size": item.get("metadata", {}).get("size"),
-                    "modified": item.get("created_at")
+                    "modified": item.get("created_at"),
                 }
                 for item in response
                 if item["name"].lower().endswith((".xlsx", ".xls"))
             ]
-            
+
             # Filter CSV files
             csv_files = [
                 {
                     "name": item["name"],
                     "path": item["name"],
                     "size": item.get("metadata", {}).get("size"),
-                    "modified": item.get("created_at")
+                    "modified": item.get("created_at"),
                 }
                 for item in response
                 if item["name"].lower().endswith(".csv")
             ]
-            
-            app.logger.info(f"📥 API Response: Found {len(excel_files)} Excel files and {len(csv_files)} CSV files")
+
+            app.logger.info(
+                f"📥 API Response: Found {len(excel_files)} Excel files and {len(csv_files)} CSV files"
+            )
             return jsonify({"excel": excel_files, "csv": csv_files}), 200
         else:
             app.logger.info("🤷 No files found in storage")
             return jsonify({"excel": [], "csv": []}), 200
-            
+
     except Exception as e:
         app.logger.error(f"❌ API Error in get_excel_files: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -2224,7 +2304,7 @@ def get_excel_files():
 # @require_auth # Temporarily disable auth for easier testing if needed, re-enable later
 def analyze_sheet():
     """Analyzes an uploaded Excel/CSV file for table data and chart payloads."""
-    logger = app.logger # Use Flask app logger
+    logger = app.logger  # Use Flask app logger
     logger.info("📞 API Call - analyze_sheet")
 
     if "file" not in request.files:
@@ -2241,31 +2321,36 @@ def analyze_sheet():
     logger.info(f"Received file for analysis: {filename}")
 
     # Check for allowed extensions (optional but recommended)
-    allowed_extensions = {'.xlsx', '.xls', '.csv'}
+    allowed_extensions = {".xlsx", ".xls", ".csv"}
     file_ext = os.path.splitext(filename)[1].lower()
     if file_ext not in allowed_extensions:
         logger.warning(f"Invalid file type received: {file_ext}")
-        return jsonify({"error": f"Invalid file type. Allowed: {allowed_extensions}"}), 400
+        return (
+            jsonify({"error": f"Invalid file type. Allowed: {allowed_extensions}"}),
+            400,
+        )
 
     try:
         # Read file content into BytesIO for ETL processing
         file_content = file.read()
         file_stream = io.BytesIO(file_content)
-        
+
         # Ensure stream position is at the beginning
         file_stream.seek(0)
 
         # Import the ETL function locally to avoid circular dependencies if any
         from utils.robust_etl import etl_to_chart_payload
-        
+
         logger.info(f"Calling etl_to_chart_payload for {filename}")
         # Call the refactored ETL function
         etl_result = etl_to_chart_payload(fp=file_stream, original_filename=filename)
-        
+
         # Close the stream
         file_stream.close()
-        
-        logger.info(f"ETL completed for {filename}. Processed tables: {etl_result.get('tableCount', 0)}")
+
+        logger.info(
+            f"ETL completed for {filename}. Processed tables: {etl_result.get('tableCount', 0)}"
+        )
         # Return the result from the ETL function
         # The ETL function now includes error details in its return structure
         status_code = 500 if etl_result.get("error") else 200
@@ -2277,15 +2362,150 @@ def analyze_sheet():
         error_payload = {
             "tables": [],
             "tableCount": 0,
-            "fileMetadata": {"filename": filename, "duration": 0}, # Duration not applicable here
+            "fileMetadata": {
+                "filename": filename,
+                "duration": 0,
+            },  # Duration not applicable here
             "error": True,
             "errorType": "api_error",
             "message": f"API error during analysis: {str(e)}",
-            "errorDetails": str(e)
+            "errorDetails": str(e),
         }
         return jsonify(error_payload), 500
 
 
+@app.route("/api/analytics/excel-data", methods=["GET"])
+@require_auth
+def get_excel_data():
+    """
+    Process Excel/CSV file directly from Supabase storage and return the processed data.
+    Uses robust_etl utility for advanced file parsing, layout detection, and data transformation.
+    Returns a structured response with potentially multiple detected tables.
+    """
+    try:
+        file_name = request.args.get("file_name")
+
+        if not file_name:
+            app.logger.warning("Missing file_name parameter in get_excel_data")
+            return jsonify({"error": "Missing file_name parameter"}), 400
+
+        app.logger.info(f"API Call - get_excel_data for file: {file_name}")
+
+        # 1. Download the file from Supabase storage
+        app.logger.info(f"Downloading file from Supabase: {file_name}")
+        try:
+            # Download file data
+            download_response = supabase.storage.from_("documents").download(file_name)
+            file_data = download_response
+            ext = file_name.split(".")[-1].lower() if "." in file_name else ""
+
+            # Basic check for supported extensions (can be expanded)
+            supported_extensions = {"xlsx", "xls", "csv", "xlsb", "tsv"}
+            if ext not in supported_extensions:
+                app.logger.warning(f"Unsupported file type requested: {ext}")
+                return (
+                    jsonify(
+                        {
+                            "error": f"Unsupported file type: {ext}. Only Excel and CSV files are supported."
+                        }
+                    ),
+                    400,
+                )
+
+            app.logger.info(f"Downloaded {len(file_data)} bytes for {file_name}")
+
+        except Exception as download_error:
+            # More specific error handling for Supabase Storage
+            error_message = str(download_error)
+            status_code = 500
+            if "NotFound" in error_message or "does not exist" in error_message:
+                status_code = 404
+                error_message = f"File not found in storage: {file_name}"
+            else:
+                error_message = f"Error downloading file from storage: {error_message}"
+
+            app.logger.error(
+                f"❌ Failed to download file from Supabase storage '{file_name}': {error_message}"
+            )
+            return jsonify({"error": error_message}), status_code
+
+        # 2. Process the file using robust_etl utility
+        try:
+            from utils.robust_etl import etl_to_chart_payload
+            import io
+
+            # Use BytesIO to treat the downloaded bytes as a file
+            file_stream = io.BytesIO(file_data)
+            file_stream.seek(0)  # Ensure stream position is at the beginning
+
+            # Call our robust ETL utility
+            # Pass the original filename to ensure correct extension detection within ETL
+            etl_response = etl_to_chart_payload(
+                fp=file_stream, original_filename=file_name
+            )
+
+            # Close the stream
+            file_stream.close()
+
+            app.logger.info(
+                f"Successfully processed {file_name} using robust ETL. Detected tables: {etl_response.get('tableCount', 0)}"
+            )
+
+            # Log the full payload before sending (optional, for debugging)
+            # try:
+            #     import json
+            #     payload_str = json.dumps(etl_response, indent=2, default=str) # Use default=str for non-serializable types
+            #     app.logger.debug(f"Payload being sent to frontend for {file_name}:\n{payload_str}")
+            # except Exception as log_e:
+            #     app.logger.error(f"Failed to log payload: {str(log_e)}")
+            #     app.logger.debug(f"Raw payload (may contain non-serializable types): {etl_response}")
+
+            # Return the structured response directly from the ETL function
+            # Determine status code based on whether ETL reported an error
+            status_code = 500 if etl_response.get("error") else 200
+            return jsonify(etl_response), status_code
+
+        except ValueError as ve:
+            # Handle validation errors specifically from ETL utility
+            app.logger.error(
+                f"❌ File processing validation error for {file_name}: {str(ve)}"
+            )
+            # Return the error in the standard ETL response format
+            error_payload = {
+                "tables": [],
+                "tableCount": 0,
+                "fileMetadata": {"filename": file_name, "duration": 0},
+                "error": True,
+                "errorType": "etl_validation",
+                "message": f"File processing error: {str(ve)}",
+                "errorDetails": str(ve),
+            }
+            return jsonify(error_payload), 400  # Bad Request for validation issues
+
+        except Exception as e:
+            app.logger.error(
+                f"❌ Unhandled error during ETL processing for {file_name}: {str(e)}",
+                exc_info=True,
+            )  # Log traceback
+            # Return the error in the standard ETL response format
+            error_payload = {
+                "tables": [],
+                "tableCount": 0,
+                "fileMetadata": {"filename": file_name, "duration": 0},
+                "error": True,
+                "errorType": "etl_runtime",
+                "message": f"Internal server error during ETL processing: {str(e)}",
+                "errorDetails": traceback.format_exc(),  # Include traceback in details for debugging
+            }
+            return jsonify(error_payload), 500
+
+    except Exception as e:
+        app.logger.error(
+            f"❌ API Error in get_excel_data (outer try): {str(e)}", exc_info=True
+        )
+        # Generic API error response
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
+
 if __name__ == "__main__":
-    # Use HOST='0.0.0.0' to make accessible outside Docker container if needed
-    app.run(host='0.0.0.0', debug=True, port=5050) 
+    app.run(debug=True, port=5050)
