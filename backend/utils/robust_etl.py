@@ -2001,8 +2001,3 @@ def _nan_to_none(data):
     elif pd.isna(data): # Handle pandas NaT etc.
         return None
     return data
-
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Adding this line to force a new commit update
