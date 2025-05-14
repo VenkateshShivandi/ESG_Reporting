@@ -1,17 +1,18 @@
-# Product Requirements Document v2.0
 
-**Based on Code Analysis (YYYY-MM-DD)** - *Replace with current date*
+## Project Requirements Document
+
+---
 
 ## 1. Project Overview
 
-- **Objective:** Develop an AI-powered ESG Data Management & Analytics System that revolutionizes ESG reporting by streamlining the ingestion, processing, analysis, and visualization of ESG-related data using a distributed backend architecture.
+- **Objective:**Develop an AI-powered ESG Data Management & Analytics System that revolutionizes ESG reporting by streamlining the ingestion, processing, analysis, and visualization of ESG-related data.
 - **Goals:**
-    - Enable secure upload and storage of diverse file types (PDF, Excel, CSV, DOCX) via a Main Backend API.
-    - Process documents using a dedicated RAG microservice leveraging advanced AI techniques (OCR, table parsing, text chunking, OpenAI embeddings) and potentially Neo4j for graph analysis.
-    - Provide real-time, interactive visualizations via a Next.js dashboard (consuming backend APIs).
-    - Integrate OpenAI-powered features including an Assistants API chat and a RAG-based query capability for natural language interaction with ESG data.
-    - Ensure secure user authentication using Supabase Auth and JWT validation, with role-based access control.
-- **Intended Outcome:** Empower ESG Managers, Analysts, Executives, and Viewers with actionable insights, reliable reporting, and a user-friendly interface.
+    - Enable secure upload and storage of diverse file types (PDF, Excel, CSV, DOCX).
+    - Process documents using advanced AI techniques (OCR, table parsing, text chunking, and OpenAI embeddings) with ESG metadata tagging.
+    - Provide real-time, interactive visualizations via a Next.js dashboard.
+    - Integrate a OpenAI-powered chatbot for natural language queries on ESG data.
+    - Ensure secure user authentication using Google OAuth via Supabase Auth with row-level security.
+- **Intended Outcome:**Empower ESG Managers, Analysts, Executives, and Viewers with actionable insights, reliable reporting, and a user-friendly interface—leveraging existing Simba Assistant and SaaS Factory components for rapid MVP delivery.
 
 ---
 
@@ -19,34 +20,28 @@
 
 ### In-Scope
 
-- **File Upload & Management (Main Backend):**
+- **File Upload & Data Ingestion:**
     - Support for PDF, Excel, CSV, and DOCX uploads with secure storage in Supabase.
-    - API endpoints for listing, creating, deleting, and renaming files/folders.
-- **Data Processing & Enhancement (RAG Service):**
-    - Triggerable processing pipeline for text extraction, chunking, and OpenAI embedding generation.
-    - Storage of processed chunks and embeddings in Supabase PostgreSQL (`esg_data.document_chunks`).
-    - Advanced pipeline option involving Neo4j graph database population.
-    - Implied ETL pipeline for structured data extraction into `esg_data.excel_metrics`.
-- **Analytics & Visualization (Frontend consuming Backend APIs):**
-    - Real-time dashboard built with Next.js and React for dynamic charting and visualization of ESG data fetched from backend APIs.
-- **AI Interaction:**
-    - OpenAI Assistants API integration via `/api/chat`.
-    - RAG query capability via `/api/rag/query` proxying to the RAG service (requires full implementation).
+- **Data Processing & Enhancement:**
+    - Text extraction (including OCR for complex PDFs) and table parsing.
+    - Dual data pipeline to handle both structured ESG metrics and unstructured detailed chunks with ESG metadata tagging.
+- **Analytics & Visualization:**
+    - Real-time dashboard built with Next.js and React for dynamic charting and visualization of ESG data.
+- **Chatbot Integration:**
+    - OpenAI-powered chatbot accessible via a dedicated `/rag-query` endpoint for context-aware ESG queries.
 - **Authentication & Security:**
-    - Supabase Auth for user management (e.g., Google OAuth client-side) and JWT validation server-side.
-    - Role-based access control and foundational Row-Level Security.
+    - Google OAuth-based login via Supabase Auth coupled with robust row-level security.
 - **Reporting:**
-    - Backend API endpoints for triggering and managing report generation.
-    - Export functionality (e.g., Excel/PDF) to be implemented based on backend data.
+    - Exportable reports in Excel and PDF formats utilizing tools like Pandas, WeasyPrint, and openpyxl.
 - **Deployment & Monitoring:**
-    - Containerized deployment (Docker) on cloud platforms (e.g., Vercel/Cloudflare/AWS) with basic monitoring and scalability provisions.
+    - Deployment on cloud platforms (Vercel/AWS) with basic monitoring and scalability provisions.
 
 ### Out-of-Scope
 
-- Real-time collaborative editing features.
-- Integration with external systems (e.g., ERP, CRM) beyond file uploads.
-- Extensive custom AI prompt engineering outside the core RAG/chat context.
-- Complex, non-standard ESG framework support beyond initial design.
+- Advanced analytics beyond standard trend detection and anomaly alerts.
+- Integration with external systems (e.g., ERP, CRM) not directly related to ESG data.
+- Extensive custom AI prompt engineering outside the ESG context.
+- Heavy custom branding beyond the established clean and professional UI design.
 
 ---
 
@@ -54,120 +49,94 @@
 
 ```mermaid
 graph TD;
-    A[User Login via Supabase Auth] --> B[Next.js Dashboard];
-    B --> C[Upload File via Main Backend API];
-    C --> D[Trigger Processing via Main Backend API];
-    D -- Calls --> E[RAG Service Processes File];
-    E -- Stores Data --> F[Supabase DB / Neo4j];
-    F --> G[Data available via Main Backend API];
-    B --> H{Interact via Dashboard};
-    H --> I[View Analytics];
-    H --> J[Use Chat/RAG Query];
-    H --> K[Manage Files];
-    I --> G;
-    J --> G;
-    B --> L[Export Report via Main Backend API];
-    B --> M[User Logout];
+  A[User Login via Google OAuth] --> B[Next.js Dashboard];
+  B --> C[File Upload];
+  C --> D[Data Processing & ESG Tagging];
+  D --> E[Visualization on Dashboard];
+  E --> F[Chatbot Interaction];
+  F --> E;
+  E --> G[Reporting: Export to Excel/PDF];
+  G --> H[User Logout];
+
 ```
 
 ---
 
 ## 4. Key Features
 
-- **Secure File Management:**
-    - Upload, list, delete, rename functionality for multiple file types via API, stored securely in Supabase.
-- **Microservice-Based Data Processing:**
-    - Dedicated RAG service handles complex parsing, chunking, embedding, and storage in Supabase DB and Neo4j.
-    - Main backend triggers processing, keeping API responsive.
+- **Secure File Ingestion:**
+    - Upload support for multiple file types with storage in Supabase.
+- **Dual Data Processing Pipeline:**
+    - Separation of core ESG metrics and detailed data chunks, enriched via advanced text extraction (OCR, table parsing) and ESG metadata tagging.
 - **Interactive Analytics:**
-    - A modern, responsive dashboard (Next.js/React) consumes backend APIs to display visualizations.
-- **AI-Powered Interaction:**
-    - OpenAI Assistants API chat integration.
-    - RAG endpoint for natural language queries against processed documents.
+    - A modern, responsive dashboard with dynamic visualizations (charts, graphs) powered by React and Recharts.
+- **AI-Powered Chatbot:**
+    - Integration of a chatbot endpoint (`/rag-query`) to facilitate natural language queries on ESG data.
 - **Robust Authentication & Security:**
-    - Supabase Auth integration with JWT validation and role-based control.
-    - Foundation for Row-Level Security in Supabase.
+    - Implementation of Google OAuth and row-level security to ensure data privacy and secure access.
 - **Reporting Capabilities:**
-    - API endpoints to manage and initiate report generation.
+    - Generation of exportable reports in PDF and Excel formats using Pandas, WeasyPrint, and openpyxl.
+- **Modular Integration:**
+    - Leverages existing Simba Assistant and SaaS Factory components with additional enhancements for ESG-specific functionality.
 
 ---
 
 ## 5. Technology Stack
 
-- **Frontend:** React, Next.js, Tailwind CSS, Recharts (Assumed)
-- **Main Backend:** Python, Flask
-- **RAG Service:** Python, Flask
-- **Database:** PostgreSQL (Supabase Managed)
-- **Graph Database:** Neo4j (Self-hosted or Cloud)
-- **File Storage:** Supabase Storage
-- **AI/ML:** OpenAI API (Embeddings, Assistants, LLMs for RAG)
-- **Containerization:** Docker
-- **Auth:** Supabase Auth, JWT
-- **Deployment:** Cloud Provider (e.g., Vercel, Cloudflare, AWS), GitHub Actions (CI/CD Assumed)
+- **Frontend:** React, Next.js, Tailwind CSS, Recharts
+- **Backend:** Python with Flask, PostgreSQL (Supabase), Supabase Storage
+- **AI/ML:** OpenAI embeddings, Tesseract OCR, Camelot for table extraction
+- **Auth & Security:** Supabase Auth (Google OAuth), AES-256 encryption, TLS 1.2
+- **Deployment:** GitHub Actions (CI/CD), Vercel/AWS
 
-### Architecture Diagram
 ```mermaid
-graph TD
-    subgraph User_Interaction
-        direction LR
-        U[User/Frontend]
-    end
+classDiagram
+    Frontend --> Backend
+    Backend --> AI_Module
+    class Frontend {
+        +UIComponents
+        +UserAuthentication
+        +DashboardVisualization
+    }
+    class Backend {
+        +APIServices
+        +FileProcessing
+        +DatabaseManagement
+    }
+    class AI_Module {
+        +NLP
+        +MLModels
+        +ESG_MetadataTagging
+    }
 
-    subgraph Main_Backend_API [backend/app.py @ Port 5005]
-        direction LR
-        M_API[Flask API Endpoints<br>/api/*] --> M_AUTH[Auth Module<br>security.py]
-        M_API --> M_FM[File Management<br>Supabase Storage/DB]
-        M_API --> M_ANALYTICS["Analytics Endpoints"] 
-    end
-
-    subgraph RAG_Service [rag/app.py @ Port 6050]
-        direction LR
-        R_API[Flask API Endpoints<br>/api/v1/*] --> R_PROC[Document Processor<br>processor.py]
-        R_PROC --> R_CHUNK[Chunking<br>chunking.py]
-        R_CHUNK --> R_EMBED[Embedding Service<br>embedding_service.py]
-        R_PROC --> R_STORE["Data Storage<br>Supabase DB<br>Neo4j \(Pipeline\)"] 
-        R_API --- R_GRAPH[ESGPipeline<br>run_esg_pipeline.py]
-        R_GRAPH --> R_STORE
-    end
-
-    subgraph External_Services
-        direction TB
-        SUPA_DB[(Supabase DB<br>PostgreSQL)]
-        SUPA_STORE[(Supabase Storage)]
-        OPENAI[(OpenAI API<br>Embeddings/Assistants)]
-        NEO4J[("Neo4j DB<br>Optional/Pipeline")]
-    end
-
-    U --> M_API
-
-    M_API -- Triggers Processing --> R_API
-    M_API -- Serves Data/UI --> U
-
-    M_FM -- Interacts --> SUPA_DB
-    M_FM -- Interacts --> SUPA_STORE
-
-    M_ANALYTICS -- Reads --> SUPA_DB
-
-    R_EMBED -- Calls --> OPENAI
-    R_STORE -- Writes --> SUPA_DB
-    R_STORE -- Writes --> NEO4J
-
-    style User_Interaction fill:#f9f,stroke:#333,stroke-width:2px
-    style Main_Backend_API fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
-    style RAG_Service fill:#c8e6c9,stroke:#4caf50,stroke-width:2px
-    style External_Services fill:#fff2cc,stroke:#ff9900,stroke-width:2px
 ```
 
 ---
 
 ## 6. Non-Functional Requirements
 
-- **Performance:** API response times < 500ms for typical requests. RAG processing time dependent on file size and complexity.
-- **Scalability:** Services designed for containerization, allowing horizontal scaling. Target support for initial user load (e.g., 50-100 concurrent users).
-- **Security:** JWT validation, HTTPS enforcement, RLS implementation, secure handling of API keys.
-- **Usability:** Clear API documentation, intuitive frontend workflows (Responsibility of Frontend Team).
-- **Reliability:** Robust error handling in both backend services, reliable external service integrations (Supabase, OpenAI, Neo4j).
+- **Performance:** Small files ≤ 5s; large files ≤ 30s processing time.
+- **Scalability:** Supports up to 500 concurrent users; 99.9% uptime.
+- **Security:** AES-256 encryption, TLS 1.2, robust audit trails.
+- **Usability:** Clean UI, intuitive chatbot interaction.
+- **Reliability:** Async processing, error handling, API retry logic
 
----
+```mermaid
+gantt
+title MVP Development Timeline (6 Weeks)
+dateFormat YYYY-MM-DD
+axisFormat %b %d
 
-*This PRD reflects the intended functionality based on the analyzed two-service architecture.*
+section Data Ingestion & Processing
+Pipeline Setup       :done, d1, 2025-02-01, 2025-02-07
+RAG Integration      :done, d2, 2025-02-08, 2025-02-14
+
+section Frontend & Auth
+Dashboard Dev       :active, f1, 2025-02-15, 2025-02-21
+Auth & Chatbot      :active, f2, 2025-02-22, 2025-02-28
+
+section Reporting & Deployment
+Reporting Features  :r1, 2025-03-01, 2025-03-07
+Testing & Deploy    :r2, 2025-03-08, 2025-03-14
+
+```
