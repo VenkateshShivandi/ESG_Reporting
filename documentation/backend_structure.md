@@ -1,261 +1,245 @@
-# Backend Structure Document v2.0
-
-**Based on Code Analysis (YYYY-MM-DD)** - *Replace with current date*
-
-This document outlines the backend architecture for the **AI-Powered ESG Data Management & Analytics System**, updated based on codebase analysis. It details system objectives, the actual two-service architecture, data flow, database usage, and security measures.
+This document outlines the backend architecture for our **AI-Powered ESG Data Management & Analytics System**. It details system objectives, modular design, data flow, security measures, and key MVP enhancements.
 
 ---
 
 ## 1. Introduction
 
 - **Objectives**:
-    - Ingest uploaded ESG files (PDF, Excel, CSV, DOCX) via the main backend.
-    - Trigger processing via a dedicated RAG microservice.
-    - Normalize data, generate embeddings (via RAG service using OpenAI), and store results in Supabase PostgreSQL and potentially Neo4j.
-    - Provide APIs for file management, triggering processing, and retrieving processed data.
-    - Enable secure access through Supabase Auth (details depend on frontend implementation, backend uses JWT).
+    - Process uploaded ESG files (PDF, Excel, CSV, DOCX).
+    - Normalize and store ESG data for further analysis.
+    - Deliver actionable insights via RESTful APIs.
+    - Enable secure access through Google OAuth and Supabase Auth.
 - **Core Functionalities**:
-    - **Data Ingestion (Main Backend)**: Securely upload files to Supabase Storage and record metadata in `public.documents`.
-    - **Data Processing Trigger (Main Backend)**: API endpoint (`/api/process-file`) to trigger processing of an uploaded file by the RAG service.
-    - **Core RAG Processing (RAG Service)**:
-        - Extracts text and chunks documents.
-        - Generates embeddings using OpenAI (`text-embedding-3-small` or similar).
-        - Stores text chunks and embeddings in Supabase PostgreSQL (`esg_data.document_chunks`).
-        - **(Advanced Pipeline)**: An alternative pipeline (`ESGPipeline`) exists within the RAG service to process files and potentially populate a **Neo4j graph database**.
-    - **Structured Data ETL (Implied)**: Presence of `esg_data.excel_metrics` table and `etl_*` directories suggests separate ETL processes for structured data, likely triggered manually or via endpoints (`/api/trigger-etl`).
-    - **Data Storage**:
-        - **Supabase PostgreSQL**:
-            - `public.documents`: Stores metadata about uploaded files/folders.
-            - `esg_data.document_chunks`: Stores text chunks and embeddings from RAG processing.
-            - `esg_data.excel_metrics`: Stores structured data extracted from Excel/CSV (via ETL).
-        - **Supabase Storage**: Stores the raw uploaded files (`documents` bucket).
-        - **Neo4j (via RAG Service Pipeline)**: Used for graph-based data representation in the advanced `ESGPipeline`.
-    - **Analytics & Reporting**: Provides API endpoints for metrics, chunks, trends, benchmarks, and report generation/status (`/api/analytics/*`). Real data access is implemented for listing chunks (`/api/analytics/data-chunks`) and Excel data (`/api/analytics/excel-data`).
-    - **RAG Querying**: An endpoint (`/api/rag/query`) exists, presumably to proxy natural language queries to the RAG service for searching through `esg_data.document_chunks`.
-    - **Chat**: An endpoint (`/api/chat`) interacts with the OpenAI Assistants API.
-    - **Security**: Implements JWT-based authentication (`@require_auth`) and role-based access control (`@require_role`) using decorators in `security.py`. Relies on Supabase Auth for user management and potentially RLS (example policies provided).
+    - **Data Ingestion**: Securely upload and store diverse file types.
+    - **Data Processing**: Extract, transform, and generate embeddings (with OpenAI) for ESG metadata tagging.
+    - **Data Storage**: Dual storage using Supabase PostgreSQL for core metrics (`esg_metrics`) and detailed text chunks (`esg_chunks`).
+    - **Analytics & Reporting**: Provide ESG dashboards, interactive chatbot integration, and export capabilities (Excel/PDF).
+    - **Security**: Implement robust authentication (Google OAuth + Supabase Auth), row-level security, and data encryption (AES-256, TLS 1.2).
 - **Role in Overall Application**:
-    Provides the core API for file management, triggers data processing via a microservice, stores processed data, and exposes endpoints for analytics and reporting.
+    
+    Acts as the backbone for ESG data processing, analysis, and secure delivery of insights to ESG managers, analysts, and stakeholders.
+    
 
 ---
 
-## 2. System Architecture: Two-Service Model
+## 2. Modular Design
 
-The backend consists of two primary services:
+The backend is a **modular monolithic application** built using **Flask**. This design simplifies development, deployment, and future scalability while maintaining separation of concerns.
 
-1.  **Main Backend API (Flask)**: Located in `backend/`. Handles user-facing API requests, authentication, file management interacting directly with Supabase Storage and the `public.documents` table, and triggers processing by calling the RAG Service. Exposes analytics endpoints.
-2.  **RAG Service (Flask)**: Located in `rag/`. A separate microservice responsible for the heavy lifting of document processing. It receives files/triggers from the Main Backend, performs parsing, chunking, embedding generation (calling OpenAI), and stores results in Supabase (`esg_data.document_chunks`). It also contains an advanced pipeline potentially interacting with Neo4j.
+### Key Modules:
 
-### High-Level Architecture Diagram
+- **API Services**: Handles RESTful endpoints for file uploads, data processing, and querying.
+- **Authentication Management**: Implements Supabase Auth with Google OAuth and row-level security.
+- **Database Operations**: Manages dual storage of ESG metrics and detailed text chunks.
+- **AI Processing**: Integrates with OpenAI for generating embeddings and powering the chatbot via RAG technology.
+
+### Modular Architecture Diagram
 
 ```mermaid
-graph TD
-    subgraph User_Interaction
-        direction LR
-        U[User/Frontend]
-    end
+classDiagram
+  class Backend {
+    +API Services
+    +Authentication Management
+    +Database Operations
+    +AI Processing
+  }
+  class Auth_Module {
+    +OAuth Authentication
+    +Session Management
+  }
+  class Data_Processing {
+    +Field Validation
+    +Data Integration
+  }
+  class AI_Assistant {
+    +Report Generation
+    +Automated Analysis
+  }
+  Backend --> Auth_Module
+  Backend --> Data_Processing
+  Backend --> AI_Assistant
 
-    subgraph Main_Backend_API [backend/app.py @ Port 5005]
-        direction LR
-        M_API[Flask API Endpoints<br>/api/*] --> M_AUTH[Auth Module<br>security.py]
-        M_API --> M_FM[File Management<br>Supabase Storage/DB]
-        M_API --> M_ANALYTICS["Analytics Endpoints"] 
-    end
-
-    subgraph RAG_Service [rag/app.py @ Port 6050]
-        direction LR
-        R_API[Flask API Endpoints<br>/api/v1/*] --> R_PROC[Document Processor<br>processor.py]
-        R_PROC --> R_CHUNK[Chunking<br>chunking.py]
-        R_CHUNK --> R_EMBED[Embedding Service<br>embedding_service.py]
-        R_PROC --> R_STORE["Data Storage<br>Supabase DB<br>Neo4j \(Pipeline\)"] 
-        R_API --- R_GRAPH[ESGPipeline<br>run_esg_pipeline.py]
-        R_GRAPH --> R_STORE
-    end
-
-    subgraph External_Services
-        direction TB
-        SUPA_DB[(Supabase DB<br>PostgreSQL)]
-        SUPA_STORE[(Supabase Storage)]
-        OPENAI[(OpenAI API<br>Embeddings/Assistants)]
-        NEO4J[("Neo4j DB<br>Optional/Pipeline")]
-    end
-
-    U --> M_API
-
-    M_API -- Triggers Processing --> R_API
-    M_API -- Serves Data/UI --> U
-
-    M_FM -- Interacts --> SUPA_DB
-    M_FM -- Interacts --> SUPA_STORE
-
-    M_ANALYTICS -- Reads --> SUPA_DB
-
-    R_EMBED -- Calls --> OPENAI
-    R_STORE -- Writes --> SUPA_DB
-    R_STORE -- Writes --> NEO4J
-
-    style User_Interaction fill:#f9f,stroke:#333,stroke-width:2px
-    style Main_Backend_API fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
-    style RAG_Service fill:#c8e6c9,stroke:#4caf50,stroke-width:2px
-    style External_Services fill:#fff2cc,stroke:#ff9900,stroke-width:2px
 ```
 
 ---
 
 ## 3. Database Management
 
-- **Primary Database Engine**: **Supabase PostgreSQL**
-- **Key Tables Identified**:
-    - `public.documents`: Stores metadata for uploaded files and folders (name, path, type, size, user_id, timestamps). Managed by the Main Backend via the `manage_document_metadata` RPC function.
-    - `esg_data.document_chunks`: Stores text chunks resulting from RAG processing, along with their embeddings and metadata (document_id, chunk_type, etc.). Populated by the RAG Service.
-    - `esg_data.excel_metrics`: Appears to store structured data extracted from Excel/CSV files (metric names, values, units, year, quarter). Likely populated by a separate ETL process.
-    - (Implicit): Tables related to users and potentially organizations for RLS (`user_organizations` mentioned in RLS examples).
-- **Raw File Storage**: **Supabase Storage** (`documents` bucket).
-- **Graph Database (via RAG Service)**: **Neo4j** is used within the `ESGPipeline` of the RAG service for advanced graph-based analysis, populated via `run_esg_pipeline.py`.
+- **Database Engine**: **Supabase PostgreSQL**
+- **Dual Storage Strategy**:
+    - **esg_metrics**: Stores core ESG metrics (e.g., emissions, energy use).
+    - **esg_chunks**: Stores detailed text segments with OpenAI embeddings for advanced searchability.
 
 ---
 
 ## 4. API Design and Endpoints
 
-### Main Backend API (`backend/app.py`)
-
-- **RESTful API Approach**: Provides endpoints for file management, auth, triggering processing, and analytics.
-- **Key Endpoints**:
-    - **File Management**:
-        - `POST /api/upload-file`: Handles file uploads to Supabase Storage and `public.documents`.
-        - `POST /api/create-folder`: Creates folders in Supabase Storage and `public.documents`.
-        - `GET /api/list-tree`: Lists files/folders from Supabase Storage.
-        - `DELETE /api/delete`: Deletes files/folders from Storage and `public.documents`.
-        - `POST /api/rename`: Renames files/folders in Storage and `public.documents`.
-        - `GET /api/files/<file_id>/download`: Gets a signed URL for downloading a file.
-        - `GET /api/search-files`: Performs simple filename-based search in Storage.
-    - **Processing Trigger**:
-        - `POST /api/process-file`: **Triggers the RAG Service** (`/api/v1/process_document`) to process a file previously uploaded to Supabase Storage.
-    - **Authentication/User**:
-        - `GET /api/profile`: Gets authenticated user details from JWT.
-        - (Assumed Login endpoint handled by Supabase Auth client-side)
-    - **Analytics**:
-        - `GET /api/analytics/metrics`: Retrieves aggregated ESG metrics.
-        - `GET /api/analytics/data-chunks`: Lists processed chunks for a document (from `esg_data.document_chunks`).
-        - `GET /api/analytics/data-chunks/<chunk_id>`: Retrieves chart data for a chunk.
-        - `GET /api/analytics/reports`: Fetches a list of generated reports.
-        - `GET /api/analytics/trends`: Retrieves ESG metric trends over time.
-        - `GET /api/analytics/benchmarks`: Gets industry benchmarks and comparisons.
-        - `POST /api/analytics/generate-report`: Initiates ESG report generation.
-        - `GET /api/analytics/report-status/<report_id>`: Gets the status of a report generation process.
-        - `GET /api/analytics/excel-data`: Gets structured data from `esg_data.excel_metrics`.
-        - `GET /api/analytics/excel-files`: Lists processed Excel files from `public.documents`.
-    - **RAG/Chat**:
-        - `POST /api/rag/query`: (Implementation unclear) Intended proxy for RAG queries to the RAG service.
-        - `POST /api/chat`: Interacts with OpenAI Assistants API.
-    - **ETL**:
-        - `GET /api/etl-status`: Retrieves the status of ETL processes.
-        - `POST /api/trigger-etl`: Triggers an ETL process.
-
-### RAG Service (`rag/app.py`)
+- **RESTful API Approach**:
+    
+    Provides clear, predictable endpoints for communication with the frontend and third-party services.
     
 - **Key Endpoints**:
-    - `POST /api/v1/process_document`: Receives file content and `file_id` from Main Backend, performs chunking, embedding (via OpenAI), and stores results in `esg_data.document_chunks`.
-    - `POST /api/v1/process-file`: Receives a file, runs the full `ESGPipeline`, potentially populating Neo4j.
-    - (Assumed: An endpoint for handling RAG queries, possibly `/api/v1/query` - needs verification).
+    1. **POST /upload**: Handles file uploads.
+    2. **POST /rag-query**: Processes natural language queries via the chatbot.
+    3. **GET /metrics**: Retrieves ESG metrics for dashboard visualizations.
 
 ---
 
 ## 5. Hosting Solutions & Infrastructure Components
 
-- **Containerization**: Both the Main Backend and RAG Service have `Dockerfile`s, indicating they are designed to be run as **Docker** containers.
-- **Hosting (Likely)**:
-    - **Main Backend & RAG Service**: Deployed on Cloudflare or similar cloud providers using Docker containers.
-    - **Database & Storage**: Managed by **Supabase** (PostgreSQL + File Storage).
-    - **Graph Database**: Requires a separate **Neo4j** instance (cloud-hosted or self-managed).
-    - **Frontend**: Hosted on **Vercel** (as per original doc).
+- **Containerization**:
+    
+    The backend is containerized with **Docker** for consistency across development and production environments.
+    
+- **Hosting**:
+    - **Backend**: Deployed on **AWS** (EC2 or Lambda) using Docker containers.
+    - **Database**: Managed by **Supabase** (PostgreSQL + file storage).
+    - **Frontend**: Hosted on **Vercel**.
 - **Infrastructure Tools**:
     - **Docker** for containerization.
-    - **Supabase** for auth, database, and file storage.
-    - **OpenAI API** for embeddings and chat.
-    - **Neo4j** database instance (required for `ESGPipeline`).
-    - **Cloud Provider** (e.g., AWS, Cloudflare) for hosting containers.
-    - **Redis** (Optional, mentioned in `/api/chat` for thread management).
+    - **AWS** for scalable hosting and monitoring.
+    - **Supabase** for authentication, database, and file storage.
 
 ---
 
 ## 6. Security Measures
 
-- **Authentication & Authorization (Main Backend)**:
-    - Relies on client-side interaction with **Supabase Auth** for login/signup (e.g., Google OAuth).
-    - Backend validates **JWT** tokens received in the `Authorization: Bearer` header using `security.py`.
-        - **Note**: Current implementation in `verify_jwt_token` decodes the token but *does not verify the signature*. Assumes token integrity is handled upstream or implicitly trusted.
-    - Role-based access control via `@require_role` decorator, checking `app_metadata.role` in the JWT payload.
-- **Row-Level Security (RLS)**:
-    - Designed to be implemented in **Supabase PostgreSQL** using `auth.uid()` and potentially organization/user mapping tables.
-    - Example policies provided in `security.py` comments.
+Security is integrated at every layer of the backend architecture.
+
+- **Authentication & Authorization**:
+    - **Supabase Auth + Google OAuth** for secure login.
+    - **Row-Level Security (RLS)** to restrict data access based on user roles.
 - **Encryption**:
-    - **Data at Rest**: Handled by Supabase for database and storage (typically AES-256).
-    - **Data in Transit**: Assumes HTTPS for API communication (standard practice, enforced by hosting/load balancers) and TLS for database connections (handled by Supabase client).
-- **Compliance**: Adherence to GDPR depends on correct RLS implementation, data handling practices, and respecting user rights.
+    - **AES-256** for encrypting data at rest.
+    - **TLS 1.2** for securing data in transit.
+- **Compliance**:
+    - Adheres to **GDPR** for data privacy and security.
+
+### Security State Diagram
+
+```mermaid
+stateDiagram-v2
+  [*] --> Unauthenticated
+  Unauthenticated --> Authenticating: Attempt Login
+  Authenticating --> Authenticated: Successful Auth (OAuth, RLS)
+  Authenticated --> [*]
+  Authenticating --> Unauthenticated: Failed Auth
+
+```
 
 ---
 
 ## 7. Monitoring and Maintenance
 
-- **Logging**: Both services implement logging.
-    - Main Backend (`backend/app.py`): Configured with `RotatingFileHandler` to `logs/app.log` and console output.
-    - RAG Service (`rag/app.py`): Basic logging configured.
-- **Error Tracking**: Sentry mentioned in the original doc, but no integration code seen in `backend/app.py` or `rag/app.py`. Requires external setup.
-- **Maintenance**: Standard practices apply (dependency updates, security patching, performance monitoring via hosting provider tools like CloudWatch if on AWS).
+- **Logging & Monitoring**:
+    - **Supabase Logs**: Monitors database and authentication events.
+    - **AWS CloudWatch**: Tracks backend performance and errors.
+- **Error Tracking**:
+    - **Sentry**: Captures real-time error reports.
+- **Maintenance**:
+    - Regular updates to dependencies.
+    - Continuous performance optimizations and security patching.
 
 ---
 
-## 8. Data Flow Diagram (Upload & Basic RAG Processing)
+## 8. Lean MVP Plan (v1.2) Overview
+
+### MVP Features (Must-Have)
+
+| **Category** | **Features to Include** | **Why?** | **Tools/Components (with Modifications)** |
+| --- | --- | --- | --- |
+| **Data Ingestion** | - File uploads (PDF/Excel/CSV/DOCX)<br>- Dual pipeline for structured & unstructured data | Handle multiple file types with ESG metadata tagging | **Simba:** Next.js UI, Supabase Storage, `document_processor.py` (extended for ESG metadata)<br>**SaaS Factory:** EnhancedDocumentProcessor (OCR/table extraction) |
+| **Basic Processing** | - Text extraction and chunking with ESG tags<br>- OpenAI embeddings generation | Transform raw files into searchable, ESG-tagged data | **Simba:** `embedding_service.py` & chunking functions (with ESG metadata)<br>**SaaS Factory:** Tesseract OCR & Camelot for non-PDF content processing |
+| **User Interface** | - Dashboard with ESG metrics and visualizations<br>- chatbot integration | Interactive insights and data visualization | **Simba:** Next.js dashboard (updated for ESG metrics)<br>**SaaS Factory:** Chart components, DocumentUploader UI |
+| **Auth & Security** | - Google OAuth login/signup<br>- Row-level security for ESG data | Secure access and data privacy | **Simba:** Supabase Auth (Google OAuth) with enhanced RLS<br>**SaaS Factory:** (Optional integration with Firebase/Supabase Auth) |
+| **Output Generation** | - Export reports in Excel/PDF<br>- Reporting from dual-stored ESG data | Enable offline report generation | **Simba:** Extended dual storage & reporting modules<br>**SaaS Factory:** Adapted reporting components (Pandas, WeasyPrint, openpyxl) |
+
+### Reusable Components
+
+- **From Simba Assistant**:
+    - Core RAG components (document processor, OpenAI embeddings, Supabase vector retriever).
+    - Authentication flow (Supabase Google OAuth).
+    - Basic processing pipeline (text chunking, vector storage).
+- **Combined with SaaS Factory**:
+    - Unified file processing (Simba’s PDF processor + SaaS Factory’s Camelot/Tesseract).
+    - Enhanced metadata handling (Simba’s basic metadata + SaaS Factory’s config system).
+    - Improved visualizations and analytics tailored for ESG.
+
+---
+
+## 9. Data Flow
+
+### Data Processing Sequence
 
 ```mermaid
 sequenceDiagram
-    participant U as User/Frontend
-    participant MB as Main Backend (Flask @5005)
-    participant RS as RAG Service (Flask @6050)
-    participant SS as Supabase Storage
-    participant SDB as Supabase DB (Postgres)
-    participant OAI as OpenAI API
+  participant U as User
+  participant F as Flask Backend
+  participant S as Supabase Storage
+  participant DB as Supabase PostgreSQL
+  participant AI as OpenAI Service
 
-    %% Upload Phase
-    Note over U,MB: Upload Phase
-    U->>+MB: POST /api/upload-file (File, Auth Token)
-    MB->>MB: Verify Auth Token
-    MB->>+SS: Store Raw File
-    SS-->>-MB: File Path
-    MB->>+SDB: RPC manage_document_metadata (create, path, user_id)
-    SDB-->>-MB: Metadata Stored (file_id)
-    MB-->>-U: Success (file_path, name)
+  U->>F: POST /upload (File: PDF/Excel/CSV/DOCX)
+  F->>S: Store File
+  F->>F: Invoke Document Processing (Extraction & ESG Tagging)
+  F->>AI: Generate Embeddings (OpenAI)
+  AI-->>F: Return Embeddings
+  F->>DB: Store ESG Metrics (esg_metrics) & Text Chunks (esg_chunks)
+  DB-->>F: Acknowledge Storage
+  F->>U: Return Processing Status/Response
 
-    %% Processing Phase
-    Note over U,RS: Processing Phase
-    U->>+MB: POST /api/process-file (storage_path, Auth Token)
-    MB->>MB: Verify Auth Token
-    MB->>+SDB: Get file_id (from documents table)
-    SDB-->>-MB: Return file_id
-    MB->>+RS: POST /api/v1/process_document (file_id)
-    RS->>+SS: Download File (via file_id path)
-    SS-->>-RS: File Content
-    RS->>RS: Process & Chunk File
-    RS->>+OAI: Generate Embeddings
-    OAI-->>-RS: Embeddings
-    RS->>+SDB: Store Chunks & Embeddings (document_chunks)
-    SDB-->>-RS: Acknowledge Storage
-    RS-->>-MB: Success (chunk_count)
-    MB-->>-U: Success Response
 ```
 
 ---
 
-## 9. Conclusion
+## 10. Overall Architecture Diagram (MVP Focus)
 
-- The backend architecture consists of a **Main Flask API** and a separate **Flask RAG Microservice**.
-- It utilizes **Supabase** for authentication, PostgreSQL database (`public.documents`, `esg_data.document_chunks`, `esg_data.excel_metrics`), and file storage.
-- **OpenAI** is used for embeddings (via RAG service) and chat (via Main Backend).
-- A **Neo4j graph database** is incorporated in an advanced processing pipeline within the RAG service.
-- Key functionalities like file management and basic RAG processing triggering are implemented.
-- Security relies on JWT validation (currently without signature check) and planned Supabase RLS.
+```mermaid
+%%{init: {'theme': 'neutral', 'themeVariables': { 'fontSize': '18px'}}}%%
+graph TB
+
+subgraph Data_Ingestion
+  A["User Uploads Files (PDF/Excel/CSV/DOCX)"] --> B["Supabase Storage"]
+end
+
+subgraph Processing
+  B --> C["Simba Assistant RAG + SaaS Enhancements\\n(PDF Extraction, Table Parsing, ESG Metadata)"]
+  C --> D["Generate Embeddings (OpenAI)"]
+  D --> E["Store in DB\\n(esg_metrics & esg_chunks)"]
+end
+
+subgraph Analytics
+  E --> F["Supabase API"]
+  F --> G["Next.js Dashboard & Charts\\n(Enhanced with SaaS Factory UI)"]
+  G --> H["Chatbot"]
+  H -->|Retrieves ESG Data| F
+end
+
+subgraph Auth
+  I["Supabase Auth (Google OAuth)\\nRow-Level Security"] --> G
+  I --> H
+end
+
+subgraph Reporting
+  E --> J["Excel/PDF Export\\n(WeasyPrint, Pandas, openpyxl)"]
+end
+
+style Data_Ingestion fill:#e3f2fd,stroke:#2196f3
+style Processing fill:#ffb4c3,stroke:#dcdc39
+style Analytics fill:#c8e6c9,stroke:#4caf50
+style Auth fill:#ffcdcd,stroke:#f44336
+style Reporting fill:#e1bee7,stroke:#9c27b0
+
+```
 
 ---
 
-*This document reflects the state of the codebase as analyzed. Implementation details should be verified as development progresses.*
+## 11. Conclusion
+
+- The backend leverages **Flask**, **Supabase**, and **Docker** to provide a secure, scalable, and maintainable architecture.
+- The modular monolithic design enables rapid MVP development while supporting future enhancements.
+- Through secure authentication, dual data storage, and integration with AI and analytics tools, the system effectively processes and visualizes ESG data, meeting both current and future stakeholder needs.
+
+---
+
+*Note: Any missing specifics (e.g., detailed file parser configurations or additional microservice interactions) are flagged as **[Missing Information]** and should be updated as the project evolves.*
