@@ -8,7 +8,7 @@ from flask import (
 )
 import os
 from dotenv import load_dotenv
-from backend.llmservice import LLMService
+from llmservice import LLMService
 from security import require_auth, require_role
 from flask_cors import CORS, cross_origin
 import uuid
@@ -2042,28 +2042,28 @@ def get_benchmarks():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/analytics/generate-report", methods=["POST"])
-@require_auth
-def generate_report():
-    """Generate a new ESG report."""
-    try:
-        app.logger.info("📊 API Call - generate_report")
-        data = request.json
-        report_type = data.get("type", "quarterly")
+# @app.route("/api/analytics/generate-report", methods=["POST"])
+# @require_auth
+# def generate_report():
+#     """Generate a new ESG report."""
+#     try:
+#         app.logger.info("📊 API Call - generate_report")
+#         data = request.json
+#         report_type = data.get("type", "quarterly")
 
-        # Mock response
-        response = {
-            "report_id": str(uuid.uuid4()),
-            "status": "processing",
-            "estimated_completion": "2024-03-08T15:00:00Z",
-            "type": report_type,
-            "notification": "You will be notified when the report is ready.",
-        }
-        app.logger.info("📥 API Response: Report generation initiated")
-        return jsonify(response), 200
-    except Exception as e:
-        app.logger.error(f"❌ API Error in generate_report: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+#         # Mock response
+#         response = {
+#             "report_id": str(uuid.uuid4()),
+#             "status": "processing",
+#             "estimated_completion": "2024-03-08T15:00:00Z",
+#             "type": report_type,
+#             "notification": "You will be notified when the report is ready.",
+#         }
+#         app.logger.info("📥 API Response: Report generation initiated")
+#         return jsonify(response), 200
+#     except Exception as e:
+#         app.logger.error(f"❌ API Error in generate_report: {str(e)}")
+#         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/analytics/report-status/<report_id>", methods=["GET"])
@@ -2088,40 +2088,6 @@ def get_report_status(report_id):
     except Exception as e:
         app.logger.error(f"❌ API Error in get_report_status: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/rag/query", methods=["POST"])
-@require_auth
-def rag_query():
-    """Proxy ESG RAG query to the RAG microservice."""
-    try:
-        app.logger.info(f"🔄 Creating embedding for text of length {len(text)}")
-
-        # Create the embedding using OpenAI's API
-        response = client.embeddings.create(
-            model=model, input=text, encoding_format="float"
-        )
-
-        # Extract the embedding from the response
-        embedding = response.data[0].embedding
-
-        # Create metadata about the embedding
-        metadata = {
-            "model": model,
-            "timestamp": datetime.now().isoformat(),
-            "dimensions": len(embedding),
-            "text_length": len(text),
-        }
-
-        app.logger.info(
-            f"✅ Successfully created embedding with {len(embedding)} dimensions"
-        )
-
-        return {"embedding": embedding, "metadata": metadata}
-
-    except Exception as e:
-        app.logger.error(f"❌ Error creating embedding: {str(e)}")
-        raise Exception(f"Failed to create embedding: {str(e)}")
 
 
 def create_embeddings_batch(

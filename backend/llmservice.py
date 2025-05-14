@@ -1,7 +1,6 @@
-
 from openai import OpenAI
 import os
-
+import json
 class Prompts:
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -25,11 +24,11 @@ class Prompts:
 
     **Output format** (JSON):
     ```json
-    {
-    "query": "{{user_query}}",
+    {{
+    "query": "{user_query}",
     "type": "<global | entity>",
     "entities": ["<entity1>", "<entity2>", ...]
-    }
+    }}
     '''
 
 
@@ -45,7 +44,8 @@ class LLMService:
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
-        return response.choices[0].message.content
+        response_json = json.loads(response.choices[0].message.content)
+        return response_json
     
     def select_community_summaries(self, request):
         # Get the user's query
@@ -126,9 +126,9 @@ class LLMService:
     def handle_query(self, query):
         # Step 1: Retrieve relevant summaries from the graph
         normalized_request = self.normalize_request(query)
-        if normalized_request.get("global"):
+        if normalized_request.get("type") == "global":
             summaries = self.select_community_summaries(normalized_request)
-        elif normalized_request.get("entity"):
+        elif normalized_request.get("type") == "entity":
             summaries = self.select_relevant_summaries(normalized_request)
         
         # Step 2: Generate partial answers from community summaries
