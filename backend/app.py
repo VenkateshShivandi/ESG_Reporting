@@ -35,6 +35,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
+OPENAI_ASSISTANT_ID_2 = os.getenv("OPENAI_ASSISTANT_ID_2")
 REDIS_URL = os.getenv("REDIS_URL")
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -805,8 +806,8 @@ def initialize_assistant():
 def chat():
     """Chat with the AI."""
     try:
-        if OPENAI_ASSISTANT_ID:
-            assistant_id = OPENAI_ASSISTANT_ID
+        if OPENAI_ASSISTANT_ID_2:
+            assistant_id = OPENAI_ASSISTANT_ID_2
             print("OPENAI_ASSISTANT_ID: ", assistant_id)
         else:
             assistant_id = initialize_assistant()
@@ -834,6 +835,18 @@ def chat():
             thread = client.beta.threads.create()
             thread_id = thread.id
 
+        print("thread_id: ", thread_id)
+        print("assistant_id: ", assistant_id)
+
+        # use llm service to process the query
+        # llm_service = LLMService()
+        # response = llm_service.handle_query(message)
+        # print("response: ", response)
+        rag_api_url = "http://localhost:6050/api/v1/query"
+        print("request object: ", request)
+        response = requests.post(rag_api_url, json={"query": message})
+        print("response: ", response)
+            
         # Add the user's message to the thread
         client.beta.threads.messages.create(
             thread_id=thread_id,  # Use thread_id instead of thread.id
@@ -2032,28 +2045,28 @@ def get_benchmarks():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/analytics/generate-report", methods=["POST"])
-@require_auth
-def generate_report():
-    """Generate a new ESG report."""
-    try:
-        app.logger.info("📊 API Call - generate_report")
-        data = request.json
-        report_type = data.get("type", "quarterly")
+# @app.route("/api/analytics/generate-report", methods=["POST"])
+# @require_auth
+# def generate_report():
+#     """Generate a new ESG report."""
+#     try:
+#         app.logger.info("📊 API Call - generate_report")
+#         data = request.json
+#         report_type = data.get("type", "quarterly")
 
-        # Mock response
-        response = {
-            "report_id": str(uuid.uuid4()),
-            "status": "processing",
-            "estimated_completion": "2024-03-08T15:00:00Z",
-            "type": report_type,
-            "notification": "You will be notified when the report is ready.",
-        }
-        app.logger.info("📥 API Response: Report generation initiated")
-        return jsonify(response), 200
-    except Exception as e:
-        app.logger.error(f"❌ API Error in generate_report: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+#         # Mock response
+#         response = {
+#             "report_id": str(uuid.uuid4()),
+#             "status": "processing",
+#             "estimated_completion": "2024-03-08T15:00:00Z",
+#             "type": report_type,
+#             "notification": "You will be notified when the report is ready.",
+#         }
+#         app.logger.info("📥 API Response: Report generation initiated")
+#         return jsonify(response), 200
+#     except Exception as e:
+#         app.logger.error(f"❌ API Error in generate_report: {str(e)}")
+#         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/analytics/report-status/<report_id>", methods=["GET"])
@@ -2078,40 +2091,6 @@ def get_report_status(report_id):
     except Exception as e:
         app.logger.error(f"❌ API Error in get_report_status: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/rag/query", methods=["POST"])
-@require_auth
-def rag_query():
-    """Proxy ESG RAG query to the RAG microservice."""
-    try:
-        app.logger.info(f"🔄 Creating embedding for text of length {len(text)}")
-
-        # Create the embedding using OpenAI's API
-        response = client.embeddings.create(
-            model=model, input=text, encoding_format="float"
-        )
-
-        # Extract the embedding from the response
-        embedding = response.data[0].embedding
-
-        # Create metadata about the embedding
-        metadata = {
-            "model": model,
-            "timestamp": datetime.now().isoformat(),
-            "dimensions": len(embedding),
-            "text_length": len(text),
-        }
-
-        app.logger.info(
-            f"✅ Successfully created embedding with {len(embedding)} dimensions"
-        )
-
-        return {"embedding": embedding, "metadata": metadata}
-
-    except Exception as e:
-        app.logger.error(f"❌ Error creating embedding: {str(e)}")
-        raise Exception(f"Failed to create embedding: {str(e)}")
 
 
 def create_embeddings_batch(
@@ -2282,6 +2261,24 @@ def create_graph():
         app.logger.error(f"❌ API Error in create_graph: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/generate-report", methods=["POST"])
+@require_auth
+def generate_report():
+    """
+    Generate a report for a specific user, given the attached document ids for the platform.
+    """
+    try:
+        app.logger.info("📊 API Call - generate_report")
+        data = request.get_json()
+        document_ids = data.get("document_ids")
+        # llm_service = LLMService()
+        # llm_service.generate_report(document_ids)
+        rag_api_url = "http://localhost:6050/api/v1/generate-report"
+        response = requests.post(rag_api_url, json={"document_ids": document_ids})
+        print("response: ", response)
+    except Exception as e:
+        app.logger.error(f"❌ API Error in generate_report: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True, port=5050)
