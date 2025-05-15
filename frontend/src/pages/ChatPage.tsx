@@ -363,44 +363,18 @@ function ChatPage() {
       });
 
       try {
-        // Create FormData object
-        const formData = new FormData();
+        // Extract document IDs from selected files
+        const documentIds = selectedFilesList.map(file => file.id);
+        console.log("Frontend - Document IDs being sent:", documentIds);
 
-        // Get the first selected file's data from Supabase
-        const firstFile = selectedFilesList[0];
-        console.log("First file:", firstFile);
-        console.log("Selected files list:", selectedFilesList);
-        console.log("Supabase:", supabase);
-        console.log("Attempting to download file with ID:", firstFile.id);
-
-        const { data: fileData, error } = await supabase.storage
-          .from('documents')
-          .download(firstFile.name);
-
-        if (error) {
-          console.error("Supabase storage error:", error);
-          throw new Error(`Failed to download file: ${error.message}`);
-        }
-
-        if (!fileData) {
-          throw new Error("No file data received from storage");
-        }
-
-        // Log successful download
-        console.log("File downloaded successfully:", {
-          fileName: firstFile.name,
-          fileSize: fileData.size
-        });
-
-        // Add the file to FormData
-        formData.append('file', fileData, firstFile.name);
-
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/generate-gri-report`, {
+        // Call the generate-report API
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/generate-report`, {
           method: 'POST',
-          body: formData,
           headers: {
+            'Content-Type': 'application/json',
             'Authorization': `Bearer ${session?.access_token}`
-          }
+          },
+          body: JSON.stringify({ document_ids: documentIds })
         });
 
         if (!response.ok) {

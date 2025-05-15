@@ -17,6 +17,7 @@ from rag.supabase_storage import store_chunks
 from rag.initialize_neo4j import Neo4jGraphInitializer
 from rag.er_parallel import EntityRelationshipManager
 from rag.llmservice import LLMService
+
 app = flask.Flask(__name__)
 # Enable CORS for all routes
 CORS(
@@ -566,6 +567,37 @@ def query():
     llm_service = LLMService()
     response = llm_service.handle_query(query)
     return flask.jsonify({"success": True, "response": response}), 200
+
+
+@app.route("/api/v1/generate-report", methods=["POST"])
+def generate_report():
+    """
+    Generate a report based on document IDs.
+    """
+    app.logger.info(f"---------------/api/v1/generate-report-----------------")
+    data = flask.request.json
+    document_ids = data.get("document_ids")
+
+    if not document_ids:
+        return flask.jsonify({"error": "No document_ids provided"}), 400
+
+    try:
+        llm_service = LLMService()
+        report = llm_service.generate_report(document_ids)
+        return (
+            flask.jsonify(
+                {
+                    "success": True,
+                    "message": "Report generated successfully",
+                    "report": report,
+                }
+            ),
+            200,
+        )
+    except Exception as e:
+        app.logger.error(f"Error generating report: {str(e)}")
+        return flask.jsonify({"error": f"Failed to generate report: {str(e)}"}), 500
+
 
 if __name__ == "__main__":
     try:
