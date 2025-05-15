@@ -16,7 +16,7 @@ from rag.embedding_service import generate_embeddings
 from rag.supabase_storage import store_chunks
 from rag.initialize_neo4j import Neo4jGraphInitializer
 from rag.er_parallel import EntityRelationshipManager
-
+from rag.llmservice import LLMService
 app = flask.Flask(__name__)
 # Enable CORS for all routes
 CORS(
@@ -553,6 +553,19 @@ def delete_graph_entity():
         app.logger.error(f"Error deleting graph entity: {str(e)}")
         return flask.jsonify({"error": str(e)}), 500
 
+
+@app.route("/api/v1/query", methods=["POST"])
+def query():
+    """
+    Query the graph database.
+    """
+    app.logger.info(f"---------------/api/v1/query-----------------")
+    data = flask.request.json
+    query = data.get("query")
+    # user_id = data.get("user_id")
+    llm_service = LLMService()
+    response = llm_service.handle_query(query)
+    return flask.jsonify({"success": True, "response": response}), 200
 
 if __name__ == "__main__":
     try:

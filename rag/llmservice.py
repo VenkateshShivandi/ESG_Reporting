@@ -1,6 +1,7 @@
 from openai import OpenAI
 import os
 import json
+from rag.initialize_neo4j import Neo4jGraphInitializer
 class Prompts:
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -36,6 +37,7 @@ class LLMService:
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.model = "gpt-3.5-turbo"
+        self.neo4j_client = Neo4jGraphInitializer()
     def normalize_request(self, request):
         "Use gpt-4o to normalize the request to a structured format"
         prompt = Prompts.query_classification(request)
@@ -69,24 +71,28 @@ class LLMService:
     def select_relevant_summaries(self, request):
         '''Select the relevant summaries from the community summaries'''
         # Get the user's query
-        user_query = request.query
+        try:
+            user_query = request.get("query")
+            entities = request.get("entities")
+            # Get the community summaries
+            # TODO: Get the community summaries from the database
+            community_summaries = []
+            # Neo4j query to get the community summaries
+            query = """
+            MATCH (n:Summary)
+            WHERE n.entities CONTAINS $entities
+            RETURN n.summary
+            """
+            results = self.neo4j_client.query(query, {"entities": entities})
+            community_summaries = [result["n.summary"] for result in results]
+            
+            # Select the relevant summaries
+            # TODO: Select the relevant summaries from the community summaries
+            return community_summaries
+        except Exception as e:
+            print(e)
+            return []
         
-        # Get the community summaries
-        # TODO: Get the community summaries from the database
-        community_summaries = []
-        # Neo4j query to get the community summaries
-        query = """
-        MATCH (n:Summary)
-        WHERE n.entities CONTAINS "{user_query}"
-        RETURN n.summary
-        """
-        results = self.client.query(query)
-        community_summaries = [result["n.summary"] for result in results]
-        
-        # Select the relevant summaries
-        # TODO: Select the relevant summaries from the community summaries
-        return community_summaries
-
     def map_step(self, summaries, query):
         partial_answers = [self.generate_partial_answer(query, summary) for summary in summaries]
         return partial_answers

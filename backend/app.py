@@ -8,7 +8,6 @@ from flask import (
 )
 import os
 from dotenv import load_dotenv
-from llmservice import LLMService
 from security import require_auth, require_role
 from flask_cors import CORS, cross_origin
 import uuid
@@ -840,8 +839,12 @@ def chat():
         print("assistant_id: ", assistant_id)
 
         # use llm service to process the query
-        llm_service = LLMService()
-        response = llm_service.handle_query(message)
+        # llm_service = LLMService()
+        # response = llm_service.handle_query(message)
+        # print("response: ", response)
+        rag_api_url = "http://localhost:6050/api/v1/query"
+        print("request object: ", request)
+        response = requests.post(rag_api_url, json={"query": message})
         print("response: ", response)
             
         # Add the user's message to the thread
@@ -2268,8 +2271,11 @@ def generate_report():
         app.logger.info("📊 API Call - generate_report")
         data = request.get_json()
         document_ids = data.get("document_ids")
-        llm_service = LLMService()
-        llm_service.generate_report(document_ids)
+        # llm_service = LLMService()
+        # llm_service.generate_report(document_ids)
+        rag_api_url = "http://localhost:6050/api/v1/generate-report"
+        response = requests.post(rag_api_url, json={"document_ids": document_ids})
+        print("response: ", response)
     except Exception as e:
         app.logger.error(f"❌ API Error in generate_report: {str(e)}")
         return jsonify({"error": str(e)}), 500
