@@ -355,7 +355,8 @@ function ChatPage() {
     const selectedFilesList = files.filter((file) => selectedFiles.has(file.id))
     if (selectedType && selectedFilesList.length > 0) {
       setIsGeneratingReport(true);
-
+      console.log("Generating report with prompt:", reportPrompt)
+      console.log("Selected type:", selectedType)
       const toastId = "report-generation-toast";
       toast("Starting report generation...", {
         id: toastId,
@@ -363,44 +364,17 @@ function ChatPage() {
       });
 
       try {
-        // Create FormData object
-        const formData = new FormData();
-
-        // Get the first selected file's data from Supabase
-        const firstFile = selectedFilesList[0];
-        console.log("First file:", firstFile);
-        console.log("Selected files list:", selectedFilesList);
-        console.log("Supabase:", supabase);
-        console.log("Attempting to download file with ID:", firstFile.id);
-
-        const { data: fileData, error } = await supabase.storage
-          .from('documents')
-          .download(firstFile.name);
-
-        if (error) {
-          console.error("Supabase storage error:", error);
-          throw new Error(`Failed to download file: ${error.message}`);
-        }
-
-        if (!fileData) {
-          throw new Error("No file data received from storage");
-        }
-
-        // Log successful download
-        console.log("File downloaded successfully:", {
-          fileName: firstFile.name,
-          fileSize: fileData.size
-        });
-
-        // Add the file to FormData
-        formData.append('file', fileData, firstFile.name);
-
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/generate-gri-report`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/generate-report`, {
           method: 'POST',
-          body: formData,
           headers: {
-            'Authorization': `Bearer ${session?.access_token}`
-          }
+            'Authorization': `Bearer ${session?.access_token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            document_ids: selectedFilesList.map(file => file.id),
+            report_type: selectedType,
+            prompt: reportPrompt
+          })
         });
 
         if (!response.ok) {
@@ -441,20 +415,6 @@ function ChatPage() {
             detail: { report: newReport }
           });
           window.dispatchEvent(newReportEvent);
-        } catch (error) {
-          console.error('Error saving report to localStorage:', error);
-        }
-
-        // Save to localStorage
-        try {
-          const savedReportsJson = localStorage.getItem('generatedReports');
-          let savedReports = savedReportsJson ? JSON.parse(savedReportsJson) : [];
-          savedReports = [newReport, ...savedReports];
-          localStorage.setItem('generatedReports', JSON.stringify(savedReports));
-
-          window.dispatchEvent(new CustomEvent('newReportGenerated', {
-            detail: { report: newReport }
-          }));
         } catch (error) {
           console.error('Error saving report to localStorage:', error);
         }

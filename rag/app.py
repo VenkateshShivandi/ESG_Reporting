@@ -553,6 +553,24 @@ def delete_graph_entity():
         app.logger.error(f"Error deleting graph entity: {str(e)}")
         return flask.jsonify({"error": str(e)}), 500
 
+@app.route("/api/v1/generate-report", methods=["POST"])
+def generate_report():
+    """
+    Generate a report for a specific user, given the attached document ids for the platform.
+    """
+    app.logger.info(f"---------------/api/v1/generate-report-----------------")
+    try:
+        data = json.loads(flask.request.json)
+        document_ids = data.get("document_ids")
+        report_type = data.get("report_type")
+        custom_prompt = data.get("prompt")
+        llm_service = LLMService()
+        report_name, report_url = llm_service.generate_report(document_ids, report_type, custom_prompt)
+        return flask.jsonify({"success": True, "report_name": report_name, "report_url": report_url}), 200
+    except Exception as e:
+        app.logger.error(f"Error generating report: {str(e)}")
+        return flask.jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/v1/query", methods=["POST"])
 def query():
