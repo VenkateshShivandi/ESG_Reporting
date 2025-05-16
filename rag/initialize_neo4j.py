@@ -720,6 +720,13 @@ def run() -> None:
             driver.close()
             initializer.stopNeo4jContainer()
 
+    def query(self, query: str, params: dict = {}) -> list:
+        """
+        Query the Neo4j database using a Cypher query.
+        """
+        with self.driver.session() as session:
+            result = session.run(query, params)
+            return result.to_list()
 
 if __name__ == "__main__":
     run()

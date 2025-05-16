@@ -287,6 +287,37 @@ def list_tree():
         app.logger.error(f"❌ API Error in list_tree: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/list-reports", methods=["GET"])
+@require_auth
+def list_reports():
+    try:
+        response = supabase.storage.from_("reports").list()
+        return jsonify(response), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in list_reports: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/view-report", methods=["GET"])
+@require_auth
+def view_report():
+    try:
+        report_name = request.args.get("report_name")
+        response = supabase.storage.from_("reports").download(report_name)
+        return send_file(response, as_attachment=True), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in view_report: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/api/download-report", methods=["GET"])
+@require_auth
+def download_report():
+    try:
+        report_name = request.args.get("report_name")
+        response = supabase.storage.from_("reports").download(report_name)
+        return send_file(response, as_attachment=True), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in download_report: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/upload-file", methods=["POST"])
 @require_auth
@@ -2271,11 +2302,21 @@ def generate_report():
         app.logger.info("📊 API Call - generate_report")
         data = request.get_json()
         document_ids = data.get("document_ids")
-        # llm_service = LLMService()
-        # llm_service.generate_report(document_ids)
+        report_type = data.get("report_type")
+        prompt = data.get("prompt")
+        request_body = {
+            "document_ids": document_ids,
+            "report_type": report_type,
+            "prompt": prompt
+        }
+        print("request_body: ", request_body)
         rag_api_url = "http://localhost:6050/api/v1/generate-report"
-        response = requests.post(rag_api_url, json={"document_ids": document_ids})
-        print("response: ", response)
+        response = requests.post(
+            rag_api_url, 
+            json=json.dumps(request_body)
+        )
+        response_data = response.json()
+        return jsonify({"success": True, "report_name": response_data["report_name"], "report_url": response_data["report_url"]}), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in generate_report: {str(e)}")
         return jsonify({"error": str(e)}), 500

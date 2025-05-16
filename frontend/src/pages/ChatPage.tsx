@@ -355,7 +355,8 @@ function ChatPage() {
     const selectedFilesList = files.filter((file) => selectedFiles.has(file.id))
     if (selectedType && selectedFilesList.length > 0) {
       setIsGeneratingReport(true);
-
+      console.log("Generating report with prompt:", reportPrompt)
+      console.log("Selected type:", selectedType)
       const toastId = "report-generation-toast";
       toast("Starting report generation...", {
         id: toastId,
@@ -363,18 +364,17 @@ function ChatPage() {
       });
 
       try {
-        // Extract document IDs from selected files
-        const documentIds = selectedFilesList.map(file => file.id);
-        console.log("Frontend - Document IDs being sent:", documentIds);
-
-        // Call the generate-report API
         const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/generate-report`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session?.access_token}`
+            'Authorization': `Bearer ${session?.access_token}`,
+            'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ document_ids: documentIds })
+          body: JSON.stringify({
+            document_ids: selectedFilesList.map(file => file.id),
+            report_type: selectedType,
+            prompt: reportPrompt
+          })
         });
 
         if (!response.ok) {
@@ -415,20 +415,6 @@ function ChatPage() {
             detail: { report: newReport }
           });
           window.dispatchEvent(newReportEvent);
-        } catch (error) {
-          console.error('Error saving report to localStorage:', error);
-        }
-
-        // Save to localStorage
-        try {
-          const savedReportsJson = localStorage.getItem('generatedReports');
-          let savedReports = savedReportsJson ? JSON.parse(savedReportsJson) : [];
-          savedReports = [newReport, ...savedReports];
-          localStorage.setItem('generatedReports', JSON.stringify(savedReports));
-
-          window.dispatchEvent(new CustomEvent('newReportGenerated', {
-            detail: { report: newReport }
-          }));
         } catch (error) {
           console.error('Error saving report to localStorage:', error);
         }
