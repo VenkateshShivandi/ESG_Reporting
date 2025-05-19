@@ -37,6 +37,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
+OPENAI_ASSISTANT_ID_2 = os.getenv("OPENAI_ASSISTANT_ID_2")
 REDIS_URL = os.getenv("REDIS_URL")
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -288,6 +289,37 @@ def list_tree():
         app.logger.error(f"❌ API Error in list_tree: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/list-reports", methods=["GET"])
+@require_auth
+def list_reports():
+    try:
+        response = supabase.storage.from_("reports").list()
+        return jsonify(response), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in list_reports: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/view-report", methods=["GET"])
+@require_auth
+def view_report():
+    try:
+        report_name = request.args.get("report_name")
+        response = supabase.storage.from_("reports").download(report_name)
+        return send_file(response, as_attachment=True), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in view_report: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/api/download-report", methods=["GET"])
+@require_auth
+def download_report():
+    try:
+        report_name = request.args.get("report_name")
+        response = supabase.storage.from_("reports").download(report_name)
+        return send_file(response, as_attachment=True), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in download_report: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/upload-file", methods=["POST"])
 @require_auth
@@ -807,8 +839,8 @@ def initialize_assistant():
 def chat():
     """Chat with the AI."""
     try:
-        if OPENAI_ASSISTANT_ID:
-            assistant_id = OPENAI_ASSISTANT_ID
+        if OPENAI_ASSISTANT_ID_2:
+            assistant_id = OPENAI_ASSISTANT_ID_2
             print("OPENAI_ASSISTANT_ID: ", assistant_id)
         else:
             assistant_id = initialize_assistant()
@@ -836,6 +868,18 @@ def chat():
             thread = client.beta.threads.create()
             thread_id = thread.id
 
+        print("thread_id: ", thread_id)
+        print("assistant_id: ", assistant_id)
+
+        # use llm service to process the query
+        # llm_service = LLMService()
+        # response = llm_service.handle_query(message)
+        # print("response: ", response)
+        rag_api_url = "http://localhost:6050/api/v1/query"
+        print("request object: ", request)
+        response = requests.post(rag_api_url, json={"query": message})
+        print("response: ", response)
+            
         # Add the user's message to the thread
         client.beta.threads.messages.create(
             thread_id=thread_id,  # Use thread_id instead of thread.id
@@ -2034,28 +2078,28 @@ def get_benchmarks():
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/api/analytics/generate-report", methods=["POST"])
-@require_auth
-def generate_report():
-    """Generate a new ESG report."""
-    try:
-        app.logger.info("📊 API Call - generate_report")
-        data = request.json
-        report_type = data.get("type", "quarterly")
+# @app.route("/api/analytics/generate-report", methods=["POST"])
+# @require_auth
+# def generate_report():
+#     """Generate a new ESG report."""
+#     try:
+#         app.logger.info("📊 API Call - generate_report")
+#         data = request.json
+#         report_type = data.get("type", "quarterly")
 
-        # Mock response
-        response = {
-            "report_id": str(uuid.uuid4()),
-            "status": "processing",
-            "estimated_completion": "2024-03-08T15:00:00Z",
-            "type": report_type,
-            "notification": "You will be notified when the report is ready.",
-        }
-        app.logger.info("📥 API Response: Report generation initiated")
-        return jsonify(response), 200
-    except Exception as e:
-        app.logger.error(f"❌ API Error in generate_report: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+#         # Mock response
+#         response = {
+#             "report_id": str(uuid.uuid4()),
+#             "status": "processing",
+#             "estimated_completion": "2024-03-08T15:00:00Z",
+#             "type": report_type,
+#             "notification": "You will be notified when the report is ready.",
+#         }
+#         app.logger.info("📥 API Response: Report generation initiated")
+#         return jsonify(response), 200
+#     except Exception as e:
+#         app.logger.error(f"❌ API Error in generate_report: {str(e)}")
+#         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/analytics/report-status/<report_id>", methods=["GET"])
@@ -2250,6 +2294,34 @@ def create_graph():
         app.logger.error(f"❌ API Error in create_graph: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/generate-report", methods=["POST"])
+@require_auth
+def generate_report():
+    """
+    Generate a report for a specific user, given the attached document ids for the platform.
+    """
+    try:
+        app.logger.info("📊 API Call - generate_report")
+        data = request.get_json()
+        document_ids = data.get("document_ids")
+        report_type = data.get("report_type")
+        prompt = data.get("prompt")
+        request_body = {
+            "document_ids": document_ids,
+            "report_type": report_type,
+            "prompt": prompt
+        }
+        print("request_body: ", request_body)
+        rag_api_url = "http://localhost:6050/api/v1/generate-report"
+        response = requests.post(
+            rag_api_url, 
+            json=json.dumps(request_body)
+        )
+        response_data = response.json()
+        return jsonify({"success": True, "report_name": response_data["report_name"], "report_url": response_data["report_url"]}), 200
+    except Exception as e:
+        app.logger.error(f"❌ API Error in generate_report: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/api/analytics/excel-files", methods=["GET"])
 @require_auth
