@@ -13,6 +13,7 @@ The test suite is organized by functionality:
 - **test_structure_utils.py**: Tests for detecting document structure and headers
 - **test_chunk_enrichment.py**: Tests for enriching document chunks with metadata
 - **test_robust_etl.py**: Tests for the robust ETL module for data extraction and transformation
+- **test_security.py**: Tests for JWT token verification, authentication, authorization, and RLS policy generation
 - **test_sample.py**: Basic sample tests showing path-resolving functionality
 
 ### API Tests
@@ -21,7 +22,7 @@ The API test suite uses independent test modules with mock Flask applications to
 
 - **test_basic_api.py**: Tests for basic API endpoints including status, user profile, and ESG data endpoints
 - **test_file_management_api.py**: Tests for file upload, listing, creation, deletion, and search endpoints
-- **test_document_processing_api.py**: Tests for document processing, metadata extraction, and search functionality
+- **test_document_processing_api.py**: Tests for document processing, metadata extraction, and search funct   gggionality
 - **test_analytics_and_chat_api.py**: Tests for analytics metrics, charts, trends, and chatbot functionality
 
 ## Running Tests
