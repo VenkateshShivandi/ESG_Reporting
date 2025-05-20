@@ -9,7 +9,7 @@
     "lint": "next lint",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx}\"",
-    "test": "TZ=UTC jest"
+    "test": "TZ=UTC jest --config jest.config.js --coverage"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
