@@ -1263,6 +1263,7 @@ const DocumentsPage: NextPage<Props> = () => {
                             <TableHead className="w-[35px] pl-3 pr-0 py-1.5">
                               <input
                                 type="checkbox"
+                                aria-label="Select all documents"
                                 checked={selectedItems.length === getCurrentFolderItems().length}
                                 onChange={handleSelectAll}
                                 className="h-4 w-4 rounded border-gray-300"
@@ -1316,6 +1317,8 @@ const DocumentsPage: NextPage<Props> = () => {
                               {getCurrentFolderItems().map((item, index) => (
                                 <motion.tr
                                   key={`${item.id}-${item.name}-${index}`}
+                                  aria-label={item.name}
+                                  role="row"
                                   layout
                                   initial={{ opacity: 0, y: 10 }}
                                   animate={{ opacity: 1, y: 0 }}
@@ -1439,7 +1442,11 @@ const DocumentsPage: NextPage<Props> = () => {
                                             <span>Rename</span>
                                           </DropdownMenuItem>
                                           {item.type === "file" && (
-                                            <DropdownMenuItem className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" onClick={() => handleMoveItem(item)}>
+                                            <DropdownMenuItem 
+                                              role="menuitem"
+                                              className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" 
+                                              onClick={() => handleMoveItem(item)}
+                                            >
                                               <FolderInput className="w-4 h-4 mr-2" />
                                               <span>Move to folder</span>
                                             </DropdownMenuItem>
