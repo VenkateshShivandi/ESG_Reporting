@@ -45,10 +45,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { updateProfile } from '@/lib/api/profile'
 
 export default function ProfilePage() {
   const { user, session, signOut } = useAuth()
   const [isExporting, setIsExporting] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
   
   // Function to simulate data export (GDPR compliance)
   const handleExportData = async () => {
@@ -91,6 +93,26 @@ export default function ProfilePage() {
     }
   }
   
+  const handleProfileUpdate = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setIsUpdating(true)
+    
+    try {
+      const formData = new FormData(event.currentTarget)
+      const data = {
+        name: formData.get('name') as string,
+        jobTitle: formData.get('title') as string,
+      }
+      
+      const result = await updateProfile(data)
+      toast.success('Profile updated successfully')
+    } catch (error) {
+      toast.error('Failed to update profile')
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
   return (
     <div className="container mx-auto max-w-6xl p-6 relative">
       {/* Background pattern */}
@@ -149,23 +171,48 @@ export default function ProfilePage() {
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Edit Profile</DialogTitle>
-                  <DialogDescription>Update your profile information.</DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="name">Name</Label>
-                    <Input id="name" defaultValue={user?.email?.split("@")[0] || "User"} className="border-slate-200 focus:border-emerald-500" />
+                <form onSubmit={handleProfileUpdate}>
+                  <DialogHeader>
+                    <DialogTitle>Edit Profile</DialogTitle>
+                    <DialogDescription>Update your profile information.</DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <Label htmlFor="name">Name</Label>
+                      <Input 
+                        id="name" 
+                        name="name"
+                        defaultValue={user?.email?.split("@")[0] || "User"} 
+                        className="border-slate-200 focus:border-emerald-500" 
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="title">Job Title</Label>
+                      <Input 
+                        id="title" 
+                        name="title"
+                        defaultValue="Sustainability Manager" 
+                        className="border-slate-200 focus:border-emerald-500" 
+                      />
+                    </div>
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="title">Job Title</Label>
-                    <Input id="title" defaultValue="Sustainability Manager" className="border-slate-200 focus:border-emerald-500" />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button type="submit" className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700">Save changes</Button>
-                </DialogFooter>
+                  <DialogFooter>
+                    <Button 
+                      type="submit" 
+                      disabled={isUpdating}
+                      className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700"
+                    >
+                      {isUpdating ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Updating...
+                        </>
+                      ) : (
+                        'Save changes'
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </form>
               </DialogContent>
             </Dialog>
 
@@ -188,10 +235,33 @@ export default function ProfilePage() {
           {/* Personal Information */}
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-2xl font-bold text-slate-800">Personal Information</h2>
-            <Button variant="ghost" size="sm" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 gap-1.5 px-0">
-              <Edit className="h-4 w-4" />
-              <span className="font-medium">Edit</span>
-            </Button>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="ghost" size="sm" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 gap-1.5 px-0">
+                  <Edit className="h-4 w-4" />
+                  <span className="font-medium">Edit</span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Edit Personal Information</DialogTitle>
+                  <DialogDescription>Update your personal information.</DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="name">Name</Label>
+                    <Input id="name" defaultValue={user?.email?.split("@")[0] || "User"} className="border-slate-200 focus:border-emerald-500" />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="title">Job Title</Label>
+                    <Input id="title" defaultValue="Sustainability Manager" className="border-slate-200 focus:border-emerald-500" />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="submit" className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700">Save changes</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
           
           <div className="bg-white rounded-2xl shadow-sm overflow-hidden hover:shadow-md transition-all duration-300">
