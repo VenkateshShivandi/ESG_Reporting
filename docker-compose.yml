@@ -1,0 +1,64 @@
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/.env.production
+    depends_on:
+      - backend
+      - rag
+    networks:
+      - esg-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5050:5000"
+    env_file:
+      - ./backend/.env.local
+    networks:
+      - esg-network
+
+  rag:
+    build:
+      context: ./rag
+      dockerfile: Dockerfile
+    depends_on:
+      - neo4j
+      - backend
+    ports:
+      - "6000:6000"
+    env_file:
+      - ./rag/.env.local
+    networks:
+      - esg-network
+
+
+  neo4j:
+    image: neo4j:latest
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=none
+      - NEO4J_PLUGINS=["graph-data-science"]
+    networks:
+      - esg-network
+
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - esg-network
+
+
+networks:
+  esg-network:

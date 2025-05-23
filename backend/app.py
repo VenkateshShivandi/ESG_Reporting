@@ -2580,4 +2580,5 @@ def get_excel_data():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5050)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
+

@@ -510,13 +510,31 @@ function ChartGenerator({ setCustomCharts }: { setCustomCharts: React.Dispatch<R
   const renderPreview = () => {
     switch (chartType) {
       case "bar":
-        return <BarChart data={customData} />
+        return <BarChart
+        data={customData}
+        config={{
+          keys: ["value1", "value2", "value3"],
+          labels: ["Environmental", "Energy", "Waste"],
+    colors: ["#4CAF50", "#81C784", "#C8E6C9"],
+    stacked: true,
+    showLegend: true
+  }}
+/>
       case "line":
-        return <LineChart data={customData} />
+        return <LineChart data={customData} config={config} />
       case "donut":
         return <DonutChart data={getDonutChartData()} />
       default:
-        return <BarChart data={customData} />
+        return <BarChart
+      data={customData}
+  config={{
+    keys: ["value1", "value2", "value3"],
+    labels: ["Environmental", "Energy", "Waste"],
+    colors: ["#4CAF50", "#81C784", "#C8E6C9"],
+    stacked: true,
+    showLegend: true
+  }}
+/>
     }
   }
 
@@ -1295,3 +1313,4 @@ export function AnalyticsPage() {
     </div>
   );
 }
+export default AnalyticsPage;
