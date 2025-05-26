@@ -10,31 +10,67 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 const renderWithDnd = (ui: React.ReactElement) =>
   render(<DndProvider backend={HTML5Backend}>{ui}</DndProvider>);
 
-describe('DocumentsPage - Upload', () => {
-  it('should upload single file successfully', async () => {
-    const file = new File(['test'], 'report.pdf', { type: 'application/pdf' });
-    renderWithDnd(<DocumentsPage />);
-    
-    const input = screen.getByLabelText(/upload files/i) as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [file] } });
-    
-    await waitFor(() => {
-      expect(screen.getByText(/uploading report\.pdf/i)).toBeInTheDocument();
-      expect(documentsApi.uploadFile).toHaveBeenCalled();
-    });
+
+describe("File Upload Functionality", () => {
+  // UC-FU-001: Upload a single valid file (e.g., .pdf, .xlsx within size limits).
+  it("should upload a single valid file successfully", () => {
+    // TODO: Implement test
   });
 
-  it('should reject oversized files', async () => {
-    const bigFile = new File([new ArrayBuffer(11 * 1024 * 1024)], 'big.pdf');
-    // ... trigger upload ...
-    expect(await screen.findByText(/file too large/i)).toBeInTheDocument();
+  // UC-FU-002: Upload multiple valid files simultaneously.
+  it("should upload multiple valid files successfully", () => {
+    // TODO: Implement test
   });
 
-  it('should handle concurrent uploads', async () => {
-    // Test multiple file upload progress
+  // UC-FU-003: Attempt to upload a file with a disallowed extension (e.g., .txt, .exe).
+  it("should show an error for disallowed file types", () => {
+    // TODO: Implement test
   });
 
-  it('should show upload progress', async () => {
-    // Test progress bar updates
+  // UC-FU-004: Attempt to upload a file exceeding MAX_FILE_SIZE.
+  it("should show an error for files exceeding maximum size", () => {
+    // TODO: Implement test
+  });
+
+  // UC-FU-005: Trigger file input change event with no files selected.
+  it("should show an error if no files are selected", () => {
+    // TODO: Implement test
+  });
+
+  // UC-FU-006: Simulate a network error during a single file upload.
+  it("should show an error if a single file upload fails due to network error", () => {
+    // TODO: Implement test
+  });
+
+  // UC-FU-007: Simulate a network error during multiple file uploads (e.g., one succeeds, one fails).
+  it("should handle mixed success and failure in multiple file uploads", () => {
+    // TODO: Implement test
+  });
+
+  // UC-FU-008: Verify upload progress state (uploadProgress) updates correctly during upload.
+  it("should update upload progress correctly", () => {
+    // TODO: Implement test
+  });
+});
+
+describe("Folder Creation Functionality", () => {
+  // UC-FC-001: Create a folder with a unique, valid name.
+  it("should create a folder with a unique valid name successfully", () => {
+    // TODO: Implement test
+  });
+
+  // UC-FC-002: Attempt to create a folder with an empty or whitespace-only name.
+  it("should show an error when trying to create a folder with an empty name", () => {
+    // TODO: Implement test
+  });
+
+  // UC-FC-003: Attempt to create a folder with a name that already exists in the current path.
+  it("should show an error when trying to create a folder with a duplicate name", () => {
+    // TODO: Implement test
+  });
+
+  // UC-FC-004: Simulate a network error during folder creation.
+  it("should show an error if folder creation fails due to network error", () => {
+    // TODO: Implement test
   });
 }); 

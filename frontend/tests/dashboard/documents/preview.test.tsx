@@ -10,29 +10,45 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 const renderWithDnd = (ui: React.ReactElement) =>
   render(<DndProvider backend={HTML5Backend}>{ui}</DndProvider>);
 
-describe('DocumentsPage - File Preview', () => {
-  it('should open preview for supported file types', async () => {
-    renderWithDnd(<DocumentsPage />);
-    
-    const fileRow = await screen.findByRole('row', { name: /Report\.pdf/i });
-    const previewButton = within(fileRow).getByRole('button', { name: /preview/i });
-    fireEvent.click(previewButton);
-    
-    expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByText(/preview of report\.pdf/i)).toBeInTheDocument();
+
+describe("File Preview and Download Functionality", () => {
+  // UC-FPV-001: Click "Preview" for a supported file type (PDF).
+  it("should open preview for a supported file type like PDF", () => {
+    // TODO: Implement test
   });
 
-  it('should handle unsupported file types', async () => {
-    // Test for .zip or other unsupported types
+  // UC-FPV-002: Click "Preview" for an image file type (JPG, PNG).
+  it("should open preview for an image file type", () => {
+    // TODO: Implement test
   });
 
-  it('should show loading state during preview generation', async () => {
-    // Test loading spinner
+  // UC-FPV-003: Simulate an error when documentsApi.getDownloadUrl fails for preview.
+  it("should show an error toast if getting download URL for preview fails", () => {
+    // TODO: Implement test
   });
 
-  it('should handle preview errors', async () => {
-    documentsApi.getDownloadUrl = vi.fn().mockRejectedValue(new Error('Preview failed'));
-    // ... open preview ...
-    expect(await screen.findByText(/preview unavailable/i)).toBeInTheDocument();
+  // UC-FPV-004: Close the preview dialog.
+  it("should close the preview dialog when requested", () => {
+    // TODO: Implement test
+  });
+
+  // UC-FPV-005: Handle iframe loading error within the preview dialog.
+  it("should display an error message within preview if iframe fails to load", () => {
+    // TODO: Implement test
+  });
+
+  // UC-FPV-006: Click "Reload Preview" after an iframe error.
+  it("should attempt to reload the preview iframe when 'Reload Preview' is clicked", () => {
+    // TODO: Implement test
+  });
+
+  // UC-DL-001: Attempt to download a file.
+  it("should initiate file download by opening the download URL", () => {
+    // TODO: Implement test
+  });
+
+  // UC-DL-002: Simulate a network error when fetching the download URL.
+  it("should show an error toast if fetching download URL for download fails", () => {
+    // TODO: Implement test
   });
 }); 

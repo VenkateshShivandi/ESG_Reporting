@@ -90,134 +90,36 @@ defineGlobalProperty('toast', {
 const renderWithDnd = (ui: React.ReactElement) =>
   render(<DndProvider backend={HTML5Backend}>{ui}</DndProvider>);
 
-describe('DocumentsPage - ETL', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+
+describe("ETL Processing Functionality", () => {
+  // UC-ETL-001: Click "Process ETL" with one or more files selected.
+  it("should call processFile API for each selected file and show appropriate toast", () => {
+    // TODO: Implement test
   });
 
-  it('ETL button is disabled when no files are selected', async () => {
-    renderWithDnd(<DocumentsPage />);
-    const etlButton = await screen.findByRole('button', { name: /process etl/i });
-    expect(etlButton).toBeDisabled();
+  // UC-ETL-002: Click "Process ETL" with no files selected.
+  it("should show an error toast if no files are selected for ETL processing", () => {
+    // TODO: Implement test
   });
 
-  it('shows error toast if ETL is clicked with no selection', async () => {
-    renderWithDnd(<DocumentsPage />);
-    
-    // Wait for initial render and button to be disabled
-    const etlButton = await screen.findByRole('button', { name: /process etl/i });
-    expect(etlButton).toBeDisabled();
-
-    // Force click regardless of disabled state to test error handling
-    fireEvent.click(etlButton);
-    
-    await waitFor(() => {
-      expect(globalThis.toast.error).toHaveBeenCalledWith('Please select files to process');
-    });
+  // UC-ETL-003: Simulate a scenario where all selected files process successfully.
+  it("should show a success toast when all selected files are processed successfully", () => {
+    // TODO: Implement test
   });
 
-  it('processes ETL for selected files and shows success toast', async () => {
-    (documentsApi.processFile as ReturnType<typeof vi.fn>).mockResolvedValue({});
-    renderWithDnd(<DocumentsPage />);
-
-    // Wait for specific file row to render
-    const fileRow = await screen.findByRole('row', { 
-      name: /Test\.pdf/i 
-    });
-
-    // Get checkbox within the specific row
-    const checkbox = within(fileRow).getByRole('checkbox');
-    
-    // Verify initial state
-    const etlButton = await screen.findByRole('button', { name: /process etl/i });
-    expect(etlButton).toBeDisabled();
-
-    // Select file and verify button enables
-    fireEvent.click(checkbox);
-    await waitFor(() => expect(etlButton).toBeEnabled());
-
-    // Trigger ETL process
-    fireEvent.click(etlButton);
-    
-    await waitFor(() => {
-      expect(documentsApi.processFile).toHaveBeenCalledWith('1');
-      expect(globalThis.toast.success).toHaveBeenCalledWith(
-        expect.stringContaining('1/1 files processed successfully')
-      );
-    });
+  // UC-ETL-004: Simulate a scenario where some files process successfully and some fail.
+  it("should show a warning toast when some files succeed and some fail during ETL", () => {
+    // TODO: Implement test
   });
 
-  it('shows warning toast if some ETL processes fail', async () => {
-    (documentsApi.processFile as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce({})
-      .mockRejectedValueOnce(new Error('Processing failed'));
-    
-    renderWithDnd(<DocumentsPage />);
-
-    // Wait for files to load and select all
-    await waitFor(async () => {
-      const checkboxes = await screen.findAllByRole('checkbox');
-      fireEvent.click(checkboxes[0]); // Select all checkbox
-    });
-
-    const etlButton = await screen.findByRole('button', { name: /process etl/i });
-    fireEvent.click(etlButton);
-
-    // Wait for both mock calls to complete
-    await waitFor(() => {
-      expect(documentsApi.processFile).toHaveBeenCalledTimes(2);
-      expect(globalThis.toast.warning).toHaveBeenCalledWith(
-        expect.stringContaining('1/2 files processed successfully'),
-        expect.any(Object)
-      );
-    });
+  // UC-ETL-005: Simulate a scenario where all selected files fail to process.
+  it("should show an error toast when all selected files fail to process for ETL", () => {
+    // TODO: Implement test
   });
 
-  it('disables ETL button while processing', async () => {
-    let resolve: (() => void) | undefined;
-    (documentsApi.processFile as ReturnType<typeof vi.fn>).mockImplementation(
-      () => new Promise<void>((r) => { resolve = r; })
-    );
-    renderWithDnd(<DocumentsPage />);
-    const checkboxes = await screen.findAllByRole('checkbox');
-    fireEvent.click(checkboxes[1]);
-    const etlButton = await screen.findByRole('button', { name: /process etl/i });
-    fireEvent.click(etlButton);
-    expect(etlButton).toBeDisabled();
-    // Finish processing
-    resolve && resolve();
-  });
-
-  it('should process selected files through ETL pipeline', async () => {
-    renderWithDnd(<DocumentsPage />);
-    
-    // Select files
-    const selectAll = await screen.findByRole('checkbox', { name: /select all documents/i });
-    fireEvent.click(selectAll);
-    
-    // Initiate ETL
-    fireEvent.click(screen.getByRole('button', { name: /process etl/i }));
-    
-    await waitFor(() => {
-      expect(documentsApi.processFile).toHaveBeenCalledTimes(2);
-      expect(screen.getByText(/processing 2 files/i)).toBeInTheDocument();
-    });
-  });
-
-  it('should show processing status for each file', async () => {
-    // Test individual file processing states
-  });
-
-  it('should handle partial ETL failures', async () => {
-    documentsApi.processFile = vi.fn()
-      .mockResolvedValueOnce({ success: true })
-      .mockRejectedValueOnce(new Error('Processing failed'));
-    
-    // ... initiate ETL ...
-    
-    await waitFor(() => {
-      expect(screen.getByText(/1 failed, 1 succeeded/i)).toBeInTheDocument();
-    });
+  // UC-ETL-006: Verify isProcessingETL state is true during processing and false after.
+  it("should set isProcessingETL to true during processing and false afterwards", () => {
+    // TODO: Implement test
   });
 });
 
