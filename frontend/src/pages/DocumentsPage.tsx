@@ -79,7 +79,7 @@ type Props = {}
 const ALLOWED_FILE_TYPES = ".xlsx,.csv,.docx,.xml,.pdf"
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
-const getFileIcon = (filename: string, type?: string) => {
+export const getFileIcon = (filename: string, type?: string) => {
   if (type && (type.toLowerCase() === "folder" || type.toLowerCase() === "directory")) {
     return <Folder className="w-5 h-5 text-yellow-600" />
   }
@@ -102,11 +102,12 @@ const getFileIcon = (filename: string, type?: string) => {
   }
 }
 
-const getFileTypeBadge = (filename: string, chunked?: boolean) => {
+export const getFileTypeBadge = (filename: string, chunked?: boolean) => {
   const badges = [];
+  const nameParts = filename.split('.');
+  const ext = nameParts.length > 1 ? nameParts.pop()?.toLowerCase() : undefined;
 
   // File type badge
-  const ext = filename.split('.').pop()?.toLowerCase();
   if (ext) {
     let color = 'bg-slate-200 text-slate-700';
     if (ext === 'pdf') color = 'bg-red-100 text-red-700';
@@ -133,6 +134,16 @@ const getFileTypeBadge = (filename: string, chunked?: boolean) => {
   }
 
   return badges.length > 0 ? badges : null;
+};
+
+export const formatFileSize = (bytes?: number | null) => {
+  if (bytes === undefined || bytes === null) return "-";
+  if (bytes === 0) return "0 Bytes";
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+  if (bytes < k) return `${bytes} ${sizes[0]}`;
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 };
 
 interface FileInfo {
@@ -476,13 +487,6 @@ const DocumentsPage: NextPage<Props> = () => {
     toast.info("Re-upload functionality to be implemented")
   }
 
-  const formatFileSize = (bytes?: number) => {
-    if (!bytes) return "-"
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(1024))
-    return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${sizes[i]}`
-  }
-
   const viewFileDetails = (file: FileItem) => {
     if (file.processingResult) {
       const fileResult: ProcessedFileResult = {
@@ -756,31 +760,50 @@ const DocumentsPage: NextPage<Props> = () => {
   const handleFileToFileDrop = async (droppedFile: DragItem, targetFile: FileItem) => {
     try {
       if (droppedFile.id === targetFile.id) {
-        return
+        return; // Cannot drop on itself
       }
+
+      // Primary check: Ensure the dragged item and target item are in the same folder path.
+      // The `droppedFile.path` comes from the drag source.
+      // The `targetFile.path` is from the item in the current view.
+      if (JSON.stringify(droppedFile.path) !== JSON.stringify(targetFile.path)) {
+        toast.error("Cannot create folder from files in different directories.");
+        return;
+      }
+
+      // If paths are the same, proceed to find the sourceFile in the current context.
+      // This assumes `droppedFile` (if from the same path) exists in the `files` state.
       const sourceFile = files.find(
-        (f) => f.id === droppedFile.id &&
-          JSON.stringify(f.path) === JSON.stringify(droppedFile.path)
-      )
+        (f) => f.id === droppedFile.id && 
+               f.name === droppedFile.name && // Add name check for more robustness
+               JSON.stringify(f.path) === JSON.stringify(droppedFile.path)
+      );
+
       if (!sourceFile) {
-        toast.error("Source file not found")
-        return
+        // This case should ideally not be hit if the above path check is sound
+        // and `droppedFile` originated from the currently viewed `targetFile.path`.
+        // However, it's a good fallback.
+        toast.error("Source file details could not be verified in the current folder.");
+        return;
       }
-      if (JSON.stringify(sourceFile.path) !== JSON.stringify(targetFile.path)) {
-        toast.error("Files must be in the same folder to create a new folder")
-        return
-      }
-      setIsCreatingFolder(true)
-      setNewFolderName("New Folder")
+
+      // The original check (which is now redundant due to the primary check above but harmless)
+      // if (JSON.stringify(sourceFile.path) !== JSON.stringify(targetFile.path)) {
+      //   toast.error("Files must be in the same folder to create a new folder");
+      //   return;
+      // }
+
+      setIsCreatingFolder(true);
+      setNewFolderName("New Folder"); // Or derive from dropped/target files
       setFilesToMove([
         { fileId: sourceFile.id, filePath: [...sourceFile.path, sourceFile.name] },
-        { fileId: targetFile.id, filePath: [...targetFile.path, targetFile.name] }
-      ])
+        { fileId: targetFile.id, filePath: [...targetFile.path, targetFile.name] },
+      ]);
     } catch (error) {
-      console.error("Error in handleFileToFileDrop:", error)
-      toast.error("Failed to prepare folder creation")
+      console.error("Error in handleFileToFileDrop:", error);
+      toast.error("Failed to prepare folder creation");
     }
-  }
+  };
 
   const handleCreateFolderAndMoveFiles = async () => {
     if (!newFolderName.trim()) {
@@ -929,7 +952,7 @@ const DocumentsPage: NextPage<Props> = () => {
       <Dialog open={isOpen} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-[525px]">
           <DialogHeader>
-            <DialogTitle>Move Item</DialogTitle>
+            <DialogTitle aria-label="move-item-dialog-title">Move Item</DialogTitle>
             <DialogDescription>
               Select a destination folder for <span className="font-semibold">{item.name}</span>.
             </DialogDescription>
@@ -1390,7 +1413,7 @@ const DocumentsPage: NextPage<Props> = () => {
                                       )}
                                       <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
-                                          <Button variant="ghost" size="icon" title="More actions" className="group">
+                                          <Button variant="ghost" size="icon" title="More actions" aria-label="more-actions" className="group">
                                             <MoreVertical className="w-4 h-4 transition-transform duration-200 ease-in-out group-hover:rotate-90" />
                                           </Button>
                                         </DropdownMenuTrigger>
@@ -1444,6 +1467,7 @@ const DocumentsPage: NextPage<Props> = () => {
                                           {item.type === "file" && (
                                             <DropdownMenuItem 
                                               role="menuitem"
+                                              aria-label="move-to-folder"
                                               className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" 
                                               onClick={() => handleMoveItem(item)}
                                             >
