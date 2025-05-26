@@ -652,7 +652,7 @@ describe("Search Functionality", () => {
     expect(screen.queryByText('Test.pdf')).not.toBeInTheDocument();
     expect(screen.queryByText('FolderA')).not.toBeInTheDocument();
   });
-});
+  });
 
 describe("UI State and Loading Indicators", () => {
   // UC-UI-001: Verify initial loading state (isLoading true, then false after loadFiles).
@@ -1001,7 +1001,7 @@ describe("Helper Function Tests", () => {
     expect(formatFileSize(1024 * 1024 * 1024 * 2.75)).toBe("2.75 GB"); // 2.75 GB
     expect(formatFileSize(1024 * 1024 * 1024 * 1024)).toBe("1.00 TB"); // 1 TB
   });
-});
+}); 
 
 describe("Drag and Drop - Create Folder from Files", () => {
   beforeEach(() => {
