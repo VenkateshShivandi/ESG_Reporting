@@ -991,6 +991,7 @@ function ChatPage() {
 
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/create-graph`, {
+        
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -1001,6 +1002,7 @@ function ChatPage() {
           user_id: session.user.id
         })
       })
+      console.log("NEXT_PUBLIC_BACKEND_URL", process.env.NEXT_PUBLIC_BACKEND_URL)
 
       if (!response.ok) {
         const errorData = await response.json()

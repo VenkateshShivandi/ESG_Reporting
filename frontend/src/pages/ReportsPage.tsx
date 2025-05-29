@@ -1,5 +1,6 @@
 "use client"
 
+
 import React, { useState, useEffect } from "react"
 import { FileBarChart, Download, Calendar, Clock, ArrowUpDown, Search, Filter, AlertCircle, Loader2, Grid, List, ChevronDown, LineChart, Shield, Leaf } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -120,34 +121,48 @@ const ReportsPage = () => {
     const fetchReportsFromSupabase = async () => {
       try {
         const { data, error } = await supabase
-          .from('reports')
-          .select('*')
-          .order('created_at', { ascending: false })
-        
-        if (error) throw error
-        
-        if (data) {
-          // Process and merge with local reports
-          // This is a placeholder for future implementation
-          console.log("Supabase reports data:", data)
+          .from("reports")
+          .select("*")
+          .order("timestamp", { ascending: false });
+    
+        if (error) throw error;
+    
+        if (data && Array.isArray(data)) {
+          const supabaseReports: Report[] = data.map((report: any) => ({
+            ...report,
+            timestamp: new Date(report.timestamp),
+          }));
+    
+          const mergedReports = [
+            ...supabaseReports,
+            ...reports.filter(
+              (local) => !supabaseReports.some((remote) => remote.id === local.id)
+            ),
+          ];
+    
+          setReports(mergedReports);
+          setFilteredReports(mergedReports);
         }
-      } catch (error) {
-        console.error("Error fetching reports from Supabase:", error)
+      } catch (err) {
+        console.error("Error fetching reports from Supabase:", err);
       } finally {
-        setIsLoading(false)
+        setIsLoading(false);
       }
-    }
+    };
+    
+    
 
     // For now, just simulate loading
-    setTimeout(() => {
-      setIsLoading(false)
-    }, 1000)
+    //setTimeout(() => {
+      fetchReportsFromSupabase()
+    //}, 1000)
 
     return () => {
       window.removeEventListener('newReportGenerated', handleNewReport as EventListener)
     }
   }, [])
 
+ 
   // Apply filters and search
   useEffect(() => {
     let result = [...reports]
@@ -169,16 +184,9 @@ const ReportsPage = () => {
     // Apply sorting
     result.sort((a, b) => {
       if (sortOrder === "asc") {
-        // If timestamps are the same, use id as secondary sort key
-        return a.timestamp.getTime() === b.timestamp.getTime() 
-          ? a.id.localeCompare(b.id)
-          : a.timestamp.getTime() - b.timestamp.getTime()
+        return a.timestamp.getTime() - b.timestamp.getTime()
       } else {
-        // For descending order, ensure newest reports (highest timestamps) come first
-        // If timestamps are the same, newer ids (usually with higher numbers) come first
-        return a.timestamp.getTime() === b.timestamp.getTime()
-          ? b.id.localeCompare(a.id)
-          : b.timestamp.getTime() - a.timestamp.getTime()
+        return b.timestamp.getTime() - a.timestamp.getTime()
       }
     })
     

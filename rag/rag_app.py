@@ -167,5 +167,5 @@ def query_rag():
 
 if __name__ == "__main__":
     # Entry point for running the Flask development server
-    app.logger.info("🚀 Starting RAG service on port 6050...")
-    app.run(host="0.0.0.0", port=6050) 
+    app.logger.info("🚀 Starting RAG service on port 8000...")
+    app.run(host="0.0.0.0", port=8000) 

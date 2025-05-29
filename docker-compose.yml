@@ -29,11 +29,12 @@ services:
     build:
       context: ./rag
       dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
     depends_on:
       - neo4j
       - backend
-    ports:
-      - "6000:6000"
+
     env_file:
       - ./rag/.env.local
     networks:
