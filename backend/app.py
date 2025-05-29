@@ -29,8 +29,9 @@ from pathlib import Path
 from pathlib import Path
 
 # Load environment variables
-load_dotenv(".env.local")
-
+#load_dotenv(".env.local")
+if os.getenv("ZEA_ENV") != "production":
+    load_dotenv(".env.local")
 
 # Get Supabase credentials
 SUPABASE_URL = os.getenv("SUPABASE_URL")
