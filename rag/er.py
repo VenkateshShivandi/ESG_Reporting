@@ -5,7 +5,9 @@ from dotenv import load_dotenv
 from typing import List, Dict, Tuple, Any
 
 # Load environment variables
-load_dotenv('.env.local')
+#load_dotenv('.env.local')
+if os.getenv("ZEA_ENV") != "production":
+    load_dotenv(".env.local")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = openai.OpenAI(api_key=OPENAI_API_KEY)  # Initialize client properly
 

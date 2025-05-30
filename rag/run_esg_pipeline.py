@@ -44,7 +44,9 @@ for loc in env_locations:
 
 if env_file:
     print(f"Loading environment from: {env_file}")
-    load_dotenv(env_file)
+    #load_dotenv(env_file)
+    if os.getenv("ZEA_ENV") != "production":
+        load_dotenv(".env.local")
 else:
     print("No .env.local file found in any of the expected locations")
     sys.exit(1)

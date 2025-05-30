@@ -7,7 +7,9 @@ import subprocess
 from typing import Optional
 from neo4j import Driver, Session
 
-load_dotenv(".env.local")
+#load_dotenv('.env.local')
+if os.getenv("ZEA_ENV") != "production":
+    load_dotenv(".env.local")
 
 # Initialize Neo4j client
 neo4j_uri = os.getenv("NEO4J_URI")
