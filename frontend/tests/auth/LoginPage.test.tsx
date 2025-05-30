@@ -5,13 +5,39 @@ import { render, screen } from '@testing-library/react';
 import LoginPage from '@/app/auth/login/page';
 import { AuthProvider } from '@/hooks/use-auth';
 
-jest.mock('@/lib/supabase', () => ({
-  // Provide a mock implementation
-  createClient: jest.fn(() => ({
-    auth: { signInWithPassword: jest.fn() },
-    // ...other methods you use
-  })),
-}));
+// Bare-minimum mock for @supabase/supabase-js
+jest.mock('@supabase/supabase-js', () => {
+  console.log('>>> JEST.MOCK for @supabase/supabase-js EXECUTED <<<'); // Diagnostic log
+  const mockAuth = {
+    signInWithPassword: jest.fn(),
+    signUp: jest.fn(), // Added for completeness, common in auth flows
+    signOut: jest.fn(),
+    onAuthStateChange: jest.fn((_event, callback) => {
+      // Simulate a default state (e.g., no session)
+      // You can call `callback(null, null)` or specific mock session if needed for initial state tests
+      return {
+        data: { subscription: { unsubscribe: jest.fn() } },
+      };
+    }),
+    getSession: jest.fn(),
+    getUser: jest.fn(),
+    // Add any other specific auth methods your component directly calls
+  };
+
+  return {
+    createClient: jest.fn().mockImplementation((url, key) => {
+      console.log('>>> MOCKED createClient CALLED with:', url, key); // Diagnostic log
+      return {
+        auth: mockAuth,
+        // If your components directly use other Supabase features like .from() or .channel(),
+        // you might need to add minimal mocks for them here too, e.g.:
+        // from: jest.fn().mockReturnThis(), // To allow chaining like .from().select()
+        // select: jest.fn(),
+        // channel: jest.fn().mockReturnValue({ on: jest.fn(), subscribe: jest.fn() }),
+      };
+    }),
+  };
+});
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({
