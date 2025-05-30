@@ -1,3 +1,4 @@
+import React from "react"
 import { useState, useRef, useEffect } from "react"
 import { X, ArrowDownToLine, FileText, Undo, Redo, HelpCircle, Edit3, Zap, Highlighter } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -20,19 +21,19 @@ interface InteractiveWorkspaceProps {
   append?: (message: { role: string; content: string }) => void;
 }
 
-export function InteractiveWorkspace({ 
-  report, 
+export function InteractiveWorkspace({
+  report,
   onClose,
   append
 }: InteractiveWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
-  
+
   // Editor state
   const [reportContent, setReportContent] = useState<string>("");
   const [selectedText, setSelectedText] = useState<string>("");
   const [selectionRange, setSelectionRange] = useState<Range | null>(null);
-  
+
   // Version history
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -43,7 +44,7 @@ export function InteractiveWorkspace({
       // Format the content properly as HTML, not markdown
       // Start with a reasonable default structure if no content is provided
       let formattedContent = "";
-      
+
       if (report.content) {
         // If content is provided, use it
         formattedContent = report.content;
@@ -86,10 +87,10 @@ export function InteractiveWorkspace({
           </p>
         `;
       }
-      
+
       // Set the content to the editor
       editorRef.current.innerHTML = formattedContent;
-      
+
       // Save initial content to history
       setReportContent(formattedContent);
       setHistory([formattedContent]);
@@ -101,25 +102,25 @@ export function InteractiveWorkspace({
   const handleTextSelection = () => {
     if (window.getSelection) {
       const selection = window.getSelection();
-      
+
       if (selection && selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
-        
+
         // Only set selection if it's inside our editor
         if (editorRef.current && editorRef.current.contains(range.commonAncestorContainer)) {
           const selectedContent = selection.toString().trim();
-          
+
           if (selectedContent) {
             setSelectedText(selectedContent);
             setSelectionRange(range.cloneRange());
             return;
           }
         }
+
+        // Clear selection if no text is selected or selection is outside editor
+        setSelectedText("");
+        setSelectionRange(null);
       }
-      
-      // Clear selection if no text is selected or selection is outside editor
-      setSelectedText("");
-      setSelectionRange(null);
     }
   };
 
@@ -127,7 +128,7 @@ export function InteractiveWorkspace({
   const handleContentChange = () => {
     if (editorRef.current) {
       const newContent = editorRef.current.innerHTML;
-      
+
       // Only update history if content actually changed
       if (newContent !== history[historyIndex]) {
         // Add new content to history, truncating any future history
@@ -164,17 +165,17 @@ export function InteractiveWorkspace({
       // Replace the selected text with the suggestion
       selectionRange.deleteContents();
       selectionRange.insertNode(document.createTextNode(suggestion));
-      
+
       // Add to history
       const newContent = editorRef.current.innerHTML;
       const newHistory = history.slice(0, historyIndex + 1).concat(newContent);
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
-      
+
       // Clear selection
       setSelectedText("");
       setSelectionRange(null);
-      
+
       toast.success("Applied suggestion to report");
     } else {
       toast.error("Please select text to apply this suggestion");
@@ -187,9 +188,9 @@ export function InteractiveWorkspace({
       toast.error("AI integration is not available");
       return;
     }
-    
+
     let prompt = "";
-    
+
     if (selectedText) {
       // For selected text
       switch (adjustmentType) {
@@ -227,13 +228,13 @@ export function InteractiveWorkspace({
           prompt = `Please help me improve this ESG report.`;
       }
     }
-    
+
     // Use the append function to add the message to the chat
     append({
       role: "user",
       content: prompt
     });
-    
+
     toast.success(`Sent request to AI assistant`);
   };
 
@@ -336,7 +337,7 @@ export function InteractiveWorkspace({
         </body>
         </html>
       `;
-      
+
       // Create a blob and download
       const blob = new Blob([exportHTML], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
@@ -347,7 +348,7 @@ export function InteractiveWorkspace({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
+
       toast.success('Report exported successfully');
     } else {
       toast.error('Error exporting report');
@@ -355,9 +356,9 @@ export function InteractiveWorkspace({
   };
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      className="flex flex-col h-full w-full overflow-hidden" 
+      className="flex flex-col h-full w-full overflow-hidden"
     >
       {/* Editor Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
@@ -376,7 +377,7 @@ export function InteractiveWorkspace({
               <TooltipContent>Undo</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          
+
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -387,7 +388,7 @@ export function InteractiveWorkspace({
               <TooltipContent>Redo</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          
+
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -399,13 +400,13 @@ export function InteractiveWorkspace({
               <TooltipContent>Export Report</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          
-          <Button variant="ghost" size="icon" onClick={onClose}>
+
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close" data-testid="close-button">
             <X className="h-5 w-5" />
           </Button>
         </div>
       </div>
-      
+
       {/* Editor Toolbar */}
       <div className="flex items-center px-6 py-2 border-b bg-white">
         <div className="flex gap-1">
@@ -426,21 +427,21 @@ export function InteractiveWorkspace({
               <DropdownMenuItem>Insert Table</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          
-          <Button 
-            variant="ghost" 
-            size="sm" 
+
+          <Button
+            variant="ghost"
+            size="sm"
             className="h-8 gap-1"
             onClick={() => requestAIAdjustment("metrics")}
           >
             <Zap className="h-4 w-4" />
             <span>Add Metrics</span>
           </Button>
-          
-          <Button 
+
+          <Button
             variant={selectedText ? "default" : "ghost"}
-            size="sm" 
-            className="h-8 gap-1" 
+            size="sm"
+            className="h-8 gap-1"
             disabled={!selectedText}
             onClick={() => {
               if (selectedText && append) {
@@ -457,9 +458,9 @@ export function InteractiveWorkspace({
           </Button>
         </div>
       </div>
-      
+
       {/* Editor Content */}
-      <div className="flex-1 p-6 bg-white overflow-auto" style={{ 
+      <div className="flex-1 p-6 bg-white overflow-auto" style={{
         scrollbarWidth: 'none', /* Firefox */
         msOverflowStyle: 'none' /* IE and Edge */
       }}>
