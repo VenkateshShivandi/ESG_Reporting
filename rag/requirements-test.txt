@@ -12,5 +12,6 @@ chardet>=5.0.0
 python-docx>=0.8.11
 nltk>=3.8.0
 neo4j>=5.0.0
+spacy>=3.4.0
 # Excluding helicone as it's incompatible with OpenAI 1.x
 # Our code has been modified to handle missing helicone package 
