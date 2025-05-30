@@ -59,6 +59,93 @@ jobs:
           # This file contains OpenAI 1.x and excludes helicone
           pip install -r rag/requirements-test.txt
 
+      # Cache NLTK data to speed up subsequent runs
+      - name: Cache NLTK data
+        uses: actions/cache@v3
+        with:
+          path: ~/nltk_data
+          key: nltk-data-${{ runner.os }}-v1
+          restore-keys: |
+            nltk-data-${{ runner.os }}-
+
+      - name: Download NLTK data
+        run: |
+          python -c "
+          import nltk
+          import os
+          nltk.data.path.append(os.path.expanduser('~/nltk_data'))
+          print('Downloading NLTK data...')
+          try:
+              nltk.download('punkt', quiet=True)
+              print('Downloaded punkt')
+          except Exception as e:
+              print(f'Error downloading punkt: {e}')
+          try:
+              nltk.download('punkt_tab', quiet=True)
+              print('Downloaded punkt_tab')
+          except Exception as e:
+              print(f'Error downloading punkt_tab: {e}')
+          try:
+              nltk.download('stopwords', quiet=True)
+              print('Downloaded stopwords')
+          except Exception as e:
+              print(f'Error downloading stopwords: {e}')
+          try:
+              nltk.download('vader_lexicon', quiet=True)
+              print('Downloaded vader_lexicon')
+          except Exception as e:
+              print(f'Error downloading vader_lexicon: {e}')
+          print('NLTK data download completed')
+          "
+
+      # Cache Spacy models to speed up subsequent runs
+      - name: Cache Spacy models
+        uses: actions/cache@v3
+        with:
+          path: ~/.local/lib/python3.10/site-packages/en_core_web_sm
+          key: spacy-en-model-${{ runner.os }}-v1
+          restore-keys: |
+            spacy-en-model-${{ runner.os }}-
+
+      - name: Download Spacy models
+        run: |
+          echo "Downloading English Spacy model..."
+          python -m spacy download en_core_web_sm || echo "English model download failed"
+          echo "Downloading Spanish Spacy model (optional)..."
+          python -m spacy download es_core_news_sm || echo "Spanish model download failed, tests should handle this gracefully"
+          echo "Spacy models download completed"
+
+      - name: Verify installations
+        run: |
+          echo "Verifying NLTK data..."
+          python -c "
+          import nltk
+          try:
+              nltk.data.find('tokenizers/punkt_tab')
+              print('✓ punkt_tab found')
+          except LookupError:
+              print('✗ punkt_tab not found')
+          try:
+              nltk.data.find('tokenizers/punkt')
+              print('✓ punkt found')
+          except LookupError:
+              print('✗ punkt not found')
+          "
+          echo "Verifying Spacy models..."
+          python -c "
+          import spacy
+          try:
+              nlp = spacy.load('en_core_web_sm')
+              print('✓ en_core_web_sm loaded')
+          except OSError:
+              print('✗ en_core_web_sm not available')
+          try:
+              nlp = spacy.load('es_core_news_sm')
+              print('✓ es_core_news_sm loaded')
+          except OSError:
+              print('✗ es_core_news_sm not available (fallback will be used)')
+          "
+
       - name: Show openai version
         run: pip show openai
 
@@ -77,7 +164,7 @@ jobs:
           NEO4J_USERNAME: neo4j
           NEO4J_PASSWORD: ""
         run: |
-          pytest rag/tests/ -v
+          pytest rag/tests/ -v --tb=short
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
