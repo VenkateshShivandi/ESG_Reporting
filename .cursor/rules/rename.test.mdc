@@ -1,0 +1,134 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Rename Component Unit Testing Rules
+
+## **Core Testing Requirements**
+- **Minimum Coverage Requirement: 80%**
+  - All rename-related functions must be tested
+  - Edge cases must be covered
+  - Error scenarios must be validated
+
+## **Test Structure**
+- **Required Test Groups:**
+  ```typescript
+  // ✅ DO: Organize tests in logical groups
+  describe('Rename Component', () => {
+    describe('Input Validation', () => {
+      // validation tests
+    });
+    describe('Error Handling', () => {
+      // error tests
+    });
+    describe('Success Cases', () => {
+      // success tests
+    });
+  });
+
+  // ❌ DON'T: Write unorganized, flat test structures
+  test('should do something');
+  test('should do another thing');
+  ```
+
+## **Test Cases Requirements**
+
+### **Input Validation Tests**
+- Must test empty string inputs
+- Must test maximum length constraints
+- Must test special character handling
+- Must test whitespace handling
+
+### **Error Handling Tests**
+- Must test network failure scenarios
+- Must test duplicate name conflicts
+- Must test permission-related errors
+- Must include error message validation
+
+### **Success Cases**
+- Must test successful rename operations
+- Must verify UI updates post-rename
+- Must validate any side effects
+- Must test callback executions
+
+## **Mocking Guidelines**
+- **Required Mocks:**
+  ```typescript
+  // ✅ DO: Use proper mock isolation
+  jest.mock('@/services/renameService', () => ({
+    renameItem: jest.fn()
+  }));
+
+  // ❌ DON'T: Mix real and mocked dependencies
+  const realService = new RenameService();
+  ```
+
+## **Assertion Requirements**
+- **Must use explicit assertions:**
+  ```typescript
+  // ✅ DO: Use specific assertions
+  expect(screen.getByRole('textbox')).toHaveValue('new name');
+  expect(onSuccess).toHaveBeenCalledWith('new name');
+
+  // ❌ DON'T: Use vague assertions
+  expect(result).toBeTruthy();
+  ```
+
+## **Testing Utilities**
+- Must use React Testing Library
+- Must use user-event for interactions
+- Must use proper async utilities
+  ```typescript
+  // ✅ DO: Handle async operations properly
+  await waitFor(() => {
+    expect(screen.getByText('Success')).toBeInTheDocument();
+  });
+  ```
+
+## **Performance Considerations**
+- Tests should complete within 5000ms
+- Cleanup mocks after each test
+- Reset handlers between tests
+
+## **Documentation Requirements**
+- Each test group must have a clear description
+- Complex test setups must be documented
+- Custom test utilities must be documented
+
+## **Integration with CI**
+- Tests must pass in CI environment
+- Coverage reports must be generated
+- Failed tests must block merges
+
+## **Best Practices**
+- Use meaningful test descriptions
+- Follow AAA pattern (Arrange-Act-Assert)
+- One assertion per test when possible
+- Use setup/teardown hooks appropriately
+
+## **Example Implementation**
+```typescript
+// ✅ DO: Follow this pattern
+describe('Rename Component', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should handle successful rename', async () => {
+    // Arrange
+    render(<RenameComponent initialName="old name" />);
+    
+    // Act
+    await userEvent.type(screen.getByRole('textbox'), 'new name');
+    await userEvent.click(screen.getByRole('button', { name: /save/i }));
+    
+    // Assert
+    expect(screen.getByText('Success')).toBeInTheDocument();
+  });
+});
+```
+
+## **Related Files**
+- [testing-strategy.mdc](mdc:.cursor/rules/testing-strategy.mdc)
+- [rename.test.tsx](mdc:frontend/tests/dashboard/documents/rename.test.tsx)
