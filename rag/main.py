@@ -87,7 +87,7 @@ if __name__ == "__main__":
     #     print(json.dumps(result, indent=2))
     
     # Option 2: Build the knowledge graph
-    from build_graph import build_knowledge_graph
+    from build_graph import build_knowledge_graph # type: ignore
     build_knowledge_graph()
 
 
