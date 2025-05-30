@@ -5,5 +5,13 @@ pytest-mock>=3.11.1
 openai>=1.0.0
 python-dotenv>=1.0.0
 requests>=2.31.0
+# Additional dependencies for RAG system
+sentence-transformers>=2.2.0
+PyPDF2>=3.0.0
+chardet>=5.0.0
+python-docx>=0.8.11
+nltk>=3.8.0
+neo4j>=5.0.0
+spacy>=3.4.0
 # Excluding helicone as it's incompatible with OpenAI 1.x
 # Our code has been modified to handle missing helicone package 
