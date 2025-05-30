@@ -165,6 +165,9 @@ describe("File Upload Functionality", () => {
   // UC-FU-003: Attempt to upload a file with a disallowed extension (e.g., .txt, .exe).
   it("should show an error for disallowed file types", async () => {
     // Arrange
+    // Reset all mocks to ensure clean state
+    vi.clearAllMocks();
+    
     renderWithDnd(<DocumentsPage />);
     
     await waitFor(() => {
@@ -174,17 +177,13 @@ describe("File Upload Functionality", () => {
     // Create a mock file with disallowed extension
     const file = new File(['text content'], 'test.txt', { type: 'text/plain' });
     
-    // Act - find the file input and simulate uploading the file
+    // Act - find the file input and directly trigger the change event
     const fileInput = document.getElementById('file-upload') as HTMLInputElement;
-    await userEvent.upload(fileInput, file);
+    fireEvent.change(fileInput, { target: { files: [file] } });
     
-    // Assert
-    await waitFor(() => {
-      // Check if toast error was called with the correct message
-      expect(toast.error).toHaveBeenCalledWith(`File type not allowed: ${file.name}`);
-      // Check that uploadFile was not called for the invalid file
-      expect(documentsApi.uploadFile).not.toHaveBeenCalled();
-    });
+    // Assert - use shorter, more direct assertions
+    expect(toast.error).toHaveBeenCalledWith(`File type not allowed: ${file.name}`);
+    expect(documentsApi.uploadFile).not.toHaveBeenCalled();
   });
 
   // UC-FU-004: Attempt to upload a file exceeding MAX_FILE_SIZE.
