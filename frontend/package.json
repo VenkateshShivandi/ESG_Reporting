@@ -10,7 +10,7 @@
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx}\"",
     "test-jest": "TZ=UTC jest --config jest.config.js --coverage",
-    "test": "vitest"
+    "test": "vitest --reporter=dot"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
