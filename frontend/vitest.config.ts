@@ -13,5 +13,16 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
     },
+    conditions: ['development'],
+  },
+  define: {
+    // Ensure we're using development builds for testing
+    'process.env.NODE_ENV': '"test"',
+    __DEV__: true,
+  },
+  esbuild: {
+    define: {
+      'process.env.NODE_ENV': '"test"',
+    },
   },
 });
