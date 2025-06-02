@@ -4,7 +4,7 @@
   "description": "This is a template repository to build assistants/ agents for future projects. This repository should have all the requirements, from branch access control to setup files, \r required for smooth initiation, testing of future projects with an automated system of CI/CD with Github Releases and Actions.",
   "main": "index.js",
   "scripts": {
-    "test:fe": "jest --config jest.config.js",
+    "test:fe": "vitest",
     "prepare": "husky install",
     "prettier-check": "prettier --check .",
     "type-check": "tsc --noEmit",
@@ -48,6 +48,7 @@
     "puppeteer": "^24.1.0",
     "react-dnd": "^16.0.1",
     "react-dnd-html5-backend": "^16.0.1",
+    "react-dnd-test-backend": "^16.0.1",
     "ts-jest": "^29.2.5",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0",

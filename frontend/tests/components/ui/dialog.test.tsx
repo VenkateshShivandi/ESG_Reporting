@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, test, expect } from 'vitest';
 import {
     Dialog,
     DialogTrigger,
@@ -11,10 +12,9 @@ import {
     DialogClose,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import '@testing-library/jest-dom';
 
 describe('Dialog Component', () => {
-    it('renders dialog content when trigger is clicked', () => {
+    test('renders dialog content when trigger is clicked', () => {
         render(
             <Dialog>
                 <DialogTrigger asChild>
@@ -46,7 +46,7 @@ describe('Dialog Component', () => {
         expect(screen.getByText('Save Changes')).toBeInTheDocument();
     });
 
-    it('closes the dialog when DialogClose button is clicked', () => {
+    test('closes the dialog when DialogClose button is clicked', () => {
         render(
             <Dialog defaultOpen={true}>
                 <DialogContent>

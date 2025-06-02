@@ -1,5 +1,6 @@
 import React from "react"
 import { render, screen } from "@testing-library/react"
+import { describe, test, expect, vi } from "vitest"
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip"
 
 describe("Tooltip component", () => {
@@ -20,7 +21,7 @@ describe("Tooltip component", () => {
   })
 
   test("supports controlled open state", () => {
-    const onOpenChangeMock = jest.fn()
+    const onOpenChangeMock = vi.fn()
 
     render(
       <TooltipProvider>

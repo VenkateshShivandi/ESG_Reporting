@@ -950,7 +950,7 @@ const DocumentsPage: NextPage<Props> = () => {
     }
     return (
       <Dialog open={isOpen} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[525px]">
+        <DialogContent className="sm:max-w-[525px]" data-testid="move-item-dialog">
           <DialogHeader>
             <DialogTitle aria-label="move-item-dialog-title">Move Item</DialogTitle>
             <DialogDescription>
