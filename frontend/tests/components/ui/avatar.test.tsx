@@ -1,10 +1,10 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import { describe, test, expect } from 'vitest';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import '@testing-library/jest-dom';
 
 describe('Avatar Component', () => {
-    it('renders fallback when image fails to load or no image src', () => {
+    test('renders fallback when image fails to load or no image src', () => {
         render(
             <Avatar>
                 <AvatarImage src="https://example.com/nonexistent.jpg" alt="Test User" />
@@ -14,7 +14,7 @@ describe('Avatar Component', () => {
         expect(screen.getByText('TU')).toBeInTheDocument();
     });
 
-    it('renders image when src is valid', () => {
+    test('renders image when src is valid', () => {
         render(
             <Avatar>
                 {/* Using a valid data URI for testing */}
@@ -28,7 +28,7 @@ describe('Avatar Component', () => {
         expect(screen.getByText('TU')).toBeInTheDocument();
     });
 
-    it('renders fallback when no AvatarImage is provided', () => {
+    test('renders fallback when no AvatarImage is provided', () => {
         render(
             <Avatar>
                 <AvatarFallback>AB</AvatarFallback>

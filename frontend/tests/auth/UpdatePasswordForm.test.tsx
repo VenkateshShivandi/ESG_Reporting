@@ -1,16 +1,17 @@
 import React from "react"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { describe, test, expect, vi } from "vitest"
 import UpdatePasswordForm from "@/components/auth/UpdatePasswordForm"
 import { updatePassword } from "@/lib/auth"
 
 // mock updatePassword
-jest.mock("@/lib/auth", () => ({
-  updatePassword: jest.fn(() => Promise.resolve({ error: null })),
+vi.mock("@/lib/auth", () => ({
+  updatePassword: vi.fn(() => Promise.resolve({ error: null })),
 }))
 
 // mock useRouter in next/navigation
-const pushMock = jest.fn()
-jest.mock("next/navigation", () => ({
+const pushMock = vi.fn()
+vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: pushMock,
   }),

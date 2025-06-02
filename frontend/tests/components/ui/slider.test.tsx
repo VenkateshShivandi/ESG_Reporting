@@ -1,8 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { vi } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import { Slider } from '@/components/ui/slider';
-import '@testing-library/jest-dom';
 
 // Mock ResizeObserver because JSDOM doesn't implement it
 if (typeof window !== 'undefined') {
@@ -14,14 +13,14 @@ if (typeof window !== 'undefined') {
 }
 
 describe('Slider Component', () => {
-    it('renders correctly with default props', () => {
+    test('renders correctly with default props', () => {
         render(<Slider defaultValue={[50]} max={100} step={1} />);
         const slider = screen.getByRole('slider');
         expect(slider).toBeInTheDocument();
         expect(slider).toHaveAttribute('aria-valuenow', '50');
     });
 
-    it('calls onValueChange when interacted with (ArrowRight)', () => {
+    test('calls onValueChange when interacted with (ArrowRight)', () => {
         const handleValueChange = vi.fn();
         // Initial value is 25, step is 1. ArrowRight should increase it to 26.
         render(<Slider defaultValue={[25]} max={100} step={1} onValueChange={handleValueChange} />);
@@ -32,13 +31,13 @@ describe('Slider Component', () => {
         expect(handleValueChange).toHaveBeenCalledWith([26]);
     });
 
-    it('can be disabled', () => {
+    test('can be disabled', () => {
         const { container } = render(<Slider defaultValue={[50]} max={100} step={1} disabled />);
         // The Slider root element should have aria-disabled="true".
         expect(container.firstChild).toHaveAttribute('aria-disabled', 'true');
     });
 
-    it('renders with specific min, max values', () => {
+    test('renders with specific min, max values', () => {
         render(<Slider defaultValue={[10]} min={5} max={20} step={1} />);
         const slider = screen.getByRole('slider');
         expect(slider).toHaveAttribute('aria-valuemin', '5');

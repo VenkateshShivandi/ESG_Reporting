@@ -1,20 +1,20 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
+import { describe, test, expect } from 'vitest';
 import { Button } from '@/components/ui/button';
-import '@testing-library/jest-dom';
 
 describe('Button Component', () => {
-    it('renders correctly with children', () => {
+    test('renders correctly with children', () => {
         render(<Button>Click Me</Button>);
         expect(screen.getByText('Click Me')).toBeInTheDocument();
     });
 
-    it('applies variant prop', () => {
+    test('applies variant prop', () => {
         render(<Button variant="outline">Outline Button</Button>);
         expect(screen.getByText('Outline Button')).toHaveClass('border'); // Example check for outline variant
     });
 
-    it('can be disabled', () => {
+    test('can be disabled', () => {
         render(<Button disabled>Disabled Button</Button>);
         expect(screen.getByText('Disabled Button')).toBeDisabled();
     });

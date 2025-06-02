@@ -98,6 +98,15 @@ export function Heatmap({ data, config }: HeatmapProps) {
       .attr("transform", `translate(0,${height})`)
       .call(d3.axisBottom(x).tickSizeOuter(0))
 
+    // Add X-axis Label
+    svg.append("text")
+        .attr("class", "x-axis-label")
+        .attr("text-anchor", "middle")
+        .attr("x", width / 2)
+        .attr("y", height + margin.bottom - 10) // Positioned within the bottom margin
+        .style("font-size", "10px")
+        .text("Year")
+
     // Add Y axis
     svg.append("g").call(d3.axisLeft(y).tickSizeOuter(0))
 
@@ -179,6 +188,25 @@ export function Heatmap({ data, config }: HeatmapProps) {
         .append("g")
         .attr("transform", `translate(0, ${legendHeight})`)
         .call(legendAxis)
+
+      // Add legend labels
+      legend
+        .append("text")
+        .attr("class", "legend-label-low")
+        .attr("x", 0)
+        .attr("y", legendHeight + 15) // Position below the axis
+        .style("font-size", "10px")
+        .style("text-anchor", "start")
+        .text("Low Impact");
+
+      legend
+        .append("text")
+        .attr("class", "legend-label-high")
+        .attr("x", legendWidth)
+        .attr("y", legendHeight + 15) // Position below the axis
+        .style("font-size", "10px")
+        .style("text-anchor", "end")
+        .text("High Impact");
     }
   }
 
