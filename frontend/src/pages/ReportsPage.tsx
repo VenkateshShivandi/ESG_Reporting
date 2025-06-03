@@ -17,8 +17,36 @@ import {
 } from "@/components/ui/select"
 import { InteractiveWorkspace } from "@/components/dashboard/interactive-workspace"
 import { toast } from "sonner"
-import { createClient } from '@supabase/supabase-js'
 import { motion } from "framer-motion"
+import axios from 'axios'
+import supabase from '@/lib/supabase/client'
+import { parseISO, isValid } from 'date-fns'
+
+// Create axios instance with default config
+const api = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_BACKEND_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+})
+
+// Add auth token to every request
+api.interceptors.request.use(async config => {
+  try {
+    const session = await supabase.auth.getSession()
+    const token = session.data.session?.access_token
+
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+      console.log('🔑 Using token for API request:', token.slice(0, 20) + '...')
+    } else {
+      console.warn('⚠️ No token available for API request')
+    }
+  } catch (error) {
+    console.error('Error setting auth header:', error)
+  }
+  return config
+})
 
 // Define a type for reports
 interface Report {
@@ -34,7 +62,20 @@ interface Report {
     environmental_score?: number;
     social_score?: number;
     governance_score?: number;
-  }
+  };
+  created_at?: string;
+  last_accessed_at?: string;
+  metadata?: {
+    cacheControl?: string;
+    contentLength?: number;
+    eTag?: string;
+    httpStatusCode?: number;
+    lastModified?: string;
+    mimetype?: string;
+    size?: number;
+  };
+  updated_at?: string;
+  content?: string;
 }
 
 // Define report type styling
@@ -59,11 +100,6 @@ const reportTypeStyles = {
   }
 };
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
 const ReportsPage = () => {
   const [reports, setReports] = useState<Report[]>([])
   const [filteredReports, setFilteredReports] = useState<Report[]>([])
@@ -73,80 +109,29 @@ const ReportsPage = () => {
   const [filterType, setFilterType] = useState("all")
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc")
   const [viewMode, setViewMode] = useState<"list" | "grid">("list")
+  const [loadingReportId, setLoadingReportId] = useState<string | null>(null)
 
-  // Fetch reports from localStorage and event listener
-  useEffect(() => {
-    // Try to load reports from localStorage first
-    const loadReportsFromLocalStorage = () => {
-      try {
-        const savedReportsJson = localStorage.getItem('generatedReports')
-        if (savedReportsJson) {
-          const savedReports = JSON.parse(savedReportsJson)
-          // Convert timestamp strings to Date objects
-          const processedReports = savedReports.map((report: any) => ({
-            ...report,
-            timestamp: new Date(report.timestamp)
-          }))
-          setReports(processedReports)
-          setFilteredReports(processedReports)
-        }
-      } catch (error) {
-        console.error("Error loading reports from localStorage:", error)
+  // Use the axios instance for API calls
+  const fetchReports = async () => {
+    try {
+      const response = await api.get('/api/list-reports')
+      if (!response.data) {
+        throw new Error('Failed to fetch reports')
       }
-    }
-
-    // Listen for new reports generated in ChatPage
-    const handleNewReport = (event: CustomEvent) => {
-      const newReport = event.detail.report
-      if (newReport) {
-        setReports(prevReports => {
-          const updatedReports = [newReport, ...prevReports]
-          // Save to localStorage
-          localStorage.setItem('generatedReports', JSON.stringify(updatedReports))
-          return updatedReports
-        })
-        setFilteredReports(prevReports => [newReport, ...prevReports])
-        toast.success(`New report "${newReport.name}" added`)
-      }
-    }
-
-    // Initialize with data from localStorage
-    loadReportsFromLocalStorage()
-    
-    // Register event listener for new reports
-    window.addEventListener('newReportGenerated', handleNewReport as EventListener)
-    
-    // Future: Fetch reports from Supabase
-    const fetchReportsFromSupabase = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('reports')
-          .select('*')
-          .order('created_at', { ascending: false })
-        
-        if (error) throw error
-        
-        if (data) {
-          // Process and merge with local reports
-          // This is a placeholder for future implementation
-          console.log("Supabase reports data:", data)
-        }
-      } catch (error) {
-        console.error("Error fetching reports from Supabase:", error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    // For now, just simulate loading
-    setTimeout(() => {
+      const processedReports = response.data.map((report: any) => ({
+        ...report,
+        timestamp: report.updated_at ? parseISO(report.updated_at) : null,
+        files: report.files || []
+      }))
+      setReports(processedReports)
+      setFilteredReports(processedReports)
+    } catch (error) {
+      console.error('Error fetching reports:', error)
+      toast.error('Failed to load reports')
+    } finally {
       setIsLoading(false)
-    }, 1000)
-
-    return () => {
-      window.removeEventListener('newReportGenerated', handleNewReport as EventListener)
     }
-  }, [])
+  }
 
   // Apply filters and search
   useEffect(() => {
@@ -168,25 +153,50 @@ const ReportsPage = () => {
     
     // Apply sorting
     result.sort((a, b) => {
+      const aTime = a.timestamp ? a.timestamp.getTime() : -Infinity; // Treat null as earliest
+      const bTime = b.timestamp ? b.timestamp.getTime() : -Infinity; // Treat null as earliest
+
       if (sortOrder === "asc") {
-        // If timestamps are the same, use id as secondary sort key
-        return a.timestamp.getTime() === b.timestamp.getTime() 
-          ? a.id.localeCompare(b.id)
-          : a.timestamp.getTime() - b.timestamp.getTime()
+        return aTime === bTime 
+          ? (a.id || "").localeCompare(b.id || "")
+          : aTime - bTime;
       } else {
-        // For descending order, ensure newest reports (highest timestamps) come first
-        // If timestamps are the same, newer ids (usually with higher numbers) come first
-        return a.timestamp.getTime() === b.timestamp.getTime()
-          ? b.id.localeCompare(a.id)
-          : b.timestamp.getTime() - a.timestamp.getTime()
+        return aTime === bTime
+          ? (b.id || "").localeCompare(a.id || "")
+          : bTime - aTime;
       }
     })
     
     setFilteredReports(result)
   }, [reports, searchQuery, filterType, sortOrder])
 
-  const handleOpenReport = (report: Report) => {
-    setSelectedReport(report)
+  useEffect(() => {
+    fetchReports();
+  }, []);
+
+  const handleOpenReport = async (report: Report) => {
+    setLoadingReportId(report.id);
+    try {
+      console.log(`Fetching content for report: ${report.name}`); // Log report name
+      const response = await api.get(`/api/view-report?report_name=${encodeURIComponent(report.name)}`);
+      console.log("API response from /api/view-report:", response);
+      console.log("Response data content:", response.data?.content?.substring(0, 100)); // Log first 100 chars of content
+      
+      if (response.data && typeof response.data.content === 'string') {
+        const reportWithContent: Report = {
+          ...report,
+          content: response.data.content,
+        };
+        console.log("Report object with content to be set:", reportWithContent);
+        setSelectedReport(reportWithContent);
+      } else {
+        console.error("Failed to load report content or content is not a string. Response data:", response.data);
+        toast.error("Failed to load report content. Invalid format received.");
+      }
+    } catch (error: any) {
+      console.error("Error loading report content:", error);
+      toast.error("Failed to load report content. Please try again later.");
+    }
   }
 
   const handleCloseReport = () => {
@@ -226,13 +236,13 @@ const ReportsPage = () => {
               </Badge>
               <div className="flex items-center text-xs text-slate-500">
                 <Clock className="h-3 w-3 mr-1" />
-                {report.timestamp.toLocaleDateString()}
+                {report.timestamp && isValid(report.timestamp) ? report.timestamp.toLocaleDateString() : (report.timestamp ? 'Invalid Date Format' : 'No Date Provided')}
               </div>
             </div>
-            <CardTitle className="text-base mt-2 text-slate-900">{report.name}</CardTitle>
-            <CardDescription className="text-slate-500 text-xs">
+            <CardTitle className="text-base mt-2 text-slate-900 whitespace-normal break-words">{report.name}</CardTitle>
+            {/* <CardDescription className="text-slate-500 text-xs">
               Based on {report.files.length} document{report.files.length !== 1 ? 's' : ''}
-            </CardDescription>
+            </CardDescription> */}
           </CardHeader>
           <CardContent className="pt-3 pb-2 bg-gradient-to-b from-white to-slate-50 p-3">
             {report.metrics && (
@@ -321,15 +331,15 @@ const ReportsPage = () => {
             {/* Report details */}
             <div className="flex flex-col">
               <div className="flex items-center">
-                <h3 className="font-medium text-slate-900 text-lg">{report.name}</h3>
+                <h3 className="font-medium text-slate-900 text-lg whitespace-normal">{report.name}</h3>
                 <div className="flex items-center text-xs text-slate-500 ml-3">
                   <Clock className="h-3.5 w-3.5 mr-1.5" />
-                  {report.timestamp.toLocaleDateString()}
+                  {report.timestamp && isValid(report.timestamp) ? report.timestamp.toLocaleDateString() : (report.timestamp ? 'Invalid Date Format' : 'No Date Provided')}
                 </div>
               </div>
-              <div className="text-sm text-slate-500 mt-1">
+              {/* <div className="text-sm text-slate-500 mt-1">
                 Based on {report.files.length} document{report.files.length !== 1 ? 's' : ''}
-              </div>
+              </div> */}
             </div>
           </div>
 
