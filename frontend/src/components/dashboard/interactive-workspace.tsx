@@ -1,3 +1,4 @@
+import React from "react"
 import { useState, useRef, useEffect } from "react"
 import { X, ArrowDownToLine, FileText, Undo, Redo, HelpCircle, Edit3, Zap, Highlighter } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -5,6 +6,8 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
+import { marked } from 'marked'
+import DOMPurify from 'dompurify';
 
 interface Report {
   id: string;
@@ -12,6 +15,7 @@ interface Report {
   timestamp: Date;
   files: string[];
   content?: string;
+  name?: string;
 }
 
 interface InteractiveWorkspaceProps {
@@ -20,106 +24,100 @@ interface InteractiveWorkspaceProps {
   append?: (message: { role: string; content: string }) => void;
 }
 
-export function InteractiveWorkspace({ 
-  report, 
+export function InteractiveWorkspace({
+  report,
   onClose,
   append
 }: InteractiveWorkspaceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLDivElement>(null);
-  
+
   // Editor state
   const [reportContent, setReportContent] = useState<string>("");
   const [selectedText, setSelectedText] = useState<string>("");
   const [selectionRange, setSelectionRange] = useState<Range | null>(null);
-  
+
   // Version history
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
   // Initialize editor with report content
   useEffect(() => {
-    if (report && editorRef.current) {
-      // Format the content properly as HTML, not markdown
-      // Start with a reasonable default structure if no content is provided
-      let formattedContent = "";
-      
-      if (report.content) {
-        // If content is provided, use it
-        formattedContent = report.content;
-      } else {
-        // Create a structured HTML report template
+    const initializeContent = async () => {
+      if (report && editorRef.current) {
+        let formattedContent = "";
+        let dynamicMarkdownHtml = "";
+
+        if (report.content) {
+          try {
+            const unsafeHtml = await marked(report.content);
+            // Consider DOMPurify.sanitize(unsafeHtml) here if content source isn't fully trusted.
+            dynamicMarkdownHtml = unsafeHtml;
+          } catch (error) {
+            console.error("Error parsing Markdown:", error);
+            dynamicMarkdownHtml = `<p class="text-red-500">Error rendering report content: ${String(error)}</p>`;
+            toast.error("Could not render report content as Markdown.");
+          }
+        } else {
+          dynamicMarkdownHtml = '<p>No detailed content provided for this report.</p>';
+        }
+
+        // Construct the full view with static and dynamic parts
         formattedContent = `
-          <h1 class="text-2xl font-bold text-[#2E7D32] mb-2">Environmental, Social, and Governance Report</h1>
-          <p class="text-sm text-slate-500 mb-4">Generated on ${new Date().toLocaleDateString()}</p>
-          
-          <h2 class="text-xl font-semibold border-b pb-2 mt-6 mb-4">Executive Summary</h2>
-          <p class="mb-4">
-            This report provides an analysis of the organization's ESG performance based on the documents 
-            provided and industry benchmarks. Key insights and recommendations are outlined below.
-          </p>
-          
-          <h2 class="text-xl font-semibold border-b pb-2 mt-6 mb-4">Environmental Performance</h2>
-          <h3 class="text-lg font-medium mt-4 mb-2">Carbon Emissions</h3>
-          <div class="bg-slate-50 rounded-lg p-4 border mb-4">
-            <div class="flex justify-between items-center mb-2">
-              <span class="font-medium">Total Emissions (CO2e)</span>
-              <span class="font-semibold">25,430 tons</span>
+          <div>
+            <h1 class="text-3xl font-bold text-emerald-700 mb-2">${report.name || 'ESG Report'}</h1>
+            <p class="text-sm text-slate-500 mb-6">Generated on: ${report.timestamp ? new Date(report.timestamp).toLocaleDateString() : new Date().toLocaleDateString()}</p>
+            
+            <hr class="my-6 border-slate-300" />
+            
+            <div class="prose prose-emerald max-w-none prose-h1:text-emerald-600 prose-h2:text-emerald-600 prose-h3:text-emerald-600">
+              ${dynamicMarkdownHtml}
             </div>
-            <div class="w-full bg-slate-200 rounded-full h-2.5">
-              <div class="bg-emerald-600 h-2.5 rounded-full" style="width: 65%"></div>
+            
+            <hr class="my-8 border-slate-300" />
+            
+            <div class="text-center text-xs text-slate-400">
+              <p>&copy; ${new Date().getFullYear()} ESG Reporting Platform. All rights reserved.</p>
             </div>
           </div>
-          
-          <h2 class="text-xl font-semibold border-b pb-2 mt-6 mb-4">Social Performance</h2>
-          <p class="mb-4">
-            The organization demonstrates strong commitment to diversity, inclusion, and employee 
-            well-being. Key areas for improvement include expanding community engagement programs 
-            and enhancing supply chain monitoring.
-          </p>
-          
-          <h2 class="text-xl font-semibold border-b pb-2 mt-6 mb-4">Governance</h2>
-          <p class="mb-4">
-            The governance structure demonstrates compliance with regulatory requirements. 
-            Recommendations include enhancing board diversity and implementing more robust 
-            risk management frameworks.
-          </p>
         `;
+
+        if (editorRef.current) {
+          editorRef.current.innerHTML = formattedContent;
+        }
+
+        setReportContent(formattedContent);
+        setHistory([formattedContent]);
+        setHistoryIndex(0);
       }
-      
-      // Set the content to the editor
-      editorRef.current.innerHTML = formattedContent;
-      
-      // Save initial content to history
-      setReportContent(formattedContent);
-      setHistory([formattedContent]);
-      setHistoryIndex(0);
-    }
+    };
+
+    initializeContent();
   }, [report]);
 
   // Function to capture text selection
   const handleTextSelection = () => {
     if (window.getSelection) {
       const selection = window.getSelection();
-      
+
       if (selection && selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
-        
+
         // Only set selection if it's inside our editor
         if (editorRef.current && editorRef.current.contains(range.commonAncestorContainer)) {
           const selectedContent = selection.toString().trim();
-          
+
           if (selectedContent) {
             setSelectedText(selectedContent);
             setSelectionRange(range.cloneRange());
             return;
           }
         }
+
+        // Clear selection if no text is selected or selection is outside editor
+        setSelectedText("");
+        setSelectionRange(null);
       }
-      
-      // Clear selection if no text is selected or selection is outside editor
-      setSelectedText("");
-      setSelectionRange(null);
     }
   };
 
@@ -127,7 +125,7 @@ export function InteractiveWorkspace({
   const handleContentChange = () => {
     if (editorRef.current) {
       const newContent = editorRef.current.innerHTML;
-      
+
       // Only update history if content actually changed
       if (newContent !== history[historyIndex]) {
         // Add new content to history, truncating any future history
@@ -164,17 +162,17 @@ export function InteractiveWorkspace({
       // Replace the selected text with the suggestion
       selectionRange.deleteContents();
       selectionRange.insertNode(document.createTextNode(suggestion));
-      
+
       // Add to history
       const newContent = editorRef.current.innerHTML;
       const newHistory = history.slice(0, historyIndex + 1).concat(newContent);
       setHistory(newHistory);
       setHistoryIndex(newHistory.length - 1);
-      
+
       // Clear selection
       setSelectedText("");
       setSelectionRange(null);
-      
+
       toast.success("Applied suggestion to report");
     } else {
       toast.error("Please select text to apply this suggestion");
@@ -187,9 +185,9 @@ export function InteractiveWorkspace({
       toast.error("AI integration is not available");
       return;
     }
-    
+
     let prompt = "";
-    
+
     if (selectedText) {
       // For selected text
       switch (adjustmentType) {
@@ -227,13 +225,13 @@ export function InteractiveWorkspace({
           prompt = `Please help me improve this ESG report.`;
       }
     }
-    
+
     // Use the append function to add the message to the chat
     append({
       role: "user",
       content: prompt
     });
-    
+
     toast.success(`Sent request to AI assistant`);
   };
 
@@ -336,7 +334,7 @@ export function InteractiveWorkspace({
         </body>
         </html>
       `;
-      
+
       // Create a blob and download
       const blob = new Blob([exportHTML], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
@@ -347,7 +345,7 @@ export function InteractiveWorkspace({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      
+
       toast.success('Report exported successfully');
     } else {
       toast.error('Error exporting report');
@@ -355,9 +353,9 @@ export function InteractiveWorkspace({
   };
 
   return (
-    <div 
+    <div
       ref={containerRef}
-      className="flex flex-col h-full w-full overflow-hidden" 
+      className="flex flex-col h-full w-full overflow-hidden"
     >
       {/* Editor Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
@@ -376,7 +374,7 @@ export function InteractiveWorkspace({
               <TooltipContent>Undo</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          
+
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -387,7 +385,7 @@ export function InteractiveWorkspace({
               <TooltipContent>Redo</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          
+
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -399,13 +397,13 @@ export function InteractiveWorkspace({
               <TooltipContent>Export Report</TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          
-          <Button variant="ghost" size="icon" onClick={onClose}>
+
+          <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close" data-testid="close-button">
             <X className="h-5 w-5" />
           </Button>
         </div>
       </div>
-      
+
       {/* Editor Toolbar */}
       <div className="flex items-center px-6 py-2 border-b bg-white">
         <div className="flex gap-1">
@@ -426,21 +424,21 @@ export function InteractiveWorkspace({
               <DropdownMenuItem>Insert Table</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          
-          <Button 
-            variant="ghost" 
-            size="sm" 
+
+          <Button
+            variant="ghost"
+            size="sm"
             className="h-8 gap-1"
             onClick={() => requestAIAdjustment("metrics")}
           >
             <Zap className="h-4 w-4" />
             <span>Add Metrics</span>
           </Button>
-          
-          <Button 
+
+          <Button
             variant={selectedText ? "default" : "ghost"}
-            size="sm" 
-            className="h-8 gap-1" 
+            size="sm"
+            className="h-8 gap-1"
             disabled={!selectedText}
             onClick={() => {
               if (selectedText && append) {
@@ -457,9 +455,9 @@ export function InteractiveWorkspace({
           </Button>
         </div>
       </div>
-      
+
       {/* Editor Content */}
-      <div className="flex-1 p-6 bg-white overflow-auto" style={{ 
+      <div className="flex-1 p-6 bg-white overflow-auto" style={{
         scrollbarWidth: 'none', /* Firefox */
         msOverflowStyle: 'none' /* IE and Edge */
       }}>

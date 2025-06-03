@@ -4,7 +4,7 @@
   "description": "This is a template repository to build assistants/ agents for future projects. This repository should have all the requirements, from branch access control to setup files, \r required for smooth initiation, testing of future projects with an automated system of CI/CD with Github Releases and Actions.",
   "main": "index.js",
   "scripts": {
-    "test:fe": "jest --config jest.config.js",
+    "test:fe": "vitest",
     "prepare": "husky install",
     "prettier-check": "prettier --check .",
     "type-check": "tsc --noEmit",
@@ -32,9 +32,11 @@
   "devDependencies": {
     "@eslint/js": "^9.18.0",
     "@testing-library/jest-dom": "^6.6.3",
-    "@testing-library/react": "^16.2.0",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/jest": "^29.5.14",
-    "@types/react": "^19.0.7",
+    "@types/react": "^19.1.6",
+    "@types/testing-library__react": "^10.0.1",
     "eslint": "^9.18.0",
     "eslint-plugin-react": "^7.37.4",
     "flake8": "^0.0.1",
@@ -44,9 +46,13 @@
     "lint-staged": "^15.4.1",
     "prettier": "^3.4.2",
     "puppeteer": "^24.1.0",
+    "react-dnd": "^16.0.1",
+    "react-dnd-html5-backend": "^16.0.1",
+    "react-dnd-test-backend": "^16.0.1",
     "ts-jest": "^29.2.5",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.20.0"
+    "typescript-eslint": "^8.20.0",
+    "vitest": "^3.1.4"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.3",

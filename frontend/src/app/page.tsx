@@ -87,19 +87,19 @@ export default function LandingPage() {
           <nav className="hidden items-center gap-6 md:flex">
             <Link
               className="text-sm font-medium text-slate-700 underline-offset-4 hover:text-slate-900 hover:underline dark:text-slate-300 dark:hover:text-white"
-              href="#"
+              href="#features"
             >
               Features
             </Link>
             <Link
               className="text-sm font-medium text-slate-700 underline-offset-4 hover:text-slate-900 hover:underline dark:text-slate-300 dark:hover:text-white"
-              href="#"
+              href="#platform-overview"
             >
               About
             </Link>
             <Link
               className="text-sm font-medium text-slate-700 underline-offset-4 hover:text-slate-900 hover:underline dark:text-slate-300 dark:hover:text-white"
-              href="#"
+              href="#contact"
             >
               Contact
             </Link>
@@ -450,7 +450,7 @@ export default function LandingPage() {
         </section>
 
         {/* Features Section */}
-        <section className="bg-slate-100 py-16 dark:bg-slate-800 md:py-24">
+        <section id="features" className="bg-slate-100 py-16 dark:bg-slate-800 md:py-24">
           <div className="container mx-auto px-4 md:px-6">
             <div className="mb-12 text-center">
               <h2 className="mb-4 text-3xl font-bold tracking-tight text-slate-900 dark:text-white sm:text-4xl">
@@ -623,7 +623,7 @@ export default function LandingPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <footer id="contact" className="border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="container mx-auto px-4 py-8 md:px-6">
           <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
             <div>
@@ -674,7 +674,7 @@ export default function LandingPage() {
                 <li>
                   <Link
                     className="text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-                    href="#"
+                    href="#platform-overview"
                   >
                     About
                   </Link>
