@@ -34,6 +34,7 @@ interface Report {
   status?: string;
   generated_at?: string;
   scheduled_for?: string;
+  updated_at?: string;
   content?: string;
   metrics?: {
     environmental_score: number;
@@ -248,30 +249,12 @@ function ChatPage() {
 
   // Function to toggle the reports list sidebar
   const toggleReportList = async () => {
-    try {
-      setIsLoadingReports(true);
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/list-reports`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`
-        }
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to fetch reports');
-      }
-
-      const reports = await response.json();
-      setReports(reports);
-      setIsReportListOpen(!isReportListOpen);
-    } catch (error) {
-      console.error('Error fetching reports:', error);
-      toast.error('Failed to fetch reports');
-    } finally {
-      setIsLoadingReports(false);
+    if (!isReportListOpen && reports.length === 0) {
+      // If opening and reports are not loaded, fetch them
+      await fetchReports();
     }
+    // Always toggle the visibility state
+    setIsReportListOpen(!isReportListOpen);
   };
 
   const handleFileSelect = (fileId: string) => {
@@ -770,37 +753,55 @@ function ChatPage() {
       const data = await response.json()
       console.log("Received reports data:", data)
 
-      // Processing reports data
       const allReports: Report[] = []
 
-      // Adding recent reports
-      if (data.recent_reports && Array.isArray(data.recent_reports)) {
-        data.recent_reports.forEach((report: any) => {
+      // Check if data itself is an array of reports
+      if (Array.isArray(data)) {
+        data.forEach((report: any) => {
           allReports.push({
             id: report.id,
             name: report.name,
-            type: report.type,
-            timestamp: new Date(report.generated_at),
+            type: report.type, // Ensure 'type' is part of your report object from API
+            timestamp: new Date(report.updated_at || report.generated_at || report.scheduled_for || report.created_at || Date.now()),
             files: report.files || [],
             status: report.status,
-            generated_at: report.generated_at
+            generated_at: report.generated_at,
+            scheduled_for: report.scheduled_for,
+            updated_at: report.updated_at,
+            // include other relevant fields from your report object if needed for Report interface
+          });
+        });
+      } else {
+        // Existing logic for object with recent_reports and scheduled_reports properties
+        if (data.recent_reports && Array.isArray(data.recent_reports)) {
+          data.recent_reports.forEach((report: any) => {
+            allReports.push({
+              id: report.id,
+              name: report.name,
+              type: report.type,
+              timestamp: new Date(report.updated_at || report.generated_at),
+              files: report.files || [],
+              status: report.status,
+              generated_at: report.generated_at,
+              updated_at: report.updated_at
+            })
           })
-        })
-      }
+        }
 
-      // Adding scheduled reports
-      if (data.scheduled_reports && Array.isArray(data.scheduled_reports)) {
-        data.scheduled_reports.forEach((report: any) => {
-          allReports.push({
-            id: report.id,
-            name: report.name,
-            type: report.type,
-            timestamp: new Date(report.scheduled_for),
-            files: report.files || [],
-            status: report.status,
-            scheduled_for: report.scheduled_for
+        if (data.scheduled_reports && Array.isArray(data.scheduled_reports)) {
+          data.scheduled_reports.forEach((report: any) => {
+            allReports.push({
+              id: report.id,
+              name: report.name,
+              type: report.type,
+              timestamp: new Date(report.updated_at || report.scheduled_for),
+              files: report.files || [],
+              status: report.status,
+              scheduled_for: report.scheduled_for,
+              updated_at: report.updated_at
+            })
           })
-        })
+        }
       }
 
       // Sorting by time (newest first)
@@ -1058,30 +1059,61 @@ function ChatPage() {
 
   // Add this function near your other handlers
   const handleViewReport = async (report: Report) => {
+    if (!session?.access_token) {
+      toast.error("Authentication error. Please log in again.");
+      router.push('/auth');
+      return;
+    }
+    console.log(`Fetching content for report: ${report.name}`);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/view-report/${report.name}/content`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/view-report?report_name=${encodeURIComponent(report.name)}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
+          'Authorization': `Bearer ${session.access_token}`,
         },
       });
 
+      console.log('API response status:', response.status);
+
       if (response.status === 401) {
+        toast.error("Session expired. Please log in again.");
         router.push('/auth');
         return;
       }
 
       if (!response.ok) {
-        throw new Error('Failed to view report');
+        const errorData = await response.text(); // Get text for more detailed error
+        console.error('Failed to view report. Status:', response.status, 'Response:', errorData);
+        toast.error(`Failed to fetch report content (Status: ${response.status})`);
+        throw new Error(`Failed to view report. Status: ${response.status}`);
       }
 
       const data = await response.json();
+      console.log('API response data:', data);
+      console.log('Extracted content:', data.content);
+
       // Update the selected report with the content
-      setSelectedReport({ ...report, content: data.content });
+      setSelectedReport(prevReport => {
+        // Ensure we are updating the correct report or the currently selected one
+        // This check might be more robust if report objects have a unique, stable ID
+        if (prevReport && prevReport.id === report.id) {
+          const updatedReport = { ...prevReport, content: data.content };
+          console.log('Updated selectedReport with content:', updatedReport);
+          return updatedReport;
+        }
+        // If no previous report or different report was selected, set the new one with content
+        const newSelectedReport = { ...report, content: data.content };
+        console.log('Set new selectedReport with content:', newSelectedReport);
+        return newSelectedReport;
+      });
 
     } catch (error) {
       console.error('Error viewing report:', error);
+      // Avoid toast here if already handled by !response.ok block
+      if (!(error instanceof Error && error.message.startsWith('Failed to view report. Status:'))) {
+        toast.error('An error occurred while fetching report content.');
+      }
     }
   };
 
@@ -1618,44 +1650,65 @@ function ChatPage() {
 
                     <ScrollArea className="h-[calc(100vh-10rem)] pr-4 mt-2">
                       <div className="space-y-2.5">
-                        {reports.map((report) => (
-                          <div
-                            key={report.id || `report-${Math.random().toString(36).substr(2, 9)}`}
-                            className="p-3 rounded-lg border border-slate-200 hover:border-emerald-200 hover:shadow-sm hover:bg-emerald-50/30 cursor-pointer transition-all"
-                            onClick={() => {
-                              handleSelectReport(report);
-                              handleViewReport(report);
-                            }}
-                          >
-                            <div className="flex items-start gap-3">
-                              <div className={`p-1.5 rounded-md ${report.type === 'GRI' ? 'bg-emerald-100' : 'bg-blue-100'} flex-shrink-0`}>
-                                <FileText className={`h-4 w-4 ${report.type === 'GRI' ? 'text-emerald-600' : 'text-blue-600'}`} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-sm text-slate-900 truncate">{report.name}</p>
-                                <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
-                                  <Calendar className="h-3 w-3" />
-                                  <span className="truncate">
-                                    {new Date(report.timestamp).toLocaleDateString()} {new Date(report.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {report.type}
-                                  </span>
+                        {reports.map((report) => {
+                          // Log the report's timestamp and original date strings for debugging
+                          console.log(
+                            'Debugging report date:',
+                            {
+                              id: report.id,
+                              name: report.name,
+                              timestampObject: report.timestamp,
+                              generated_at: report.generated_at,
+                              scheduled_for: report.scheduled_for,
+                              isTimestampValid: report.timestamp instanceof Date && !isNaN(report.timestamp.getTime())
+                            }
+                          );
+
+                          const reportDate = new Date(report.timestamp);
+                          const isValidDate = !isNaN(reportDate.getTime());
+                          const formattedTimestamp = isValidDate
+                            ? `${reportDate.toLocaleDateString()} ${reportDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                            : 'Date not available';
+
+                          return (
+                            <div
+                              key={report.id || `report-${Math.random().toString(36).substr(2, 9)}`}
+                              className="p-3 rounded-lg border border-slate-200 hover:border-emerald-200 hover:shadow-sm hover:bg-emerald-50/30 cursor-pointer transition-all"
+                              onClick={() => {
+                                handleSelectReport(report);
+                                handleViewReport(report);
+                              }}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className={`p-1.5 rounded-md ${report.type === 'GRI' ? 'bg-emerald-100' : 'bg-blue-100'} flex-shrink-0`}>
+                                  <FileText className={`h-4 w-4 ${report.type === 'GRI' ? 'text-emerald-600' : 'text-blue-600'}`} />
                                 </div>
-                                {report.status && (
-                                  <div className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs 
-                                    ${report.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                      report.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
-                                        report.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                                          'bg-slate-100 text-slate-800'
-                                    }`}>
-                                    {report.status === 'completed' ? 'Completed' :
-                                      report.status === 'pending_review' ? 'Pending Review' :
-                                        report.status === 'scheduled' ? 'Scheduled' :
-                                          report.status}
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-sm text-slate-900 truncate">{report.name}</p>
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
+                                    <Calendar className="h-3 w-3" />
+                                    <span className="truncate">
+                                      {formattedTimestamp}{report.type ? ` - ${report.type}` : ''}
+                                    </span>
                                   </div>
-                                )}
+                                  {report.status && (
+                                    <div className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs 
+                                      ${report.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                        report.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
+                                          report.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                                            'bg-slate-100 text-slate-800'
+                                      }`}>
+                                      {report.status === 'completed' ? 'Completed' :
+                                        report.status === 'pending_review' ? 'Pending Review' :
+                                          report.status === 'scheduled' ? 'Scheduled' :
+                                            report.status}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </ScrollArea>
                   </>
