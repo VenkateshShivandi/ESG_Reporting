@@ -293,8 +293,19 @@ def list_tree():
 @require_auth
 def list_reports():
     try:
-        response = supabase.storage.from_("reports").list()
-        return jsonify(response), 200
+        storage_response = supabase.storage.from_("reports").list()
+        
+        # Filter for valid report objects
+        # A valid report should have an 'id' (not None) and 'metadata' (not None)
+        # and its name should not be the folder name itself if it appears as an item.
+        valid_reports = [
+            item for item in storage_response 
+            if item.get("id") is not None 
+            and item.get("metadata") is not None 
+            and item.get("name") != "reports" # Explicitly filter out an entry named "reports"
+        ]
+        
+        return jsonify(valid_reports), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in list_reports: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -304,11 +315,24 @@ def list_reports():
 def view_report():
     try:
         report_name = request.args.get("report_name")
-        response = supabase.storage.from_("reports").download(report_name)
-        return send_file(response, as_attachment=True), 200
+        if not report_name:
+            return jsonify({"error": "report_name parameter is required"}), 400
+
+        # Fetches the report from Supabase storage
+        # The 'download' method returns the file's content as bytes
+        response_data = supabase.storage.from_("reports").download(report_name)
+        
+        # Decode the bytes to a string (assuming UTF-8 encoding for text reports)
+        report_content = response_data.decode('utf-8')
+        
+        return jsonify({"content": report_content}), 200
     except Exception as e:
-        app.logger.error(f"❌ API Error in view_report: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        # Log the specific error for better debugging
+        app.logger.error(f"❌ API Error in view_report for '{report_name}': {str(e)}")
+        # Check if it's a Supabase storage error (e.g., file not found)
+        if "NotFound" in str(e) or "FileNotFoundError" in str(e): # A bit simplistic, Supabase might have specific error types/codes
+            return jsonify({"error": f"Report '{report_name}' not found."}), 404
+        return jsonify({"error": "An error occurred while retrieving the report."}), 500
     
 @app.route("/api/download-report", methods=["GET"])
 @require_auth
