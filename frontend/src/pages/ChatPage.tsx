@@ -252,9 +252,9 @@ function ChatPage() {
     if (!isReportListOpen && reports.length === 0) {
       // If opening and reports are not loaded, fetch them
       await fetchReports();
-    }
+      }
     // Always toggle the visibility state
-    setIsReportListOpen(!isReportListOpen);
+      setIsReportListOpen(!isReportListOpen);
   };
 
   const handleFileSelect = (fileId: string) => {
@@ -773,34 +773,34 @@ function ChatPage() {
         });
       } else {
         // Existing logic for object with recent_reports and scheduled_reports properties
-        if (data.recent_reports && Array.isArray(data.recent_reports)) {
-          data.recent_reports.forEach((report: any) => {
-            allReports.push({
-              id: report.id,
-              name: report.name,
-              type: report.type,
+      if (data.recent_reports && Array.isArray(data.recent_reports)) {
+        data.recent_reports.forEach((report: any) => {
+          allReports.push({
+            id: report.id,
+            name: report.name,
+            type: report.type,
               timestamp: new Date(report.updated_at || report.generated_at),
-              files: report.files || [],
-              status: report.status,
+            files: report.files || [],
+            status: report.status,
               generated_at: report.generated_at,
               updated_at: report.updated_at
-            })
           })
-        }
+        })
+      }
 
-        if (data.scheduled_reports && Array.isArray(data.scheduled_reports)) {
-          data.scheduled_reports.forEach((report: any) => {
-            allReports.push({
-              id: report.id,
-              name: report.name,
-              type: report.type,
+      if (data.scheduled_reports && Array.isArray(data.scheduled_reports)) {
+        data.scheduled_reports.forEach((report: any) => {
+          allReports.push({
+            id: report.id,
+            name: report.name,
+            type: report.type,
               timestamp: new Date(report.updated_at || report.scheduled_for),
-              files: report.files || [],
-              status: report.status,
+            files: report.files || [],
+            status: report.status,
               scheduled_for: report.scheduled_for,
               updated_at: report.updated_at
-            })
           })
+        })
         }
       }
 
@@ -1671,42 +1671,42 @@ function ChatPage() {
                             : 'Date not available';
 
                           return (
-                            <div
-                              key={report.id || `report-${Math.random().toString(36).substr(2, 9)}`}
-                              className="p-3 rounded-lg border border-slate-200 hover:border-emerald-200 hover:shadow-sm hover:bg-emerald-50/30 cursor-pointer transition-all"
-                              onClick={() => {
-                                handleSelectReport(report);
-                                handleViewReport(report);
-                              }}
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className={`p-1.5 rounded-md ${report.type === 'GRI' ? 'bg-emerald-100' : 'bg-blue-100'} flex-shrink-0`}>
-                                  <FileText className={`h-4 w-4 ${report.type === 'GRI' ? 'text-emerald-600' : 'text-blue-600'}`} />
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-medium text-sm text-slate-900 truncate">{report.name}</p>
-                                  <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
-                                    <Calendar className="h-3 w-3" />
-                                    <span className="truncate">
+                          <div
+                            key={report.id || `report-${Math.random().toString(36).substr(2, 9)}`}
+                            className="p-3 rounded-lg border border-slate-200 hover:border-emerald-200 hover:shadow-sm hover:bg-emerald-50/30 cursor-pointer transition-all"
+                            onClick={() => {
+                              handleSelectReport(report);
+                              handleViewReport(report);
+                            }}
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className={`p-1.5 rounded-md ${report.type === 'GRI' ? 'bg-emerald-100' : 'bg-blue-100'} flex-shrink-0`}>
+                                <FileText className={`h-4 w-4 ${report.type === 'GRI' ? 'text-emerald-600' : 'text-blue-600'}`} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm text-slate-900 truncate">{report.name}</p>
+                                <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
+                                  <Calendar className="h-3 w-3" />
+                                  <span className="truncate">
                                       {formattedTimestamp}{report.type ? ` - ${report.type}` : ''}
-                                    </span>
-                                  </div>
-                                  {report.status && (
-                                    <div className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs 
-                                      ${report.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                        report.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
-                                          report.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                                            'bg-slate-100 text-slate-800'
-                                      }`}>
-                                      {report.status === 'completed' ? 'Completed' :
-                                        report.status === 'pending_review' ? 'Pending Review' :
-                                          report.status === 'scheduled' ? 'Scheduled' :
-                                            report.status}
-                                    </div>
-                                  )}
+                                  </span>
                                 </div>
+                                {report.status && (
+                                  <div className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs 
+                                    ${report.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                      report.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
+                                        report.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                                          'bg-slate-100 text-slate-800'
+                                    }`}>
+                                    {report.status === 'completed' ? 'Completed' :
+                                      report.status === 'pending_review' ? 'Pending Review' :
+                                        report.status === 'scheduled' ? 'Scheduled' :
+                                          report.status}
+                                  </div>
+                                )}
                               </div>
                             </div>
+                          </div>
                           );
                         })}
                       </div>
