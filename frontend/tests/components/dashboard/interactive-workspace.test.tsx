@@ -22,15 +22,18 @@ describe('InteractiveWorkspace Component', () => {
         mockOnClose.mockClear();
     });
 
-    it('renders the report type in the header and the main content', () => {
+    it('renders the report type in the header and the main content', async () => {
         const { container } = render(<InteractiveWorkspace report={mockReport} onClose={mockOnClose} />);
 
         expect(screen.getByRole('heading', { name: /GRI Report/i })).toBeInTheDocument();
 
-        // Find the contentEditable div by its attribute and check its content
         const editorDiv = container.querySelector('div[contenteditable="true"]');
         expect(editorDiv).toBeInTheDocument();
-        expect(editorDiv).toHaveTextContent('Report content details.');
+
+        const contentParagraph = await screen.findByText('Report content details.', {
+            selector: '.prose p',
+        });
+        expect(contentParagraph).toBeInTheDocument();
     });
 
     it('calls onClose when the close button is clicked', () => {
