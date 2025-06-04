@@ -22,6 +22,7 @@ This directory contains the backend services for the ESG Reporting platform, res
 - **tests/**: Test scripts and test data
   - `data/`: Sample data files for testing
   - `test_etl.py`: Tests for the ETL pipeline
+  - `unit/`: Unit tests for all backend components and API endpoints
 
 - **data/**: Storage location for input documents
 - **output/**: Storage location for processed results
@@ -32,6 +33,77 @@ This directory contains the backend services for the ESG Reporting platform, res
   - Extracts text and tables from PDFs using multiple libraries
   - Transforms content into semantically meaningful chunks
   - Loads processed data for downstream use
+
+- `app.py`: The main Flask application providing API endpoints for:
+  - File upload and management
+  - Document processing
+  - ESG data analytics
+  - Search functionality
+  - Chatbot integration
+
+## Testing
+
+The backend includes a comprehensive test suite covering the core functionality:
+
+- **Unit Tests**: Located in `tests/unit/`, testing individual components and utilities
+- **API Tests**: Independent test modules that use mock Flask applications to test endpoints
+  - `test_basic_api.py`: Basic API endpoints (status, user profile)
+  - `test_file_management_api.py`: File operations (upload, list, delete)
+  - `test_document_processing_api.py`: Document processing and metadata
+  - `test_analytics_and_chat_api.py`: Analytics metrics and chatbot functionality
+
+### API Testing Strategy
+
+The API tests use a standalone approach that doesn't require actual database or cloud storage connections. Each test file:
+
+1. Creates its own independent Flask application
+2. Implements mock routes that mirror the real API behavior
+3. Simulates authentication and authorization flows
+4. Mocks external dependencies (databases, file storage, etc.)
+5. Tests both success cases and error handling
+
+This approach provides several key benefits:
+
+- **Isolated Testing**: Tests run independently without needing actual infrastructure
+- **Fast Execution**: No connection overhead to external systems  
+- **Developer-Friendly**: Tests can be run locally without complex setup
+- **CI/CD Integration**: Easy to automate in continuous integration workflows
+- **Maintainability**: API contract changes are immediately visible in tests
+
+### Running the Tests
+
+To run the tests:
+
+```bash
+cd backend
+python -m pytest tests/unit -v
+```
+
+For Windows users, a convenience batch script is provided:
+
+```cmd
+cd backend\tests\unit
+.\run_tests.bat
+```
+
+Options:
+- `-f <filename>` - Run tests in a specific file
+- `-t <testname>` - Run a specific test
+- `-v` - Verbose output
+
+For more details on testing, see the [Testing README](backend/tests/unit/README.md).
+
+## Development and Testing Workflow
+
+The recommended workflow for API development is:
+
+1. Define the API endpoint and expected behavior
+2. Create or update the corresponding test file
+3. Implement the API endpoint in the application
+4. Run the tests to ensure the implementation meets requirements
+5. Document any changes in the appropriate README
+
+This test-driven approach ensures that all API endpoints have validation, good error handling, and consistent behavior.
 
 ## PDF Parser Functionality
 

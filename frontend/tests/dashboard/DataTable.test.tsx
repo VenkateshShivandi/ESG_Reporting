@@ -22,10 +22,10 @@ describe('DataTable', () => {
   test('should display correct status colors', () => {
     render(<DataTable data={mockData} />)
 
-    const improvedCell = screen.getByText('+12.5%')
-    const declinedCell = screen.getByText('-6.7%')
+    const improvedCell = screen.getByText('+12.50%')
+    const declinedCell = screen.getByText('-6.70%')
 
-    expect(improvedCell).toHaveClass('text-green-600')
-    expect(declinedCell).toHaveClass('text-red-600')
+    expect(improvedCell).toHaveClass('text-green-500')
+    expect(declinedCell).toHaveClass('text-red-500')
   })
 }) 

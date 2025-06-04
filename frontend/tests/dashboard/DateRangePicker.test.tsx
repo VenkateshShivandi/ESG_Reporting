@@ -1,27 +1,27 @@
-import { render, screen, fireEvent } from '@testing-library/react'
-import '@testing-library/jest-dom'
+import { render, screen, fireEvent, within } from '@testing-library/react'
+import { describe, test, expect, vi, beforeEach } from 'vitest'
 import { DateRangePicker } from '@/components/dashboard/date-range-picker'
 import { addDays } from 'date-fns'
 
 // Mock icons
-jest.mock("lucide-react", () => ({
+vi.mock("lucide-react", () => ({
   CalendarIcon: () => <span data-testid="calendar-icon" />
 }))
 
 // Mock cn utility
-jest.mock("@/lib/utils", () => ({
+vi.mock("@/lib/utils", () => ({
   cn: (...args: any[]) => args.filter(Boolean).join(" ")
 }))
 
 // Create clean mocks for the UI components
-const mockTriggerFn = jest.fn()
-const mockContentFn = jest.fn()
-const mockPopoverFn = jest.fn()
-const mockButtonFn = jest.fn()
-const mockCalendarFn = jest.fn()
+const mockTriggerFn = vi.fn()
+const mockContentFn = vi.fn()
+const mockPopoverFn = vi.fn()
+const mockButtonFn = vi.fn()
+const mockCalendarFn = vi.fn()
 
 // Mock Button component
-jest.mock("@/components/ui/button", () => ({
+vi.mock("@/components/ui/button", () => ({
   Button: (props: any) => {
     mockButtonFn(props)
     return (
@@ -37,7 +37,7 @@ jest.mock("@/components/ui/button", () => ({
 }))
 
 // Mock Popover components
-jest.mock("@/components/ui/popover", () => ({
+vi.mock("@/components/ui/popover", () => ({
   Popover: (props: any) => {
     mockPopoverFn(props)
     return <div data-testid="popover">{props.children}</div>
@@ -53,7 +53,7 @@ jest.mock("@/components/ui/popover", () => ({
 }))
 
 // Mock Calendar component
-jest.mock("@/components/ui/calendar", () => ({
+vi.mock("@/components/ui/calendar", () => ({
   Calendar: (props: any) => {
     mockCalendarFn(props)
     return (
@@ -79,47 +79,49 @@ jest.mock("@/components/ui/calendar", () => ({
 
 describe('DateRangePicker', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    vi.clearAllMocks()
   })
 
-  test('should display selected date range', () => {
-    // 使用 UTC 日期，避免因时区导致的渲染差异
-    const startDate = new Date(Date.UTC(2024, 0, 1))
-    const endDate = addDays(startDate, 7)
+  test('should display selected date range', async () => {
+    // 使用 本地 日期，避免因时区导致的渲染差异 (Use local date to avoid rendering differences due to timezones)
+    const startDate = new Date(2024, 0, 1); // Changed from Date.UTC to local date
+    const endDate = addDays(startDate, 7);
 
     render(
       <DateRangePicker
         dateRange={{ from: startDate, to: endDate }}
-        onDateRangeChange={jest.fn()}
+        onDateRangeChange={vi.fn()}
       />
-    )
+    );
 
     // Verify that the button displays the formatted date range
-    expect(screen.getByText('Jan 01, 2024 - Jan 08, 2024')).toBeInTheDocument()
+    const dateButton = await screen.findByTestId('date-button');
+    // Use a regex to handle potential text splitting around the hyphen
+    expect(await within(dateButton).findByText(/Jan 01, 2024\s*-\s*Jan 08, 2024/)).toBeInTheDocument();
   })
 
-  test('should display only start date when no end date is selected', () => {
-    const startDate = new Date(Date.UTC(2024, 0, 1))
+  test('should display only start date when no end date is selected', async () => {
+    const startDate = new Date(2024, 0, 1);
 
     render(
       <DateRangePicker
         dateRange={{ from: startDate, to: undefined }}
-        onDateRangeChange={jest.fn()}
+        onDateRangeChange={vi.fn()}
       />
     )
-
-    expect(screen.getByText('Jan 01, 2024')).toBeInTheDocument()
+    const dateButton = await screen.findByTestId('date-button')
+    expect(await within(dateButton).findByText('Jan 01, 2024')).toBeInTheDocument()
   })
 
-  test('should display placeholder when no date is selected', () => {
+  test('should display placeholder when no date is selected', async () => {
     render(
       <DateRangePicker
         dateRange={{ from: undefined, to: undefined }}
-        onDateRangeChange={jest.fn()}
+        onDateRangeChange={vi.fn()}
       />
     )
-
-    expect(screen.getByText('Pick a date range')).toBeInTheDocument()
+    const dateButton = await screen.findByTestId('date-button')
+    expect(await within(dateButton).findByText('Pick a date range')).toBeInTheDocument()
   })
 
   test('should pass correct props to Calendar component', () => {
@@ -127,7 +129,7 @@ describe('DateRangePicker', () => {
       from: new Date(Date.UTC(2024, 0, 1)),
       to: new Date(Date.UTC(2024, 0, 10))
     }
-    const onChangeMock = jest.fn()
+    const onChangeMock = vi.fn()
 
     render(
       <DateRangePicker
@@ -147,7 +149,7 @@ describe('DateRangePicker', () => {
   })
 
   test('should handle selecting start date', () => {
-    const onChangeMock = jest.fn()
+    const onChangeMock = vi.fn()
 
     render(
       <DateRangePicker
@@ -169,7 +171,7 @@ describe('DateRangePicker', () => {
   })
 
   test('should handle selecting date range', () => {
-    const onChangeMock = jest.fn()
+    const onChangeMock = vi.fn()
 
     render(
       <DateRangePicker

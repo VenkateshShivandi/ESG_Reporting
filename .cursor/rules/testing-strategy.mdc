@@ -1,6 +1,7 @@
 ---
 description: 
 globs: 
+alwaysApply: false
 ---
 # Testing Changes
 
@@ -26,4 +27,7 @@ globs:
 - Ensure the chatbot's query functionality works after processing uploaded documents.
 - Verify authentication flow and user access to dashboards and report exports.
 - Simulate and test error scenarios to handle invalid file formats and API outages gracefully.
-- Utilize Percy and Storybook for visual regression to ensure UI components (like DataTable and ESG Metric Cards) remain consistent across updates.
+- Utilize Percy and Storybook for visual regression to ensure UI components (like DataTable and ESG Metric Cards) remain consistent across updates. 
+
+
+
