@@ -483,10 +483,6 @@ const DocumentsPage: NextPage<Props> = () => {
     }
   }
 
-  const handleReUpload = async (item: FileItem) => {
-    toast.info("Re-upload functionality to be implemented")
-  }
-
   const viewFileDetails = (file: FileItem) => {
     if (file.processingResult) {
       const fileResult: ProcessedFileResult = {
@@ -1473,12 +1469,6 @@ const DocumentsPage: NextPage<Props> = () => {
                                             >
                                               <FolderInput className="w-4 h-4 mr-2" />
                                               <span>Move to folder</span>
-                                            </DropdownMenuItem>
-                                          )}
-                                          {item.type === "file" && (
-                                            <DropdownMenuItem className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" onClick={() => handleReUpload(item)}>
-                                              <RefreshCw className="w-4 h-4 mr-2" />
-                                              <span>Re-upload</span>
                                             </DropdownMenuItem>
                                           )}
                                           <DropdownMenuSeparator />
