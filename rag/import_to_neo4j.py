@@ -19,23 +19,28 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from graph_store import Neo4jGraphStore
 
-# Load environment variables from .env and .env.local
 def load_environment_variables():
-    """Load environment variables from .env.local files"""
-    # Try to load from project root .env.local
+    """Conditionally load environment variables from .env.local files (only in non-production)"""
+
+    if os.getenv("ZEA_ENV") == "production":
+        print("Skipping .env.local loading in production")
+        return
+
+    # Load from project root .env.local
     root_env = Path(__file__).parent.parent / '.env.local'
     if root_env.exists():
-        load_dotenv(root_env)
+        load_dotenv(dotenv_path=root_env)
         print(f"Loaded environment from {root_env}")
-        
-    # Also try to load from rag directory .env.local (which takes precedence)
+
+    # Load from rag directory .env.local (override root)
     rag_env = Path(__file__).parent / '.env.local'
     if rag_env.exists():
-        load_dotenv(rag_env, override=True)
+        load_dotenv(dotenv_path=rag_env, override=True)
         print(f"Loaded environment from {rag_env}")
-    
-    # Load any other potential env files
-    load_dotenv()  # Load from .env if it exists
+
+    # Optional: fallback to .env (if exists)
+    load_dotenv()
+    print("Loaded fallback .env if present")
 
 def summarize_community_with_openai(client, community_data):
     """

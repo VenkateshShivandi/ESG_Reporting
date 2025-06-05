@@ -72,13 +72,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     
     const addUserToGraph = async (userId: string, email: string) => {
       try {
-        const response = await fetch('http://localhost:6050/api/v1/add-user', {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_RAG_URL}/api/v1/add-user`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({ user_id: userId, email })
         });
+        console.log("response", response)
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -90,7 +91,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('User added to graph database:', result);
         return true;
       } catch (error) {
-        console.warn('Graph database service unavailable:', error);
+        console.warn('Graph database service unavailableee:', error);
+        console.log("error", error)
         return false;
       }
     };

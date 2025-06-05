@@ -1,4 +1,6 @@
 "use client"
+export const dynamic = "force-dynamic"
+
 
 import React, { useState, useEffect } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
@@ -33,10 +35,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 // Import page components
-import ChatPage from "@/pages/ChatPage"
+import ChatPage from "@/app/chat/ChatPage"
 import DocumentsPage from "@/pages/DocumentsPage"
-import { AnalyticsPage } from "@/pages/AnalyticsPage"
-import ProfilePage from "@/pages/ProfilePage"
+import { AnalyticsPage } from "@/app/analytics/AnalyticsPage"
+import ProfilePage from "@/app/profile/ProfilePage"
 import ReportsPage from "@/pages/ReportsPage"
 
 // Define tab interface
@@ -536,3 +538,4 @@ export function Container() {
     </div>
   )
 }
+export default Container;

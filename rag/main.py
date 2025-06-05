@@ -5,7 +5,8 @@ import openai
 from neo4j import GraphDatabase
 from neo4j import basic_auth
 
-load_dotenv('.env.local')
+if os.getenv("ZEA_ENV") != "production":
+    load_dotenv(".env.local")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 NEO4J_URI = os.getenv("NEO4J_URI")
@@ -86,7 +87,7 @@ if __name__ == "__main__":
     #     print(json.dumps(result, indent=2))
     
     # Option 2: Build the knowledge graph
-    from build_graph import build_knowledge_graph
+    from build_graph import build_knowledge_graph # type: ignore
     build_knowledge_graph()
 
 

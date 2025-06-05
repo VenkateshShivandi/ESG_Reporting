@@ -53,8 +53,22 @@ const baseFiles: FileItem[] = [
 const openRenameDialog = async (itemName: string) => {
   const row = screen.getByText(itemName).closest('tr') as HTMLElement;
   const moreBtn = within(row).getByRole('button', { name: /more-actions/i });
+  
+  // Wait for the button to be enabled and visible
+  await waitFor(() => {
+    expect(moreBtn).toBeEnabled();
+    expect(moreBtn).toBeVisible();
+  });
+  
   await userEvent.click(moreBtn);
-  const renameBtn = screen.getByRole('menuitem', { name: /rename/i });
+  
+  // Wait for the dropdown menu to appear and be interactive
+  const renameBtn = await screen.findByRole('menuitem', { name: /rename/i });
+  await waitFor(() => {
+    expect(renameBtn).toBeVisible();
+    expect(renameBtn).toBeEnabled();
+  });
+  
   await userEvent.click(renameBtn);
 };
 

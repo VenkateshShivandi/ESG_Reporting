@@ -1,6 +1,7 @@
 import { getAuthToken } from '../auth';
 
-const API_BASE_URL = 'http://localhost:5050';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL!
 
 // Define the missing interfaces
 export interface ProcessedTable {

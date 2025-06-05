@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/hooks/use-auth'
 import { Button } from '@/components/ui/button'
-import { useSidebar } from '@/app/dashboard/layout'
+//import useSidebar from '@/app/dashboard/layout'
 import {
   BarChart3Icon,
   FileUpIcon,
@@ -25,6 +25,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { useSidebar } from '../ui/sidebar'
 
 export default function AppNavigation() {
   const { isAuthenticated, user, signOut } = useAuth()
@@ -37,15 +38,11 @@ export default function AppNavigation() {
   const [localIsExpanded, setLocalIsExpanded] = useState(true)
   
   // Try to use the context, fall back to local state if not available
-  let sidebarContext = null;
-  try {
-    sidebarContext = useSidebar();
-  } catch (e) {
-    // Context not available, will use local state
-  }
+  const isExpanded = localIsExpanded;
+  const setIsExpanded = setLocalIsExpanded;
   
-  const isExpanded = sidebarContext?.isExpanded ?? localIsExpanded
-  const setIsExpanded = sidebarContext?.setIsExpanded ?? setLocalIsExpanded
+  //const isExpanded = sidebarContext?.isExpanded ?? localIsExpanded
+  //const setIsExpanded = sidebarContext?.setIsExpanded ?? setLocalIsExpanded
 
   // State to track the current active tab
   const [activeTabId, setActiveTabId] = useState<string>(() => {

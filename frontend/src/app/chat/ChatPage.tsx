@@ -1,4 +1,5 @@
 "use client"
+export const dynamic = "force-dynamic"
 
 import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { useAssistant } from '@ai-sdk/react'
@@ -19,7 +20,7 @@ import ReactMarkdown from 'react-markdown'
 import { useAuth, withAuth } from '@/hooks/use-auth'
 import { useChatStore } from '@/lib/store/chat-store'
 import { useEffect as useLoadEffect } from "react"
-import { supabase } from "../lib/supabase"
+import { supabase } from "../../lib/supabase"
 import { useRouter } from "next/navigation"
 import { documentsApi } from "@/lib/api/documents"
 import type { FileItem } from "@/lib/types/documents"
@@ -991,6 +992,7 @@ function ChatPage() {
 
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/create-graph`, {
+        
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -1001,6 +1003,7 @@ function ChatPage() {
           user_id: session.user.id
         })
       })
+      console.log("NEXT_PUBLIC_BACKEND_URL", process.env.NEXT_PUBLIC_BACKEND_URL)
 
       if (!response.ok) {
         const errorData = await response.json()

@@ -589,7 +589,7 @@ if __name__ == "__main__":
     try:
         # Initialize Neo4j connection at startup
         init_neo4j()
-        app.run(debug=True, host="0.0.0.0", port=6050)
+        app.run(debug=True, host="0.0.0.0", port=8000)
     except Exception as e:
         app.logger.error(f"Failed to initialize Neo4j: {str(e)}")
         raise

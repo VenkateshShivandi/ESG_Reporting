@@ -21,7 +21,9 @@ if not os.path.exists(dotenv_path):
         dotenv_path = None
 
 if dotenv_path:
-    load_dotenv(dotenv_path=dotenv_path)
+    #load_dotenv(dotenv_path=dotenv_path)
+    if os.getenv("ZEA_ENV") != "production":
+        load_dotenv(".env.local")
     logger.info(f"Loaded environment variables from: {dotenv_path}")
 else:
     logger.warning(".env file not found. Relying on system environment variables.")

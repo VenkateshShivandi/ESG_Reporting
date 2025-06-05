@@ -42,12 +42,26 @@ for loc in env_locations:
         env_file = loc
         break
 
-if env_file:
-    print(f"Loading environment from: {env_file}")
-    load_dotenv(env_file)
+# ✅ Load env only in non-production
+if os.getenv("ZEA_ENV") != "production":
+    # Try to load the first existing .env.local from predefined locations
+    env_locations = [
+        os.path.join(PROJECT_ROOT, 'rag', '.env.local'),
+        os.path.join(PROJECT_ROOT, '.env.local'),
+        os.path.join(PROJECT_ROOT, 'backend', '.env.local'),
+        os.path.join(PROJECT_ROOT, 'frontend', '.env.local')
+    ]
+
+    for env_path in env_locations:
+        if os.path.exists(env_path):
+            load_dotenv(env_path, override=True)
+            print(f"✅ Loaded environment from: {env_path}")
+            break
+    else:
+        print("⚠️ No .env.local found — continuing with system environment vars.")
 else:
-    print("No .env.local file found in any of the expected locations")
-    sys.exit(1)
+    print("🚀 Running in production — skipping .env.local loading")
+
 
 # Debug: Print loaded environment variables
 print(f"Loaded NEO4J_URI: {os.getenv('NEO4J_URI')}")
@@ -611,7 +625,7 @@ class ESGPipeline:
             # Check for required packages
             missing_packages = []
             try:
-                import langchain
+                import langchain # type: ignore
                 logger.info(f"LangChain version: {langchain.__version__}")
             except ImportError:
                 missing_packages.append("langchain")
@@ -630,8 +644,8 @@ class ESGPipeline:
                 
             # Import specific LangChain modules
             try:
-                from langchain_openai import ChatOpenAI
-                from langchain_core.prompts import ChatPromptTemplate
+                from langchain_openai import ChatOpenAI # type: ignore
+                from langchain_core.prompts import ChatPromptTemplate # type: ignore
             except ImportError as e:
                 logger.error(f"Error importing LangChain modules: {str(e)}")
                 logger.warning("Try reinstalling with: pip install langchain-openai langchain-community langchain-core")

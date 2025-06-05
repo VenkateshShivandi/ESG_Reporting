@@ -24,7 +24,9 @@ if not os.path.exists(dotenv_path):
 
 # Check if .env exists before trying to load
 if dotenv_path and os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path=dotenv_path)
+    #load_dotenv(dotenv_path=dotenv_path)
+    if os.getenv("ZEA_ENV") != "production":
+        load_dotenv(".env.local")
     logger.info(f".env file loaded from: {dotenv_path}")
 else:
     logger.warning(f".env file not found in rag/ or project root. Relying on system environment variables.")
