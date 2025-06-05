@@ -2,46 +2,50 @@ name: Frontend Tests
 
 on:
   push:
-    branches: [ feature/* ]
+    branches: [feature/*]
     paths:
-      - 'frontend/**'
-      - '.github/workflows/frontend-test.yml'
+      - "frontend/**"
+      - ".github/workflows/frontend-test.yml"
   pull_request:
-    branches: [ feature/* ]
+    branches: [feature/*]
     paths:
-      - 'frontend/**'
-      - '.github/workflows/frontend-test.yml'
+      - "frontend/**"
+      - ".github/workflows/frontend-test.yml"
 
 jobs:
   test-frontend:
     name: Run Frontend Tests
     runs-on: ubuntu-latest
-    
+
     defaults:
       run:
         working-directory: frontend
-        
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: '18'
-          cache: 'npm'
+          node-version: "18"
+          cache: "npm"
           cache-dependency-path: frontend/package-lock.json
-      
+
       - name: Install dependencies
         run: npm ci
-      
-      - name: Run Jest tests
+
+      - name: Run Vitest tests
         run: npm test
-        
+        env:
+          # Suppress React act() warnings in CI environment
+          SUPPRESS_REACT_ACT_WARNINGS: true
+          # Set test timeout
+          VITEST_TIMEOUT: 30000
+
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
           path: frontend/coverage
-          retention-days: 5 
+          retention-days: 5

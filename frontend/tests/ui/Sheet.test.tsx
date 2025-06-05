@@ -1,5 +1,6 @@
 import React from "react"
 import { render, screen, fireEvent, waitFor } from "@testing-library/react"
+import { describe, test, expect, vi } from "vitest"
 import {
   Sheet,
   SheetTrigger,
@@ -11,7 +12,7 @@ import {
 
 describe("Sheet component", () => {
   test("renders children when open and triggers onOpenChange when closed", async () => {
-    const onOpenChange = jest.fn()
+    const onOpenChange = vi.fn()
     render(
       <Sheet open={true} onOpenChange={onOpenChange}>
         <SheetTrigger>Open Sheet</SheetTrigger>

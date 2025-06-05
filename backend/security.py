@@ -17,13 +17,26 @@ from flask import request, current_app
 import jwt
 from functools import wraps
 from supabase import create_client
+from pathlib import Path
+
 # CONSTANTS
-load_dotenv('.env.local')
-SUPABASE_URL = os.environ.get('SUPABASE_URL')
-SUPABASE_ANON_KEY = os.environ.get('SUPABASE_ANON_KEY')
-SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY')
+# Get the absolute path to the backend directory
+BACKEND_DIR = Path(__file__).resolve().parent
+ENV_PATH = BACKEND_DIR / '.env.local'
+if os.getenv("ZEA_ENV") != "production":
+    load_dotenv(ENV_PATH)
+
+# Fetch from system env or .env file (depending on context)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    raise ValueError("Missing Supabase credentials. Make sure SUPABASE_URL and SUPABASE_ANON_KEY are set in the environment.")
+
 from jwcrypto import jwk
-supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY) 
 
 
 def verify_jwt_token(token: str) -> Dict[str, Any]:

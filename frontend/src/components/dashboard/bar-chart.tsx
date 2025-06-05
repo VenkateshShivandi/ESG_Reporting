@@ -13,21 +13,21 @@ import {
 } from "recharts"
 import { useDashboardStore } from "@/lib/store"
 import { DrillDownModal } from "./drill-down-modal"
+import { StackOffsetType } from "recharts/types/util/types"
 
-interface BarChartProps {
-  data: Array<{
-    name: string
-    value1: number
-    value2: number
-    value3: number
-  }>
-  config?: {
+type BarChartProps = {
+  data:
+    | { name: string; value1: number; value2: number; value3: number }[]
+    | { name: string; value: number }[]
+    | { year: string; emissions: number; energy: number; water: number; waste: number }[]
+    | { subject: string; current: number; target: number; industry: number }[]
+  config: {
     title?: string
-    showLegend?: boolean
+    keys: string[]               // Array of data keys to render bars
+    labels?: string[]            // Labels for legend/tooltips
+    colors?: string[]            // Bar fill colors
     stacked?: boolean
-    dataKeys?: string[]
-    dataLabels?: string[]
-    colors?: string[]
+    showLegend?: boolean
   }
 }
 
@@ -38,33 +38,30 @@ export function BarChart({ data, config }: BarChartProps) {
     null,
   )
 
-  // Default configuration
-  const defaultConfig = {
-    showLegend: true,
-    stacked: false,
-    dataKeys: ["value1", "value2", "value3"],
-    dataLabels: ["Environmental Score", "Energy Efficiency", "Waste Management"],
-    colors: ["#4CAF50", "#81C784", "#C8E6C9"]
-  }
-
-  // Merge provided config with defaults
-  const mergedConfig = { ...defaultConfig, ...config }
-  const { showLegend, stacked, dataKeys, dataLabels, colors } = mergedConfig
+  const { keys, labels = [], colors = [], stacked = false, showLegend = true } = config
 
   const handleBarClick = (data: any) => {
-    const year = data.name
-    setSelectedYear(year)
-    setSelectedYearData({ year, data: drillDownData[year] })
-    setIsModalOpen(true)
+    const year = data.name || data.year
+    if (year) {
+      setSelectedYear(year)
+      setSelectedYearData({ year, data: drillDownData[year] })
+      setIsModalOpen(true)
+    }
   }
+
+  // Auto-detect x-axis key (either name, year, or subject)
+  const xKey = data.length > 0 ? Object.keys(data[0])[0] : "name"
 
   return (
     <>
       <div className="h-[300px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <RechartsBarChart data={data} stackOffset={stacked ? "normal" : undefined}>
+          <RechartsBarChart
+            data={data as any}
+            stackOffset={stacked ? "sign" as StackOffsetType : undefined}
+          >
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="name" />
+            <XAxis dataKey={xKey} />
             <YAxis />
             <Tooltip
               contentStyle={{
@@ -74,10 +71,10 @@ export function BarChart({ data, config }: BarChartProps) {
               }}
             />
             {showLegend && <Legend />}
-            {dataKeys.map((key, index) => (
+            {keys.map((key, index) => (
               <Bar
                 key={key}
-                name={dataLabels?.[index] || key}
+                name={labels?.[index] || key}
                 dataKey={key}
                 fill={colors?.[index] || `#${Math.floor(Math.random() * 16777215).toString(16)}`}
                 radius={[4, 4, 0, 0]}
@@ -100,4 +97,3 @@ export function BarChart({ data, config }: BarChartProps) {
     </>
   )
 }
-

@@ -1,5 +1,8 @@
 import type { Config } from "tailwindcss";
 
+// Define a type for the theme helper function
+type ThemeHelper = (path: string) => any;
+
 export default {
     darkMode: ["class"],
     content: [
@@ -118,7 +121,52 @@ export default {
         "spin-slow": "spin-slow 8s linear infinite",
         "count-up": "count-up 1s ease-out",
   		},
+  		typography: ({ theme }: { theme: ThemeHelper }) => ({
+  			emerald: {
+  				css: {
+  					'--tw-prose-body': theme('colors.slate[700]'),
+  					'--tw-prose-headings': theme('colors.emerald[700]'),
+  					'--tw-prose-links': theme('colors.emerald[600]'),
+  					h1: {
+  						fontWeight: '700',
+  						fontSize: theme('fontSize.3xl'),
+  						color: theme('colors.emerald[700]'),
+  						marginTop: theme('spacing.8'),
+  						marginBottom: theme('spacing.4'),
+  					},
+  					h2: {
+  						fontWeight: '600',
+  						fontSize: theme('fontSize.2xl'),
+  						color: theme('colors.emerald[700]'),
+  						marginTop: theme('spacing.6'),
+  						marginBottom: theme('spacing.3'),
+  					},
+  					h3: {
+  						fontWeight: '600',
+  						fontSize: theme('fontSize.xl'),
+  						color: theme('colors.emerald[700]'),
+  						marginTop: theme('spacing.5'),
+  						marginBottom: theme('spacing.2'),
+  					},
+  					h4: {
+  						fontWeight: '600',
+  						fontSize: theme('fontSize.lg'),
+  						color: theme('colors.emerald[700]'),
+  						marginTop: theme('spacing.4'),
+  						marginBottom: theme('spacing.2'),
+  					},
+  					p: {
+  						marginTop: theme('spacing.4'),
+  						marginBottom: theme('spacing.4'),
+  						lineHeight: theme('lineHeight.relaxed'),
+  					},
+  				},
+  			},
+  		}),
   	}
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require("tailwindcss-animate"),
+    require('@tailwindcss/typography'),
+  ],
 } satisfies Config;

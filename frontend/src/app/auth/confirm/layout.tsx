@@ -1,3 +1,5 @@
+import { Suspense } from "react"
+
 export default function ConfirmationLayout({
   children,
 }: {
@@ -6,8 +8,10 @@ export default function ConfirmationLayout({
   return (
     <div className="flex min-h-screen flex-col">
       <main className="flex flex-1 flex-col">
-        {children}
+        <Suspense fallback={<div className="text-center p-4">Loading confirmation...</div>}>
+          {children}
+        </Suspense>
       </main>
     </div>
   )
-} 
+}

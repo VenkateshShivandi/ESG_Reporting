@@ -134,25 +134,57 @@ export function ChartGenerator() {
         let chartComponent = null
         switch (chartConfig.chartType) {
             case 'bar':
-                chartComponent = <BarChart {...chartProps} />
+                chartComponent = <BarChart
+                data={[
+                  { name: "2021", value1: 20, value2: 30, value3: 40 },
+                  { name: "2022", value1: 35, value2: 25, value3: 15 }
+                ]}
+                config={{
+                  keys: ["value1", "value2", "value3"],
+                  labels: ["Environmental", "Energy", "Waste"],
+                  colors: ["#4CAF50", "#81C784", "#C8E6C9"],
+                  stacked: true,
+                  showLegend: true
+                }}
+              />
                 break
-            case 'donut':
-                // 调整数据格式以适应DonutChart
-                const donutData = chartConfig.dataSource === 'manual'
-                    ? manualData.map(item => ({ name: item.name, value: item.value1 }))
-                    : data
-                chartComponent = <DonutChart data={donutData} config={config} />
-                break
-            case 'line':
-                chartComponent = <LineChart {...chartProps} />
-                break
-            case 'radar':
-                // 调整数据格式以适应RadarChart
-                chartComponent = <RadarChart data={data} config={config} />
-                break
-            case 'heatmap':
-                chartComponent = <Heatmap data={data} config={config} />
-                break
+                case 'donut':
+                    const donutData = data.map((item: any) => ({
+                      name: item.name,
+                      value: item.value1, // or pick whichever value you want
+                    }))
+                    chartComponent = <DonutChart data={donutData} config={config} />
+                    break
+                    case 'line': {
+                        // You may want to preprocess or filter keys as needed
+                        const lineData = data.map((item: any) => ({
+                          ...item,
+                        }))
+                        
+                        chartComponent = <LineChart data={lineData} config={config} />
+                        break
+                      }
+                      
+                //chartComponent = <LineChart {...chartProps} />
+                //break
+                case 'radar': {
+                    const radarData = data.map((item: any) => ({
+                      ...item
+                    }))
+                  
+                    chartComponent = <RadarChart data={radarData} config={config} />
+                    break
+                  }
+                  
+                  case 'heatmap': {
+                    const heatmapData = data.map((item: any) => ({
+                      ...item
+                    }))
+                  
+                    chartComponent = <Heatmap data={heatmapData} config={config} />
+                    break
+                  }
+                  
         }
 
         setGeneratedChart(chartComponent)

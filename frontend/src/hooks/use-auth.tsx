@@ -63,29 +63,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user: mockUser
       } as Session;
       
+      console.log('Using development bypass authentication');
       setUser(mockUser);
       setSession(mockSession);
       setIsLoading(false)
       return () => {}
     }
     
+    const addUserToGraph = async (userId: string, email: string) => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_RAG_URL}/api/v1/add-user`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ user_id: userId, email })
+        });
+        console.log("response", response)
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.warn('Graph database integration unavailable:', errorText);
+          return false;
+        }
+
+        const result = await response.json();
+        console.log('User added to graph database:', result);
+        return true;
+      } catch (error) {
+        console.warn('Graph database service unavailableee:', error);
+        console.log("error", error)
+        return false;
+      }
+    };
+
     const getSession = async () => {
       try {
         setIsLoading(true)
         const { data: { session }, error } = await supabase.auth.getSession()
         
         if (error) {
-          console.error('Error getting session:', error)
-          return
+          console.error('Failed to get session from Supabase:', error);
+          return;
         }
         
         if (session) {
-          console.log("🔑 Initial session loaded")
-          setSession(session)
-          setUser(session.user)
+          console.log('Initial session loaded for user:', session.user.email);
+
+          // Set session and user immediately
+          setSession(session);
+          setUser(session.user);
+
+          // Attempt to add user to graph database in the background
+          if (session.user?.id && session.user?.email) {
+            addUserToGraph(session.user.id, session.user.email)
+              .catch(error => {
+                console.error('Unexpected error in graph database integration:', error);
+              });
+          }
+        } else {
+          console.log('No active session found');
         }
       } catch (error) {
-        console.error('Error getting session:', error)
+        console.error('Error getting session:', error);
       } finally {
         setIsLoading(false)
       }
@@ -96,26 +136,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Set up auth state change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log("🔑 Auth State Change:", { 
-          event, 
-          hasSession: !!session,
-          path: pathname,
-          loading: isLoading
-        })
+        console.log('Auth state changed:', event, !!session);
         
         switch (event) {
           case 'SIGNED_IN':
-            console.log("👤 User signed in", {
-              user: session?.user?.email,
-              currentPath: pathname
-            })
             if (session) {
-              // We should trust Supabase here - if we got a session, user is authenticated
-              // The email_confirmed_at check is already handled by Supabase internally
               setSession(session)
               setUser(session.user)
               
-              // If they're on an auth page, redirect to dashboard
               if (pathname?.includes('/auth/') && pathname !== '/auth/update-password') {
                 router.push('/dashboard')
               }
@@ -123,7 +151,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             break
             
           case 'SIGNED_OUT':
-            console.log("👋 User signed out")
             setSession(null)
             setUser(null)
             if (!pathname?.includes('/auth/') && pathname !== '/') {
@@ -132,7 +159,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             break
             
           case 'TOKEN_REFRESHED':
-            console.log("🔄 Token refreshed")
             if (session) {
               setSession(session)
               setUser(session.user)
@@ -140,12 +166,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             break
             
           case 'USER_UPDATED':
-            console.log("📝 User updated")
             if (session) {
               setSession(session)
               setUser(session.user)
               
-              // Show confirmation message if we detect this is a newly confirmed account
               if (session.user.email_confirmed_at || session.user.confirmed_at) {
                 toast.success("Email verified successfully!", {
                   description: "Your account is now active. Please sign in to continue."
@@ -157,8 +181,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     )
 
-    // Cleanup subscription on unmount
     return () => {
+      console.log('Cleaning up auth state listener');
       subscription.unsubscribe()
     }
   }, [router, pathname])
@@ -169,6 +193,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign in with email and password
   const signIn = async (email: string, password: string, rememberMe: boolean = false) => {
     if (DEV_BYPASS_AUTH) {
+      console.log('Development bypass login');
       toast.success('Logged in as development user')
       router.push('/dashboard')
       return { error: null }
@@ -178,26 +203,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await authSignIn(email, password)
       
       if (error) {
-        console.error('Login error:', error)
+        console.error('Login failed:', error);
         toast.error('Login failed', {
           description: error instanceof Error ? error.message : 'An unexpected error occurred',
         })
         return { error: error as Error }
       }
       
-      // Show success toast when user signs in successfully
       toast.success('Logged in successfully', {
         description: 'Welcome back to your ESG dashboard!',
         duration: 3000,
       })
       
-      // Don't manually set the session - Supabase will handle this automatically
-      // and the onAuthStateChange listener will pick up the changes
-      console.log("Login successful, session will be handled automatically")
-      
       return { error: null }
     } catch (error) {
-      console.error('Error signing in:', error)
+      console.error('Unexpected error during sign in:', error);
       toast.error('Login failed', {
         description: error instanceof Error ? error.message : 'An unexpected error occurred',
       })
@@ -208,7 +228,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign up with email and password
   const signUp = async (email: string, password: string) => {
     if (DEV_BYPASS_AUTH) {
-      // Just pretend it worked
+      console.log('Development bypass signup');
       toast.success('Account created in development mode')
       router.push('/dashboard')
       return { error: null }
@@ -219,16 +239,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       if (error) throw error
       
-      // Show the email verification message with more details
       toast.success('Account created!', {
         description: message || 'Please check your email to confirm your account before logging in.',
-        duration: 10000, // Show for longer to ensure user sees it
+        duration: 10000,
       })
       
-      // Don't redirect to dashboard - user needs to verify email first
       return { error: null }
     } catch (error) {
-      console.error('Error signing up:', error)
+      console.error('Signup failed:', error);
       toast.error('Signup failed', {
         description: error instanceof Error ? error.message : 'An unexpected error occurred',
       })
@@ -239,29 +257,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign in with Google
   const signInWithGoogle = async () => {
     if (DEV_BYPASS_AUTH) {
+      console.log('Development bypass Google login');
       toast.success('Google login simulated in development mode')
       router.push('/dashboard')
       return
     }
     
     try {
-      console.log("🔑 Attempting to login with Google")
-      
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: `${window.location.origin}/dashboard`,
-          skipBrowserRedirect: false // Ensure automatic redirect
+          skipBrowserRedirect: false
         }
       })
+
+      if(data.url) {
+        const { data: { user } } = await supabase.auth.getUser()
+        console.log('Google OAuth URL generated');
+      } else {
+        console.warn('No OAuth URL generated');
+      }
       
       if (error) throw error
       
-      // The redirect will happen automatically, no need to handle it manually
-      console.log("🔑 Redirecting to Google OAuth...")
-      
     } catch (error) {
-      console.error('❌ Error signing in with Google:', error)
+      console.error('Google login failed:', error);
       toast.error('Google login failed', {
         description: error instanceof Error ? error.message : 'An unexpected error occurred',
       })
@@ -271,24 +292,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Sign out
   const signOut = async () => {
     if (DEV_BYPASS_AUTH) {
+      console.log('Development bypass sign out');
       toast.success('Sign out simulated (but staying authenticated in dev mode)')
       router.push('/auth/login')
       return
     }
     
     try {
-      // Set a flag in sessionStorage to indicate an intentional signout
       sessionStorage.setItem('intentionalSignOut', 'true')
       
       await supabase.auth.signOut()
       toast.success('Signed out successfully')
       
-      // Immediate redirect to landing page instead of waiting for auth state change
       router.push('/')
       
-      // Auth state change listener will still clean up the state
     } catch (error) {
-      console.error('Error signing out:', error)
+      console.error('Sign out failed:', error);
       toast.error('Sign out failed', {
         description: 'An unexpected error occurred',
       })
