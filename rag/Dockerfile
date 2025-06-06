@@ -13,6 +13,6 @@ COPY . .
 # Set environment and port
 
 EXPOSE 8000
-
+#dummy-ignore
 # Start the Flask app
 CMD ["python", "app.py"]
