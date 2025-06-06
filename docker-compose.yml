@@ -32,8 +32,14 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - neo4j
+      neo4j:
+        condition: service_healthy
       - backend
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
 
     env_file:
       - ./rag/.env.local
@@ -47,11 +53,15 @@ services:
       - "7474:7474"
       - "7687:7687"
     environment:
-      - NEO4J_AUTH=none
-      - NEO4J_PLUGINS=["graph-data-science"]
+      NEO4J_AUTH: none
+      NEO4J_PLUGINS: ["graph-data-science"]
     networks:
       - esg-network
-
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7474"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
 
   redis:
     image: redis:7-alpine
