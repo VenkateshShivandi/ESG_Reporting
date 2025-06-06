@@ -114,6 +114,12 @@ def status():
     return jsonify({"status": "operational", "api_version": "1.0.0"})
 
 
+@app.route("/health")
+def health():
+    """Health check endpoint for Docker."""
+    return jsonify({"status": "healthy"}), 200
+
+
 @app.route("/api/profile")
 @require_auth
 def user_profile():

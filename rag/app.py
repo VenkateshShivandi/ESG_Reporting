@@ -54,6 +54,12 @@ def init_neo4j():
     return neo4j_driver
 
 
+@app.route("/health")
+def health():
+    """Health check endpoint for Docker."""
+    return flask.jsonify({"status": "healthy"}), 200
+
+
 @app.route("/api/v1/process_document", methods=["POST"])
 def process_document_endpoint():
     """
