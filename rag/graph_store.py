@@ -51,37 +51,43 @@ class Neo4jGraphStore:
         # Configure logging
         self.logger = logging.getLogger(__name__)
         
-    def connect(self) -> bool:
-        """
-        Establish connection to Neo4j database.
-        
-        Returns:
-            bool: True if connection successful, False otherwise
-        """
-        try:
+def connect(self) -> bool:
+    """
+    Establish connection to Neo4j database.
+    
+    Returns:
+        bool: True if connection successful, False otherwise
+    """
+    try:
+        if self.username:
             self.driver = GraphDatabase.driver(
                 self.uri,
                 auth=(self.username, self.password),
                 max_connection_pool_size=self.max_connection_pool_size,
                 connection_timeout=self.connection_timeout
             )
-            
-            # Verify connection with a simple query
-            with self.driver.session(database=self.database) as session:
-                result = session.run("RETURN 1 AS test")
-                record = result.single()
-                if record and record["test"] == 1:
-                    self.logger.info(f"Connected to Neo4j at {self.uri}")
-                    return True
-                else:
-                    self.logger.error("Failed to verify Neo4j connection")
-                    return False
+        else:
+            self.driver = GraphDatabase.driver(
+                self.uri,
+                max_connection_pool_size=self.max_connection_pool_size,
+                connection_timeout=self.connection_timeout
+            )
+
+        # Verify connection with a simple query
+        with self.driver.session(database=self.database) as session:
+            result = session.run("RETURN 1 AS test")
+            record = result.single()
+            if record and record["test"] == 1:
+                self.logger.info(f"Connected to Neo4j at {self.uri}")
+                return True
+            else:
+                self.logger.error("Failed to verify Neo4j connection")
+                return False
                 
-        except Exception as e:
-            self.logger.error(f"Error connecting to Neo4j: {str(e)}")
-            self.driver = None
-            return False
-    
+    except Exception as e:
+        self.logger.error(f"Error connecting to Neo4j: {str(e)}")
+        self.driver = None
+        return False   
     def close(self):
         """Close the Neo4j connection"""
         if self.driver:
