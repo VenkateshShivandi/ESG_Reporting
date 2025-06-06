@@ -170,7 +170,7 @@ const DocumentsPage: NextPage<Props> = () => {
   const [filesToMove, setFilesToMove] = useState<{ fileId: string; filePath: string[] }[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false)
-  const [itemToMove, setItemToMove] = useState<FileItem | null>(null)
+  const [itemsToMove, setItemsToMove] = useState<FileItem[]>([])
   const [allFoldersForMove, setAllFoldersForMove] = useState<FileItem[]>([])
   const [selectedMoveTargetPath, setSelectedMoveTargetPath] = useState<string[] | null>(null)
   const [localSelectedPath, setLocalSelectedPath] = useState<string[] | null>(null)
@@ -473,8 +473,20 @@ const DocumentsPage: NextPage<Props> = () => {
     try {
       const allItems = await documentsApi.listFiles([])
       const foldersOnly = allItems.filter(f => f.type === 'folder');
-      setAllFoldersForMove(foldersOnly);
-      setItemToMove(item);
+      
+      // If trying to move a folder, filter out the folder itself and its subfolders
+      // to prevent creating a cyclical folder structure
+      let validFolders = foldersOnly;
+      if (item.type === "folder") {
+        const folderPath = [...item.path, item.name].join('/');
+        validFolders = foldersOnly.filter(folder => {
+          const targetPath = [...folder.path, folder.name].join('/');
+          return !targetPath.startsWith(folderPath);
+        });
+      }
+      
+      setAllFoldersForMove(validFolders);
+      setItemsToMove([item]);
       setLocalSelectedPath(null);
       setIsMoveModalOpen(true);
     } catch (error) {
@@ -833,20 +845,78 @@ const DocumentsPage: NextPage<Props> = () => {
     setCurrentPath([...currentPath, folderName]);
   }
 
+  const handleMoveSelectedItems = async () => {
+    if (selectedItems.length === 0) {
+      toast.error("Please select files or folders to move");
+      return;
+    }
+
+    try {
+      const allItems = await documentsApi.listFiles([])
+      const foldersOnly = allItems.filter(f => f.type === 'folder');
+      
+      // Find the corresponding FileItem objects for each selected path
+      const selectedFileItems = selectedItems.map(path => {
+        const name = path.split('/').pop() || '';
+        const pathParts = path.split('/');
+        pathParts.pop(); // Remove filename or folder name
+        const itemPath = pathParts.length > 0 ? pathParts : [];
+        
+        return files.find(
+          f => f.name === name && JSON.stringify(f.path) === JSON.stringify(itemPath)
+        );
+      }).filter(Boolean) as FileItem[];
+      
+      if (selectedFileItems.length === 0) {
+        toast.error("No valid items found to move");
+        return;
+      }
+      
+      // Extract all folder paths from selected items
+      const selectedFolderPaths: string[] = [];
+      selectedFileItems.forEach(item => {
+        if (item.type === 'folder') {
+          const folderPath = [...item.path, item.name].join('/');
+          selectedFolderPaths.push(folderPath);
+        }
+      });
+      
+      // Filter out any folder that is a subfolder of a selected folder
+      // to prevent moving a folder into its own subfolder
+      let validFolders = foldersOnly;
+      if (selectedFolderPaths.length > 0) {
+        validFolders = foldersOnly.filter(folder => {
+          const targetPath = [...folder.path, folder.name].join('/');
+          return !selectedFolderPaths.some(folderPath => 
+            targetPath.startsWith(folderPath + '/') || targetPath === folderPath
+          );
+        });
+      }
+      
+      setAllFoldersForMove(validFolders);
+      setItemsToMove(selectedFileItems);
+      setLocalSelectedPath(null);
+      setIsMoveModalOpen(true);
+    } catch (error) {
+      console.error("Error fetching folder structure for move:", error);
+      toast.error("Could not load folder structure to move items.");
+    }
+  }
+
   const MoveFolderDialog = ({
     isOpen,
     onOpenChange,
-    item,
+    items,
     onConfirmMove,
     allFolders,
   }: {
     isOpen: boolean
     onOpenChange: (open: boolean) => void
-    item: FileItem | null
+    items: FileItem[]
     onConfirmMove: (targetPath: string[]) => void
     allFolders: FileItem[]
   }) => {
-    if (!item) return null
+    if (items.length === 0) return null
     const [localSelectedPath, setLocalSelectedPath] = useState<string[] | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const filteredFolders = useMemo(() => {
@@ -906,12 +976,12 @@ const DocumentsPage: NextPage<Props> = () => {
             className={`flex items-center p-1.5 rounded-sm cursor-pointer transition-colors duration-100 
               ${isEven ? 'bg-slate-50 dark:bg-slate-800/50' : 'bg-white dark:bg-slate-800'} 
               ${isSelected
-                ? 'bg-emerald-100 dark:bg-emerald-900'
-                : 'hover:bg-emerald-50 dark:hover:bg-emerald-900'}`}
+                ? 'bg-emerald-100 dark:bg-emerald-900 border-l-4 border-emerald-600 dark:border-emerald-500 shadow-sm'
+                : 'hover:bg-emerald-50 dark:hover:bg-emerald-900 border-l-4 border-transparent'}`}
             onClick={() => onSelect(fullPath)}
           >
-            <Folder className="w-4 h-4 mr-1.5 text-yellow-600 flex-shrink-0" />
-            <span className={`truncate ${isSelected ? 'font-semibold' : 'font-medium'}`}>{folder.name}</span>
+            <Folder className={`w-4 h-4 mr-1.5 flex-shrink-0 ${isSelected ? 'text-emerald-600' : 'text-yellow-600'}`} />
+            <span className={`truncate ${isSelected ? 'font-semibold text-emerald-700 dark:text-emerald-300' : 'font-medium'}`}>{folder.name}</span>
           </div>
           {childFolders.length > 0 && (
             <div className="mt-1">
@@ -934,10 +1004,23 @@ const DocumentsPage: NextPage<Props> = () => {
     };
     const handleConfirm = () => {
       if (localSelectedPath !== null) {
-        if (JSON.stringify(item.path) === JSON.stringify(localSelectedPath)) {
-          toast.error("Cannot move item to its current folder.");
-          return;
+        // Check if any item is already in the target folder
+        const itemsAlreadyInTargetFolder = items.filter(item => 
+          JSON.stringify(item.path) === JSON.stringify(localSelectedPath)
+        );
+        
+        if (itemsAlreadyInTargetFolder.length > 0) {
+          if (items.length === 1) {
+            toast.error("Cannot move item to its current folder.");
+            return;
+          } else if (itemsAlreadyInTargetFolder.length === items.length) {
+            toast.error("All selected items are already in this folder.");
+            return;
+          } else {
+            toast.warning(`${itemsAlreadyInTargetFolder.length} of ${items.length} items are already in this folder and will be skipped.`);
+          }
         }
+        
         onConfirmMove(localSelectedPath);
         onOpenChange(false);
       } else {
@@ -948,9 +1031,11 @@ const DocumentsPage: NextPage<Props> = () => {
       <Dialog open={isOpen} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-[525px]" data-testid="move-item-dialog">
           <DialogHeader>
-            <DialogTitle aria-label="move-item-dialog-title">Move Item</DialogTitle>
+            <DialogTitle aria-label="move-item-dialog-title">Move {items.length > 1 ? `${items.length} Items` : "Item"}</DialogTitle>
             <DialogDescription>
-              Select a destination folder for <span className="font-semibold">{item.name}</span>.
+              Select a destination folder for {items.length > 1 
+                ? `${items.length} selected items` 
+                : <span className="font-semibold">{items[0].name}</span>}.
             </DialogDescription>
           </DialogHeader>
           <div className="p-4 pb-2">
@@ -967,16 +1052,18 @@ const DocumentsPage: NextPage<Props> = () => {
             <ScrollArea className="h-52 border rounded-md p-3 bg-white dark:bg-slate-800">
               <div
                 className={[
-                  "flex items-center p-1.5 my-0.5 rounded cursor-pointer transition-colors duration-100",
-                  "text-emerald-700 dark:text-emerald-500",
+                  "flex items-center p-1.5 my-0.5 rounded-sm cursor-pointer transition-colors duration-100",
                   (localSelectedPath !== null && localSelectedPath.length === 0
-                    ? "bg-emerald-100 dark:bg-emerald-900"
-                    : "hover:bg-emerald-50 dark:hover:bg-emerald-900/50")
+                    ? "bg-emerald-100 dark:bg-emerald-900 border-l-4 border-emerald-600 dark:border-emerald-500 shadow-sm"
+                    : "hover:bg-emerald-50 dark:hover:bg-emerald-900/50 border-l-4 border-transparent"),
+                  (localSelectedPath !== null && localSelectedPath.length === 0
+                    ? "text-emerald-700 dark:text-emerald-300 font-semibold" 
+                    : "text-slate-700 dark:text-slate-300 font-medium")
                 ].join(" ")}
                 onClick={() => setLocalSelectedPath([])}
               >
-                <FolderClosed className="w-4 h-4 mr-1.5 text-slate-500 flex-shrink-0" />
-                <span className="font-semibold">Home</span>
+                <FolderClosed className={`w-4 h-4 mr-1.5 flex-shrink-0 ${localSelectedPath !== null && localSelectedPath.length === 0 ? 'text-emerald-600' : 'text-slate-500'}`} />
+                <span>Home</span>
               </div>
               <div className="border-b my-2 border-slate-200 dark:border-slate-700" />
               {allFolders
@@ -995,12 +1082,38 @@ const DocumentsPage: NextPage<Props> = () => {
                 ))}
             </ScrollArea>
           </div>
+          <div className="px-4 pb-2">
+            <p className="text-sm text-muted-foreground mb-1">Selected destination:</p>
+            <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+              {localSelectedPath === null ? (
+                <span className="text-slate-500 dark:text-slate-400 italic">No folder selected</span>
+              ) : localSelectedPath.length === 0 ? (
+                <div className="flex items-center">
+                  <FolderClosed className="w-4 h-4 mr-1.5 text-emerald-600 flex-shrink-0" />
+                  <span className="font-medium text-emerald-700 dark:text-emerald-400">Home</span>
+                </div>
+              ) : (
+                <div className="flex items-center">
+                  <Folder className="w-4 h-4 mr-1.5 text-emerald-600 flex-shrink-0" />
+                  <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                    {localSelectedPath.join(' / ')}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button onClick={handleConfirm} disabled={localSelectedPath === null || (localSelectedPath !== null && JSON.stringify(item.path) === JSON.stringify(localSelectedPath))}>
-              Move Here
+            <Button 
+              onClick={handleConfirm} 
+              disabled={localSelectedPath === null} 
+              className={localSelectedPath !== null ? "bg-emerald-600 hover:bg-emerald-700" : ""}
+            >
+              {items.length > 1 
+                ? `Move ${items.length} Items Here` 
+                : "Move Here"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1009,23 +1122,72 @@ const DocumentsPage: NextPage<Props> = () => {
   }
 
   const handleConfirmMove = useCallback(async (targetPath: string[]) => {
-    if (!itemToMove) return;
-    const toastId = toast.loading(`Moving ${itemToMove.name}...`);
+    if (itemsToMove.length === 0) return;
+    
+    // Check if any folder is being moved into itself or a subfolder
+    const invalidFolderMoves = itemsToMove.filter(item => {
+      if (item.type === 'folder') {
+        const sourcePath = [...item.path, item.name].join('/');
+        const targetPathStr = targetPath.join('/');
+        
+        // Check if target is inside source folder (would create loop)
+        return targetPathStr.startsWith(sourcePath + '/') || targetPathStr === sourcePath;
+      }
+      return false;
+    });
+    
+    if (invalidFolderMoves.length > 0) {
+      if (invalidFolderMoves.length === 1) {
+        toast.error(`Cannot move folder "${invalidFolderMoves[0].name}" into itself or its subfolder`);
+      } else {
+        toast.error(`Cannot move folders into themselves or their subfolders`);
+      }
+      return;
+    }
+    
+    const toastId = toast.loading(`Moving ${itemsToMove.length > 1 ? `${itemsToMove.length} items` : itemsToMove[0].name}...`);
+    let successCount = 0;
+    let failCount = 0;
+    
     try {
-      const oldPath = [...itemToMove.path, itemToMove.name].join('/');
-      const newPath = [...targetPath, itemToMove.name].join('/');
-      console.log(`Moving ${oldPath} to ${newPath}`);
-      await documentsApi.renameItem(oldPath, newPath);
-      toast.success(`Moved ${itemToMove.name} successfully`, { id: toastId });
+      // Process each item to move
+      for (const item of itemsToMove) {
+        // Skip items already in the target folder
+        if (JSON.stringify(item.path) === JSON.stringify(targetPath)) {
+          continue;
+        }
+        
+        const oldPath = [...item.path, item.name].join('/');
+        const newPath = [...targetPath, item.name].join('/');
+        
+        try {
+          await documentsApi.renameItem(oldPath, newPath);
+          successCount++;
+        } catch (error) {
+          console.error(`Error moving item ${item.name}:`, error);
+          failCount++;
+        }
+      }
+      
+      // Show appropriate toast message based on results
+      if (failCount === 0) {
+        toast.success(`Moved ${successCount} item${successCount !== 1 ? 's' : ''} successfully`, { id: toastId });
+      } else if (successCount === 0) {
+        toast.error(`Failed to move any items`, { id: toastId });
+      } else {
+        toast.warning(`Moved ${successCount} item${successCount !== 1 ? 's' : ''}, but failed to move ${failCount} item${failCount !== 1 ? 's' : ''}`, { id: toastId });
+      }
+      
       await loadFiles();
+      setSelectedItems([]);
     } catch (error) {
-      console.error("Error moving item:", error);
-      toast.error(`Failed to move ${itemToMove.name}`, { id: toastId });
+      console.error("Error moving items:", error);
+      toast.error(`Failed to complete move operation`, { id: toastId });
     } finally {
-      setItemToMove(null);
+      setItemsToMove([]);
       setIsMoveModalOpen(false);
     }
-  }, [itemToMove, loadFiles, setItemToMove, setIsMoveModalOpen]);
+  }, [itemsToMove, loadFiles, setItemsToMove, setIsMoveModalOpen, setSelectedItems]);
 
   useEffect(() => {
     if (isPreviewOpen && previewFile && urlToPreview) {
@@ -1170,6 +1332,16 @@ const DocumentsPage: NextPage<Props> = () => {
                         )}
                         Process ETL
                       </Button>
+                                              <Button
+                          variant="outline"
+                          className={`shadow-sm transition-transform hover:scale-105 ${selectedItems.length > 0 ? 'bg-emerald-50 hover:bg-emerald-100' : ''}`}
+                          onClick={handleMoveSelectedItems}
+                          disabled={selectedItems.length === 0}
+                          title="Move Selected Files and Folders"
+                        >
+                          <FolderInput className="w-4 h-4 mr-2" />
+                          Move Selected
+                        </Button>
                       <Dialog>
                         <DialogTrigger asChild>
                           <Button variant="outline" className="shadow-sm transition-transform hover:scale-105" title="Create New Folder">
@@ -1460,17 +1632,15 @@ const DocumentsPage: NextPage<Props> = () => {
                                             <Edit className="w-4 h-4 mr-2" />
                                             <span>Rename</span>
                                           </DropdownMenuItem>
-                                          {item.type === "file" && (
-                                            <DropdownMenuItem 
-                                              role="menuitem"
-                                              aria-label="move-to-folder"
-                                              className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" 
-                                              onClick={() => handleMoveItem(item)}
-                                            >
-                                              <FolderInput className="w-4 h-4 mr-2" />
-                                              <span>Move to folder</span>
-                                            </DropdownMenuItem>
-                                          )}
+                                          <DropdownMenuItem 
+                                            role="menuitem"
+                                            aria-label="move-to-folder"
+                                            className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" 
+                                            onClick={() => handleMoveItem(item)}
+                                          >
+                                            <FolderInput className="w-4 h-4 mr-2" />
+                                            <span>Move to folder</span>
+                                          </DropdownMenuItem>
                                           <DropdownMenuSeparator />
                                           <DropdownMenuItem
                                             onClick={(e) => {
@@ -1532,7 +1702,7 @@ const DocumentsPage: NextPage<Props> = () => {
                 <MoveFolderDialog
                   isOpen={isMoveModalOpen}
                   onOpenChange={setIsMoveModalOpen}
-                  item={itemToMove}
+                  items={itemsToMove}
                   onConfirmMove={handleConfirmMove}
                   allFolders={allFoldersForMove}
                 />
