@@ -577,7 +577,9 @@ def generate_report():
         app.logger.error(f"Error generating report: {str(e)}")
         return flask.jsonify({"error": str(e)}), 500
 
-
+@app.route("/")
+def home():
+    return "RAG is up!"
 @app.route("/api/v1/query", methods=["POST"])
 def query():
     """
@@ -595,7 +597,8 @@ if __name__ == "__main__":
     try:
         # Initialize Neo4j connection at startup
         init_neo4j()
-        app.run(debug=True, host="0.0.0.0", port=8000)
+        port = int(os.getenv("PORT", 8000))
+        app.run(debug=True, host="0.0.0.0", port=port)
     except Exception as e:
         app.logger.error(f"Failed to initialize Neo4j: {str(e)}")
         raise
