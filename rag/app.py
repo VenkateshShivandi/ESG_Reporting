@@ -607,8 +607,9 @@ if __name__ == "__main__":
     try:
         from initialize_neo4j import init_neo4j
         init_neo4j()
-    except Exception as e:
-        logging.warning(f"Neo4j init failed: {str(e)}")
+    except ImportError as e:
+        import logging
+        logging.warning(f"Neo4j init skipped: {str(e)}")
 
     port = int(os.getenv("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
