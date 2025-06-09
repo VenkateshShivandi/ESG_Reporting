@@ -558,6 +558,16 @@ def delete_graph_entity():
     except Exception as e:
         app.logger.error(f"Error deleting graph entity: {str(e)}")
         return flask.jsonify({"error": str(e)}), 500
+    
+@app.get("/neo4j/ping")
+def ping_neo4j():
+    from graph_store import Neo4jGraphStore
+    store = Neo4jGraphStore()
+    if store.connect():
+        ok = store.ping()
+        store.close()
+        return {"neo4j_status": "connected" if ok else "ping failed"}
+    return {"neo4j_status": "failed to connect"}
 
 @app.route("/api/v1/generate-report", methods=["POST"])
 def generate_report():

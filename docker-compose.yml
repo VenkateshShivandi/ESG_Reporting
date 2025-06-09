@@ -53,9 +53,8 @@ services:
     networks:
       - esg-network
 
-
   neo4j:
-    image: neo4j:latest
+    image: neo4j:5.18
     ports:
       - "7474:7474"
       - "7687:7687"
@@ -70,6 +69,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 40s
+
 
   redis:
     image: redis:7-alpine
