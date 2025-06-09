@@ -605,13 +605,10 @@ def query():
 
 if __name__ == "__main__":
     try:
-        # Initialize Neo4j connection at startup
+        from initialize_neo4j import init_neo4j
         init_neo4j()
-        port = int(os.getenv("PORT", 8000))
-        app.run(debug=True, host="0.0.0.0", port=port)
     except Exception as e:
-        app.logger.error(f"Failed to initialize Neo4j: {str(e)}")
-        raise
-    finally:
-        if neo4j_driver:
-            neo4j_driver.close()
+        logging.warning(f"Neo4j init failed: {str(e)}")
+
+    port = int(os.getenv("PORT", 8000))
+    app.run(host="0.0.0.0", port=port)
