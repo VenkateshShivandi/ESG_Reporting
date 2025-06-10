@@ -40,6 +40,7 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 OPENAI_ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 OPENAI_ASSISTANT_ID_2 = os.getenv("OPENAI_ASSISTANT_ID_2")
 REDIS_URL = os.getenv("REDIS_URL")
+RAG_PROD_URL ="https://myesgrag.zeabur.app" #http://rag:8000
 # Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -513,7 +514,7 @@ def process_file():
         rag_error = None
         try:
             app.logger.info(f"🚀 Calling RAG service for: {filename}")
-            rag_url = "http://rag:8000/api/v1/process_document"
+            rag_url = f"{RAG_PROD_URL}/api/v1/process_document"
 
             # Send file, user_id, and file_id in the request
             files_payload = {"file": (filename, file_data, content_type)}
@@ -906,7 +907,7 @@ def chat():
         # llm_service = LLMService()
         # response = llm_service.handle_query(message)
         # print("response: ", response)
-        rag_api_url = "http://rag:8000/api/v1/query"
+        rag_api_url = f"{RAG_PROD_URL}/api/v1/query"
         print("request object: ", request)
         response = requests.post(rag_api_url, json={"query": message})
         print("response: ", response)
@@ -1001,7 +1002,7 @@ def delete_item():
                     )
 
                     # Call RAG API to delete graph entity
-                    rag_api_url = "http://rag:8000/api/v1/delete-graph-entity"
+                    rag_api_url = f"{RAG_PROD_URL}/api/v1/delete-graph-entity"
 
                     import requests
 
@@ -1131,7 +1132,7 @@ def delete_item():
                                         f"🔍 Found document ID: {document_id} for file: {item_path}"
                                     )
 
-                                    rag_api_url = "http://rag:8000/api/v1/delete-graph-entity"
+                                    rag_api_url = f"{RAG_PROD_URL}/api/v1/delete-graph-entity"
 
                                     import requests
 
@@ -2309,7 +2310,7 @@ def create_graph():
 
         # call the rag/app.py create_graph endpoint to create the subgraph
         response = requests.post(
-            "http://rag:8000/api/v1/create-graph",
+            f"{RAG_PROD_URL}/api/v1/create-graph",
             json={
                 "entities": entities.data,
                 "relationships": relationships.data,
@@ -2343,7 +2344,7 @@ def generate_report():
             "prompt": prompt
         }
         print("request_body: ", request_body)
-        rag_api_url = "http://rag:8000/api/v1/generate-report"
+        rag_api_url = f"{RAG_PROD_URL}/api/v1/generate-report"
         response = requests.post(
             rag_api_url, 
             json=json.dumps(request_body)
