@@ -29,7 +29,7 @@ from pathlib import Path
 from pathlib import Path
 
 # Load environment variables
-#load_dotenv(".env.local")
+# load_dotenv(".env.local")
 if os.getenv("ZEA_ENV") != "production":
     load_dotenv(".env.local")
 
@@ -290,26 +290,30 @@ def list_tree():
         app.logger.error(f"❌ API Error in list_tree: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+
 @app.route("/api/list-reports", methods=["GET"])
 @require_auth
 def list_reports():
     try:
         storage_response = supabase.storage.from_("reports").list()
-        
+
         # Filter for valid report objects
         # A valid report should have an 'id' (not None) and 'metadata' (not None)
         # and its name should not be the folder name itself if it appears as an item.
         valid_reports = [
-            item for item in storage_response 
-            if item.get("id") is not None 
-            and item.get("metadata") is not None 
-            and item.get("name") != "reports" # Explicitly filter out an entry named "reports"
+            item
+            for item in storage_response
+            if item.get("id") is not None
+            and item.get("metadata") is not None
+            and item.get("name")
+            != "reports"  # Explicitly filter out an entry named "reports"
         ]
-        
+
         return jsonify(valid_reports), 200
     except Exception as e:
         app.logger.error(f"❌ API Error in list_reports: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/view-report", methods=["GET"])
 @require_auth
@@ -322,19 +326,22 @@ def view_report():
         # Fetches the report from Supabase storage
         # The 'download' method returns the file's content as bytes
         response_data = supabase.storage.from_("reports").download(report_name)
-        
+
         # Decode the bytes to a string (assuming UTF-8 encoding for text reports)
-        report_content = response_data.decode('utf-8')
-        
+        report_content = response_data.decode("utf-8")
+
         return jsonify({"content": report_content}), 200
     except Exception as e:
         # Log the specific error for better debugging
         app.logger.error(f"❌ API Error in view_report for '{report_name}': {str(e)}")
         # Check if it's a Supabase storage error (e.g., file not found)
-        if "NotFound" in str(e) or "FileNotFoundError" in str(e): # A bit simplistic, Supabase might have specific error types/codes
+        if "NotFound" in str(e) or "FileNotFoundError" in str(
+            e
+        ):  # A bit simplistic, Supabase might have specific error types/codes
             return jsonify({"error": f"Report '{report_name}' not found."}), 404
         return jsonify({"error": "An error occurred while retrieving the report."}), 500
-    
+
+
 @app.route("/api/download-report", methods=["GET"])
 @require_auth
 def download_report():
@@ -345,6 +352,7 @@ def download_report():
     except Exception as e:
         app.logger.error(f"❌ API Error in download_report: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/upload-file", methods=["POST"])
 @require_auth
@@ -507,7 +515,7 @@ def process_file():
         rag_error = None
         try:
             app.logger.info(f"🚀 Calling RAG service for: {filename}")
-            rag_url = "http://rag:8000/api/v1/process_document"
+            rag_url = "http://localhost:8000/api/v1/process_document"
 
             # Send file, user_id, and file_id in the request
             files_payload = {"file": (filename, file_data, content_type)}
@@ -900,11 +908,11 @@ def chat():
         # llm_service = LLMService()
         # response = llm_service.handle_query(message)
         # print("response: ", response)
-        rag_api_url = "http://rag:8000/api/v1/query"
+        rag_api_url = "http://localhost:8000/api/v1/query"
         print("request object: ", request)
         response = requests.post(rag_api_url, json={"query": message})
         print("response: ", response)
-            
+
         # Add the user's message to the thread
         client.beta.threads.messages.create(
             thread_id=thread_id,  # Use thread_id instead of thread.id
@@ -995,7 +1003,7 @@ def delete_item():
                     )
 
                     # Call RAG API to delete graph entity
-                    rag_api_url = "http://rag:8000/api/v1/delete-graph-entity"
+                    rag_api_url = "http://localhost:8000/api/v1/delete-graph-entity"
 
                     import requests
 
@@ -1125,7 +1133,7 @@ def delete_item():
                                         f"🔍 Found document ID: {document_id} for file: {item_path}"
                                     )
 
-                                    rag_api_url = "http://rag:8000/api/v1/delete-graph-entity"
+                                    rag_api_url = "http://localhost:8000/api/v1/delete-graph-entity"
 
                                     import requests
 
@@ -2303,7 +2311,7 @@ def create_graph():
 
         # call the rag/app.py create_graph endpoint to create the subgraph
         response = requests.post(
-            "http://rag:8000/api/v1/create-graph",
+            "http://localhost:8000/api/v1/create-graph",
             json={
                 "entities": entities.data,
                 "relationships": relationships.data,
@@ -2318,6 +2326,7 @@ def create_graph():
     except Exception as e:
         app.logger.error(f"❌ API Error in create_graph: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/generate-report", methods=["POST"])
 @require_auth
@@ -2334,19 +2343,26 @@ def generate_report():
         request_body = {
             "document_ids": document_ids,
             "report_type": report_type,
-            "prompt": prompt
+            "prompt": prompt,
         }
         print("request_body: ", request_body)
-        rag_api_url = "http://rag:8000/api/v1/generate-report"
-        response = requests.post(
-            rag_api_url, 
-            json=json.dumps(request_body)
-        )
+        rag_api_url = "http://localhost:8000/api/v1/generate-report"
+        response = requests.post(rag_api_url, json=json.dumps(request_body))
         response_data = response.json()
-        return jsonify({"success": True, "report_name": response_data["report_name"], "report_url": response_data["report_url"]}), 200
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "report_name": response_data["report_name"],
+                    "report_url": response_data["report_url"],
+                }
+            ),
+            200,
+        )
     except Exception as e:
         app.logger.error(f"❌ API Error in generate_report: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
 
 @app.route("/api/analytics/excel-files", methods=["GET"])
 @require_auth
@@ -2604,6 +2620,101 @@ def get_excel_data():
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
+@app.route("/api/graph-files", methods=["GET"])
+@require_auth
+def get_graph_files():
+    """
+    Get list of files that have graphs created in Neo4j.
+    This will be used to restrict report generation to only files with graphs.
+    """
+    try:
+        app.logger.info("📊 API Call - get_graph_files")
 
+        # Call the RAG service to get files that have graphs in Neo4j
+        rag_api_url = "http://localhost:8000/api/v1/get-graph-files"
+        response = requests.get(
+            rag_api_url,
+            headers={"Content-Type": "application/json"},
+            params={"user_id": request.user["id"]},
+        )
+
+        if response.status_code == 200:
+            graph_files_data = response.json()
+
+            # Get the document IDs that have graphs
+            graph_document_ids = graph_files_data.get("document_ids", [])
+
+            if not graph_document_ids:
+                return jsonify({"graph_files": []}), 200
+
+            # Fetch file details from Supabase for these document IDs
+            docs_resp = (
+                supabase.postgrest.schema("esg_data")
+                .table("documents")
+                .select("id, file_name, file_path, size, uploaded_at")
+                .in_("id", graph_document_ids)
+                .execute()
+            )
+
+            if not docs_resp.data:
+                return jsonify({"graph_files": []}), 200
+
+            # Get chunk counts for these files
+            chunk_stats_resp = (
+                supabase.postgrest.schema("esg_data")
+                .table("document_chunks")
+                .select("document_id, created_at")
+                .in_("document_id", graph_document_ids)
+                .execute()
+            )
+
+            # Count chunks per document
+            from collections import defaultdict
+
+            chunk_counts = defaultdict(int)
+            for chunk in chunk_stats_resp.data:
+                chunk_counts[chunk["document_id"]] += 1
+
+            # Format the response
+            graph_files = []
+            for doc in docs_resp.data:
+                file_path = doc.get("file_path", "")
+                path_array = file_path.split("/")[:-1] if file_path else []
+
+                graph_files.append(
+                    {
+                        "id": doc["id"],
+                        "name": doc["file_name"],
+                        "type": "file",
+                        "size": doc.get("file_size", 0),
+                        "modified": doc.get("updated_at", doc.get("created_at")),
+                        "path": path_array,
+                        "created_at": doc.get("created_at"),
+                        "updated_at": doc.get("updated_at"),
+                        "chunked": True,  # All graph files should be chunked
+                        "has_graph": True,  # These files definitely have graphs
+                        "chunk_count": chunk_counts.get(doc["id"], 0),
+                    }
+                )
+
+            app.logger.info(
+                f"📥 API Response: Found {len(graph_files)} files with graphs"
+            )
+            return jsonify({"graph_files": graph_files}), 200
+
+        else:
+            app.logger.error(
+                f"❌ RAG service error: {response.status_code} - {response.text}"
+            )
+            return jsonify({"error": "Failed to get graph files from RAG service"}), 500
+
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"❌ RAG service connection error: {str(e)}")
+        return jsonify({"error": "Could not connect to RAG service"}), 500
+    except Exception as e:
+        app.logger.error(f"❌ API Error in get_graph_files: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5050)), debug=True)

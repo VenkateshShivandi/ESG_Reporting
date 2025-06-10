@@ -5,13 +5,14 @@ from rag.initialize_neo4j import Neo4jGraphInitializer
 from supabase import create_client
 from datetime import datetime
 
+
 class Prompts:
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-    
+
     @staticmethod
     def query_classification(user_query):
-        return f'''
+        return f"""
         You are a helpful assistant. Your task is to classify a user query into one of the following types:
 
     - **global**: The query asks for a broad, high-level summary across an entire dataset or a wide theme (e.g., "What are the key trends in sustainability in 2023?").
@@ -33,7 +34,7 @@ class Prompts:
     "type": "<global | entity>",
     "entities": ["<entity1>", "<entity2>", ...]
     }}
-    '''
+    """
 
     @staticmethod
     def generate_report(documents, report_type, custom_prompt):
@@ -67,7 +68,13 @@ class Prompts:
         else:
             raise ValueError(f"Report type {report_type} not supported")
 
-        return base_prompt.format(standard=standard, year=year, documents=documents, custom_prompt=custom_prompt)
+        return base_prompt.format(
+            standard=standard,
+            year=year,
+            documents=documents,
+            custom_prompt=custom_prompt,
+        )
+
 
 class LLMService:
     def __init__(self):
@@ -83,15 +90,15 @@ class LLMService:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
         )
         response_json = json.loads(response.choices[0].message.content)
         return response_json
-    
+
     def select_community_summaries(self, request):
         # Get the user's query
         user_query = request.query
-        
+
         # Get the community summaries
         # TODO: Get the community summaries from the database
         community_summaries = []
@@ -102,13 +109,13 @@ class LLMService:
         """
         results = self.client.query(query)
         community_summaries = [result["n.summary"] for result in results]
-        
+
         # Select the relevant summaries
         # TODO: Select the relevant summaries from the community summaries
         return community_summaries
 
     def select_relevant_summaries(self, request):
-        '''Select the relevant summaries from the community summaries'''
+        """Select the relevant summaries from the community summaries"""
         # Get the user's query
         try:
             user_query = request.get("query")
@@ -124,50 +131,52 @@ class LLMService:
             """
             results = self.neo4j_client.query(query, {"entities": entities})
             community_summaries = [result["n.summary"] for result in results]
-            
+
             # Select the relevant summaries
             # TODO: Select the relevant summaries from the community summaries
             return community_summaries
         except Exception as e:
             print(e)
             return []
-        
+
     def map_step(self, summaries, query):
-        partial_answers = [self.generate_partial_answer(query, summary) for summary in summaries]
+        partial_answers = [
+            self.generate_partial_answer(query, summary) for summary in summaries
+        ]
         return partial_answers
-    
+
     def generate_partial_answer(self, query, summary):
-        '''Generate a partial answer from the summary'''
+        """Generate a partial answer from the summary"""
         # Use gpt-4o-mini to generate a partial answer from the summary
-        prompt = f'''
+        prompt = f"""
         You are a helpful assistant. Your task is to generate a partial answer from the following summary:
 
         **Summary**: "{summary}"
 
         **Query**: "{query}"
-        '''
+        """
         response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            prompt=prompt,
-            max_tokens=200
+            model="gpt-4o-mini", prompt=prompt, max_tokens=200
         )
         return response.choices[0].text.strip()
 
     def rank_answers(self, partial_answers, threshold=50):
-        scored_answers = [(answer, score) for answer, score in partial_answers if score > threshold]
+        scored_answers = [
+            (answer, score) for answer, score in partial_answers if score > threshold
+        ]
         ranked_answers = sorted(scored_answers, key=lambda x: x[1], reverse=True)
         return ranked_answers
-    
+
     def generate_global_answer(self, query, top_answers):
         # Combine the top N answers into a final global answer
         combined_answers = "\n".join([answer for answer, score in top_answers])
         response = self.client.chat.completions.create(
-            model="gpt-4o-mini", 
+            model="gpt-4o-mini",
             prompt=f"Summarize the following partial answers into a final global response:\n\n{combined_answers}",
-            max_tokens=200
+            max_tokens=200,
         )
         return response.choices[0].text.strip()
-    
+
     def handle_query(self, query):
         # Step 1: Retrieve relevant summaries from the graph
         normalized_request = self.normalize_request(query)
@@ -175,16 +184,18 @@ class LLMService:
             summaries = self.select_community_summaries(normalized_request)
         elif normalized_request.get("type") == "entity":
             summaries = self.select_relevant_summaries(normalized_request)
-        
+
         # Step 2: Generate partial answers from community summaries
         partial_answers = self.map_step(summaries, query)
-        
+
         # Step 3: Rank and filter partial answers
         ranked_answers = self.rank_answers(partial_answers)
-        
+
         # Step 4: Combine top-ranked answers into a global answer
-        global_answer = self.generate_global_answer(query, ranked_answers[:5])  # Top 5 answers
-        
+        global_answer = self.generate_global_answer(
+            query, ranked_answers[:5]
+        )  # Top 5 answers
+
         return global_answer
 
     def generate_report(self, document_ids, report_type, custom_prompt):
@@ -198,11 +209,11 @@ class LLMService:
             # run the query
             results = self.session.run(extractor_query, {"document_ids": document_ids})
             results = [result["n.description"] for result in results]
-            chunks = [results[i:i+60] for i in range(0, len(results), 60)]
+            chunks = [results[i : i + 60] for i in range(0, len(results), 60)]
             final_content = ""
             for chunk in chunks:
-                content  = Prompts.generate_report(chunk, report_type, custom_prompt)
-                
+                content = Prompts.generate_report(chunk, report_type, custom_prompt)
+
                 # TODO: Use model string to generate the report using the community summaries
                 message_response = self.client.chat.completions.create(
                     model=self.model,
@@ -214,29 +225,27 @@ class LLMService:
                                 "When answering, respond only with a single valid JSON object matching this schema: "
                                 "{'summary': string, 'mitigation': string, 'period': string, 'boundary': string, "
                                 "'references': list of strings, 'scores': {'environmental': number, 'social': number, 'governance': number}}"
-                            )
+                            ),
                         },
-                        {
-                            "role": "user",
-                            "content": content
-                        }
+                        {"role": "user", "content": content},
                     ],
                     max_tokens=4000,
-                    temperature=0  # optional: set low temperature for more deterministic output
+                    temperature=0,  # optional: set low temperature for more deterministic output
                 )
                 final_content += message_response.choices[0].message.content
             # Save the report to the database
             # TODO: Save the report to the database
-            supabase = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_KEY"))
+            supabase = create_client(
+                os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_KEY")
+            )
             timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             file_name = f"{report_type}_{timestamp}.txt"
-            file_path = f"reports/{file_name}"
             supabase.storage.from_("reports").upload(
-                file_path,
+                file_name,
                 final_content.encode("utf-8"),
-                {"content-type": "text/plain"}
+                {"content-type": "text/plain"},
             )
-            public_url = supabase.storage.from_("reports").get_public_url(file_path)
+            public_url = supabase.storage.from_("reports").get_public_url(file_name)
             return file_name, public_url
         except Exception as e:
             print(e)
