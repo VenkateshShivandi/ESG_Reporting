@@ -24,7 +24,7 @@ CORS(
     resources={
         r"/api/*": {
             "origins": [
-                "http://localhost:3000"
+                "*"
             ],  # Allow requests from Next.js dev server
             "methods": ["GET", "POST", "OPTIONS"],  # Allow these methods
             "allow_headers": ["Content-Type", "Authorization"],  # Allow these headers
