@@ -48,12 +48,15 @@ neo4j_driver = None
 def init_neo4j():
     """Initialize Neo4j connection and ensure root node exists."""
     global neo4j_initializer, neo4j_driver
-    neo4j_initializer = Neo4jGraphInitializer()
-    if not Neo4jGraphInitializer.wait_for_neo4j():
-        raise Exception("Neo4j not ready")
-    neo4j_driver = neo4j_initializer.getNeo4jDriver()
-    neo4j_initializer.initializeGraphWithRoot()
-    return neo4j_driver
+    try:
+        neo4j_initializer = Neo4jGraphInitializer()
+        if not Neo4jGraphInitializer.wait_for_neo4j():
+            raise Exception("Neo4j not ready")
+        neo4j_driver = neo4j_initializer.getNeo4jDriver()
+        neo4j_initializer.initializeGraphWithRoot()
+    except Exception as e:
+        neo4j_initializer = None
+        logging.warning(f"Neo4j initialization failed: {e}")
 
 
 @app.route("/health")
@@ -250,6 +253,13 @@ def create_graph():
     relationships = data.get("relationships")
     user_id = data.get("user_id")
 
+    if not user_id:
+            return flask.jsonify({"error": "Missing user_id"}), 400
+
+    if not neo4j_initializer:
+            return flask.jsonify({"error": "Neo4j not initialized"}), 503
+
+
     # 1. check if the user has already created a subgraph, if yes, delete/detach it first before creating a new one
     if neo4j_initializer.userExists(user_id):
         # delete the subgraph, if it exists
@@ -439,6 +449,8 @@ def add_user():
 
         if not user_id or not email:
             return flask.jsonify({"error": "Missing user_id or email"}), 400
+        if not neo4j_initializer:
+            return flask.jsonify({"error": "Neo4j not initialized"}), 503
 
         # Use global Neo4j initializer
         if neo4j_initializer.userExists(user_id):
