@@ -634,11 +634,30 @@ if __name__ == "__main__":
     try:
         logging.info("⏳ Waiting 30s before initializing Neo4j...")
         time.sleep(30)
-        init_neo4j()
+
+        neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        neo4j_username = os.getenv("NEO4J_USERNAME", "")
+        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+
+        app.logger.info(f"🔌 Connecting to Neo4j at {neo4j_uri} with no auth")
+
+        from rag.initialize_neo4j import Neo4jGraphInitializer
+
+        neo4j_initializer = Neo4jGraphInitializer(
+            uri=neo4j_uri,
+            user=neo4j_username or None,
+            password=neo4j_password or None
+        )
+        
+        if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
+            raise Exception("Neo4j not ready")
+
+        neo4j_driver = neo4j_initializer.getNeo4jDriver()
+        neo4j_initializer.initializeGraphWithRoot()
+
         logging.info("✅ Neo4j initialized.")
     except Exception as e:
         logging.warning(f"⚠️ Neo4j init skipped or failed: {str(e)}")
 
     port = int(os.getenv("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
-
