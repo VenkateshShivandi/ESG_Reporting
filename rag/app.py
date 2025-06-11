@@ -434,6 +434,18 @@ def get_community_insights():
         return flask.jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/v1/debug/neo4j", methods=["GET"])
+def debug_neo4j():
+    if not neo4j_initializer:
+        return {"status": "not initialized"}, 500
+    try:
+        with neo4j_initializer.driver.session() as session:
+            result = session.run("RETURN 1 AS check")
+            return {"status": "connected", "result": result.single()["check"]}, 200
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
 @app.route("/api/v1/add-user", methods=["POST"])
 def add_user():
     """Add a user to the graph database.
