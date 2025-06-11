@@ -20,6 +20,36 @@ from rag.llmservice import LLMService
 app = flask.Flask(__name__)
 neo4j_initializer = None
 
+try:
+        logging.info("⏳ Waiting 30s before initializing Neo4j...")
+        time.sleep(30)
+
+        neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        neo4j_username = os.getenv("NEO4J_USERNAME", "")
+        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+
+        app.logger.info(f"🔌 Connecting to Neo4j at {neo4j_uri} with no auth")
+
+        from rag.initialize_neo4j import Neo4jGraphInitializer
+
+        neo4j_initializer = Neo4jGraphInitializer(
+            uri=neo4j_uri,
+            user=neo4j_username or None,
+            password=neo4j_password or None,
+        )
+        globals()["neo4j_initializer"] = neo4j_initializer
+        
+        if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
+            raise Exception("Neo4j not ready")
+
+        neo4j_driver = neo4j_initializer.getNeo4jDriver()
+        neo4j_initializer.initializeGraphWithRoot()
+
+        logging.info("✅ Neo4j initialized.")
+except Exception as e:
+        logging.warning(f"⚠️ Neo4j init skipped or failed: {str(e)}")
+
+
 # Enable CORS for all routes
 CORS(
     app,
@@ -43,13 +73,12 @@ logging.basicConfig(level=logging.INFO)
 # Global Neo4j initializer and driver
 neo4j_initializer = None
 neo4j_driver = None
-
-
 def init_neo4j():
     """Initialize Neo4j connection and ensure root node exists."""
     global neo4j_initializer, neo4j_driver
     try:
         neo4j_initializer = Neo4jGraphInitializer()
+        globals()["neo4j_initializer"] = neo4j_initializer
         if not Neo4jGraphInitializer.wait_for_neo4j():
             raise Exception("Neo4j not ready")
         neo4j_driver = neo4j_initializer.getNeo4jDriver()
@@ -630,34 +659,5 @@ def query():
     return flask.jsonify({"success": True, "response": response}), 200
 
 if __name__ == "__main__":
-    import time
-    try:
-        logging.info("⏳ Waiting 30s before initializing Neo4j...")
-        time.sleep(30)
-
-        neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        neo4j_username = os.getenv("NEO4J_USERNAME", "")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
-
-        app.logger.info(f"🔌 Connecting to Neo4j at {neo4j_uri} with no auth")
-
-        from rag.initialize_neo4j import Neo4jGraphInitializer
-
-        neo4j_initializer = Neo4jGraphInitializer(
-            uri=neo4j_uri,
-            user=neo4j_username or None,
-            password=neo4j_password or None
-        )
-        
-        if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
-            raise Exception("Neo4j not ready")
-
-        neo4j_driver = neo4j_initializer.getNeo4jDriver()
-        neo4j_initializer.initializeGraphWithRoot()
-
-        logging.info("✅ Neo4j initialized.")
-    except Exception as e:
-        logging.warning(f"⚠️ Neo4j init skipped or failed: {str(e)}")
-
     port = int(os.getenv("PORT", 8000))
     app.run(host="0.0.0.0", port=port)
