@@ -70,24 +70,6 @@ app.config["UPLOAD_FOLDER"] = tempfile.gettempdir()
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 
-# Global Neo4j initializer and driver
-neo4j_initializer = None
-neo4j_driver = None
-def init_neo4j():
-    """Initialize Neo4j connection and ensure root node exists."""
-    global neo4j_initializer, neo4j_driver
-    try:
-        neo4j_initializer = Neo4jGraphInitializer()
-        globals()["neo4j_initializer"] = neo4j_initializer
-        if not Neo4jGraphInitializer.wait_for_neo4j():
-            raise Exception("Neo4j not ready")
-        neo4j_driver = neo4j_initializer.getNeo4jDriver()
-        neo4j_initializer.initializeGraphWithRoot()
-    except Exception as e:
-        neo4j_initializer = None
-        logging.warning(f"Neo4j initialization failed: {e}")
-
-
 @app.route("/health")
 def health():
     """Health check endpoint for Docker."""
