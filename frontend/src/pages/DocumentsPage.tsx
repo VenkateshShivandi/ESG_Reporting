@@ -1445,12 +1445,12 @@ const DocumentsPage: NextPage<Props> = () => {
                         />
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {/* Sort Dropdown */}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="outline" className="shadow-sm transition-transform hover:scale-105" title="Sort Files">
-                            {sortOrder === 'asc' ? <SortAsc className="w-4 h-4 mr-2" /> : <SortDesc className="w-4 h-4 mr-2" />}
+                          <Button variant="outline" size="sm" className="shadow-sm transition-transform hover:scale-105" title="Sort Files">
+                            {sortOrder === 'asc' ? <SortAsc className="w-4 h-4 mr-1" /> : <SortDesc className="w-4 h-4 mr-1" />}
                             Sort
                           </Button>
                         </DropdownMenuTrigger>
@@ -1480,8 +1480,8 @@ const DocumentsPage: NextPage<Props> = () => {
                       {/* Filter Dropdown */}
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="outline" className="shadow-sm transition-transform hover:scale-105" title="Filter Files">
-                            <Filter className="w-4 h-4 mr-2" />
+                          <Button variant="outline" size="sm" className="shadow-sm transition-transform hover:scale-105" title="Filter Files">
+                            <Filter className="w-4 h-4 mr-1" />
                             Filter
                             {(fileTypeFilter !== 'all' || processedFilter !== 'all' || chunkedFilter !== 'all') && (
                               <span className="ml-1 h-2 w-2 bg-emerald-500 rounded-full"></span>
@@ -1547,45 +1547,47 @@ const DocumentsPage: NextPage<Props> = () => {
                         accept={ALLOWED_FILE_TYPES}
                       />
                       <label htmlFor="file-upload" title="Upload Files">
-                        <Button variant="outline" className="cursor-pointer shadow-sm transition-transform hover:scale-105" asChild>
+                        <Button variant="outline" size="sm" className="cursor-pointer shadow-sm transition-transform hover:scale-105" asChild>
                           <span>
                             {isUploading ? (
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              <Loader2 className="w-4 h-4 mr-1" />
                             ) : (
-                              <Upload className="w-4 h-4 mr-2" />
+                              <Upload className="w-4 h-4 mr-1" />
                             )}
-                            Upload Files
+                            Upload
                           </span>
                         </Button>
                       </label>
                       <Button
                         variant="outline"
+                        size="sm"
                         className={`shadow-sm transition-transform hover:scale-105 ${selectedItems.length > 0 ? 'bg-emerald-50 hover:bg-emerald-100' : ''}`}
                         onClick={handleETLProcess}
                         disabled={selectedItems.length === 0 || isProcessingETL}
                         title="Process ETL"
                       >
                         {isProcessingETL ? (
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          <Loader2 className="w-4 h-4 mr-1" />
                         ) : (
-                          <Database className="w-4 h-4 mr-2" />
+                          <Database className="w-4 h-4 mr-1" />
                         )}
                         Process ETL
                       </Button>
-                                              <Button
-                          variant="outline"
-                          className={`shadow-sm transition-transform hover:scale-105 ${selectedItems.length > 0 ? 'bg-emerald-50 hover:bg-emerald-100' : ''}`}
-                          onClick={handleMoveSelectedItems}
-                          disabled={selectedItems.length === 0}
-                          title="Move Selected Files and Folders"
-                        >
-                          <FolderInput className="w-4 h-4 mr-2" />
-                          Move Selected
-                        </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={`shadow-sm transition-transform hover:scale-105 ${selectedItems.length > 0 ? 'bg-emerald-50 hover:bg-emerald-100' : ''}`}
+                        onClick={handleMoveSelectedItems}
+                        disabled={selectedItems.length === 0}
+                        title="Move Selected Files and Folders"
+                      >
+                        <FolderInput className="w-4 h-4 mr-1" />
+                        Move
+                      </Button>
                       <Dialog>
                         <DialogTrigger asChild>
-                          <Button variant="outline" className="shadow-sm transition-transform hover:scale-105" title="Create New Folder">
-                            <FolderOpen className="w-4 h-4 mr-2" />
+                          <Button variant="outline" size="sm" className="shadow-sm transition-transform hover:scale-105" title="Create New Folder">
+                            <FolderOpen className="w-4 h-4 mr-1" />
                             New Folder
                           </Button>
                         </DialogTrigger>
@@ -1623,12 +1625,13 @@ const DocumentsPage: NextPage<Props> = () => {
                       </Dialog>
                       <Button
                         variant={selectedItems.length === 0 ? "outline" : "destructive"}
+                        size="sm"
                         className={`${selectedItems.length === 0 ? "shadow-sm" : "shadow-sm bg-red-600 text-white hover:bg-red-700"} transition-transform hover:scale-105`}
                         disabled={selectedItems.length === 0}
                         onClick={() => handleDelete()}
                         title="Delete Selected"
                       >
-                        <Trash2 className="w-4 h-4 mr-2" />
+                        <Trash2 className="w-4 h-4 mr-1" />
                         Delete
                       </Button>
                     </div>

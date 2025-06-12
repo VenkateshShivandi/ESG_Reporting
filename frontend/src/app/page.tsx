@@ -103,6 +103,12 @@ export default function LandingPage() {
             >
               Contact
             </Link>
+            <Link
+              className="text-sm font-medium text-slate-700 underline-offset-4 hover:text-slate-900 hover:underline dark:text-slate-300 dark:hover:text-white"
+              href="/dashboard"
+            >
+              Dashboard
+            </Link>
           </nav>
           <Button asChild>
             <Link href="/auth/login">Login</Link>
