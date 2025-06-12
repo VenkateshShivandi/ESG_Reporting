@@ -11,6 +11,15 @@ export type FileItem = {
   processingResult?: ProcessedFileResult
   processingError?: string
   chunked?: boolean
+  created_at?: string
+  updated_at?: string
+  has_graph?: boolean
+  chunk_count?: number
+  metadata?: {
+    mimetype?: string
+    lastModified?: string
+    contentLength?: number
+  }
 }
 
 export type UploadProgress = {

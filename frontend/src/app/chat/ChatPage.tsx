@@ -52,6 +52,21 @@ interface ChunkedFile {
   chunked_at: string;
 }
 
+// Define a type for graph files
+interface GraphFile {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  modified: string;
+  path: string[];
+  created_at: string;
+  updated_at: string;
+  chunked: boolean;
+  has_graph: boolean;
+  chunk_count: number;
+}
+
 function ChatPage() {
   const { session, isLoading: authLoading } = useAuth()
   const initRef = useRef(false)
@@ -253,9 +268,9 @@ function ChatPage() {
     if (!isReportListOpen && reports.length === 0) {
       // If opening and reports are not loaded, fetch them
       await fetchReports();
-      }
+    }
     // Always toggle the visibility state
-      setIsReportListOpen(!isReportListOpen);
+    setIsReportListOpen(!isReportListOpen);
   };
 
   const handleFileSelect = (fileId: string) => {
@@ -336,8 +351,9 @@ function ChatPage() {
   }
 
   const handleGenerateReport = async () => {
-    const selectedFilesList = files.filter((file) => selectedFiles.has(file.id))
-    if (selectedType && selectedFilesList.length > 0) {
+    // Use the selected graph file instead of multiple selected files
+    const selectedFile = graphFiles.find(file => file.id === selectedGraphFile)
+    if (selectedType && selectedFile) {
       setIsGeneratingReport(true);
       console.log("Generating report with prompt:", reportPrompt)
       console.log("Selected type:", selectedType)
@@ -355,7 +371,7 @@ function ChatPage() {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            document_ids: selectedFilesList.map(file => file.id),
+            document_ids: [selectedFile.id],
             report_type: selectedType,
             prompt: reportPrompt
           })
@@ -373,7 +389,7 @@ function ChatPage() {
           name: `${selectedType} Report - ${new Date().toLocaleDateString()}`,
           type: selectedType,
           timestamp: new Date(),
-          files: selectedFilesList.map(file => file.id),
+          files: [selectedFile.id],
           metrics: {
             environmental_score: 85,
             social_score: 80,
@@ -412,11 +428,11 @@ function ChatPage() {
         setIsGeneratingReport(false);
         setIsModalOpen(false);
         setSelectedType("");
-        setSelectedFiles(new Set());
+        setSelectedGraphFile("");
         setReportPrompt("Generate a detailed ESG report based on the selected files, focusing on environmental, social, and governance performance.");
       }
     } else {
-      toast.error("Please select a report type and at least one file");
+      toast.error("Please select a report type and a file with graph data");
     }
   };
 
@@ -774,34 +790,34 @@ function ChatPage() {
         });
       } else {
         // Existing logic for object with recent_reports and scheduled_reports properties
-      if (data.recent_reports && Array.isArray(data.recent_reports)) {
-        data.recent_reports.forEach((report: any) => {
-          allReports.push({
-            id: report.id,
-            name: report.name,
-            type: report.type,
+        if (data.recent_reports && Array.isArray(data.recent_reports)) {
+          data.recent_reports.forEach((report: any) => {
+            allReports.push({
+              id: report.id,
+              name: report.name,
+              type: report.type,
               timestamp: new Date(report.updated_at || report.generated_at),
-            files: report.files || [],
-            status: report.status,
+              files: report.files || [],
+              status: report.status,
               generated_at: report.generated_at,
               updated_at: report.updated_at
+            })
           })
-        })
-      }
+        }
 
-      if (data.scheduled_reports && Array.isArray(data.scheduled_reports)) {
-        data.scheduled_reports.forEach((report: any) => {
-          allReports.push({
-            id: report.id,
-            name: report.name,
-            type: report.type,
+        if (data.scheduled_reports && Array.isArray(data.scheduled_reports)) {
+          data.scheduled_reports.forEach((report: any) => {
+            allReports.push({
+              id: report.id,
+              name: report.name,
+              type: report.type,
               timestamp: new Date(report.updated_at || report.scheduled_for),
-            files: report.files || [],
-            status: report.status,
+              files: report.files || [],
+              status: report.status,
               scheduled_for: report.scheduled_for,
               updated_at: report.updated_at
+            })
           })
-        })
         }
       }
 
@@ -992,7 +1008,7 @@ function ChatPage() {
 
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/create-graph`, {
-        
+
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${session.access_token}`,
@@ -1123,6 +1139,11 @@ function ChatPage() {
   const [chunkedFiles, setChunkedFiles] = useState<ChunkedFile[]>([])
   const [isLoadingChunkedFiles, setIsLoadingChunkedFiles] = useState(false)
 
+  // State for graph files
+  const [graphFiles, setGraphFiles] = useState<GraphFile[]>([])
+  const [isLoadingGraphFiles, setIsLoadingGraphFiles] = useState(false)
+  const [selectedGraphFile, setSelectedGraphFile] = useState<string>("")
+
   // Fetch chunked files on mount
   useEffect(() => {
     if (!session?.access_token) return;
@@ -1138,6 +1159,40 @@ function ChatPage() {
 
   const chunkedFileIdSet = useMemo(() => new Set(chunkedFiles.map(f => f.id)), [chunkedFiles])
   const getChunkInfo = (fileId: string) => chunkedFiles.find(f => f.id === fileId)
+
+  // Function to fetch graph files
+  const fetchGraphFiles = useCallback(async () => {
+    if (!session?.access_token) return
+
+    setIsLoadingGraphFiles(true)
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/graph-files`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch graph files')
+      }
+
+      const data = await response.json()
+      setGraphFiles(data.graph_files || [])
+    } catch (error) {
+      console.error('Error fetching graph files:', error)
+      toast.error('Failed to load graph files')
+      setGraphFiles([])
+    } finally {
+      setIsLoadingGraphFiles(false)
+    }
+  }, [session?.access_token])
+
+  // Load graph files every time modal opens to get latest data
+  useEffect(() => {
+    if (isModalOpen && session?.access_token) {
+      fetchGraphFiles()
+    }
+  }, [isModalOpen, session?.access_token, fetchGraphFiles])
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
@@ -1674,42 +1729,42 @@ function ChatPage() {
                             : 'Date not available';
 
                           return (
-                          <div
-                            key={report.id || `report-${Math.random().toString(36).substr(2, 9)}`}
-                            className="p-3 rounded-lg border border-slate-200 hover:border-emerald-200 hover:shadow-sm hover:bg-emerald-50/30 cursor-pointer transition-all"
-                            onClick={() => {
-                              handleSelectReport(report);
-                              handleViewReport(report);
-                            }}
-                          >
-                            <div className="flex items-start gap-3">
-                              <div className={`p-1.5 rounded-md ${report.type === 'GRI' ? 'bg-emerald-100' : 'bg-blue-100'} flex-shrink-0`}>
-                                <FileText className={`h-4 w-4 ${report.type === 'GRI' ? 'text-emerald-600' : 'text-blue-600'}`} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-medium text-sm text-slate-900 truncate">{report.name}</p>
-                                <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
-                                  <Calendar className="h-3 w-3" />
-                                  <span className="truncate">
-                                      {formattedTimestamp}{report.type ? ` - ${report.type}` : ''}
-                                  </span>
+                            <div
+                              key={report.id || `report-${Math.random().toString(36).substr(2, 9)}`}
+                              className="p-3 rounded-lg border border-slate-200 hover:border-emerald-200 hover:shadow-sm hover:bg-emerald-50/30 cursor-pointer transition-all"
+                              onClick={() => {
+                                handleSelectReport(report);
+                                handleViewReport(report);
+                              }}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className={`p-1.5 rounded-md ${report.type === 'GRI' ? 'bg-emerald-100' : 'bg-blue-100'} flex-shrink-0`}>
+                                  <FileText className={`h-4 w-4 ${report.type === 'GRI' ? 'text-emerald-600' : 'text-blue-600'}`} />
                                 </div>
-                                {report.status && (
-                                  <div className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs 
-                                    ${report.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                      report.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
-                                        report.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
-                                          'bg-slate-100 text-slate-800'
-                                    }`}>
-                                    {report.status === 'completed' ? 'Completed' :
-                                      report.status === 'pending_review' ? 'Pending Review' :
-                                        report.status === 'scheduled' ? 'Scheduled' :
-                                          report.status}
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-medium text-sm text-slate-900 truncate">{report.name}</p>
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
+                                    <Calendar className="h-3 w-3" />
+                                    <span className="truncate">
+                                      {formattedTimestamp}{report.type ? ` - ${report.type}` : ''}
+                                    </span>
                                   </div>
-                                )}
+                                  {report.status && (
+                                    <div className={`mt-2 inline-flex items-center rounded-full px-2 py-0.5 text-xs 
+                                    ${report.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                        report.status === 'pending_review' ? 'bg-yellow-100 text-yellow-800' :
+                                          report.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                                            'bg-slate-100 text-slate-800'
+                                      }`}>
+                                      {report.status === 'completed' ? 'Completed' :
+                                        report.status === 'pending_review' ? 'Pending Review' :
+                                          report.status === 'scheduled' ? 'Scheduled' :
+                                            report.status}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          </div>
                           );
                         })}
                       </div>
@@ -1775,41 +1830,57 @@ function ChatPage() {
             </div>
 
             <div className="space-y-2">
-              <h4 className="text-sm font-medium text-slate-700 flex items-center gap-2">
-                <File className="h-4 w-4 text-emerald-500" />
-                Selected Documents <span className="text-red-500">*</span>
-              </h4>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 max-h-[200px] overflow-auto">
-                {files.filter((file) => selectedFiles.has(file.id)).length > 0 ? (
-                  <ul className="space-y-2">
-                    {files
-                      .filter((file) => file.id && selectedFiles.has(file.id))
-                      .map((file) => (
-                        <li key={file.id || `selected-file-${Math.random().toString(36).substr(2, 9)}`} className="flex items-center gap-2 text-sm text-slate-700 bg-white p-2 rounded-md border border-slate-100">
-                          <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                          <span className="truncate">{file.name}</span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-5 w-5 ml-auto text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full"
-                            onClick={() => file.id && handleFileSelect(file.id)}
-                          >
-                            <X className="h-3 w-3" />
-                            <span className="sr-only">Remove</span>
-                          </Button>
-                        </li>
-                      ))}
-                  </ul>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-sm text-slate-500">No documents selected</p>
-                    <p className="text-xs text-slate-400 mt-1">Browse and select files to include in your report</p>
+              <label htmlFor="graph-file-select" className="text-sm font-medium text-slate-700 block">
+                Select Document with Graph Data <span className="text-red-500">*</span>
+              </label>
+              {isLoadingGraphFiles ? (
+                <div className="flex items-center justify-center h-11 rounded-lg border border-slate-200 bg-slate-50">
+                  <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
+                  <span className="ml-2 text-sm text-slate-500">Loading graph files...</span>
+                </div>
+              ) : (
+                <Select value={selectedGraphFile} onValueChange={setSelectedGraphFile}>
+                  <SelectTrigger id="graph-file-select" className="w-full h-11 px-3 text-base border-slate-200 focus:ring-emerald-500 focus:border-emerald-500">
+                    <SelectValue placeholder="Choose a document with graph data" />
+                  </SelectTrigger>
+                  <SelectContent position="popper" className="z-50 w-full text-slate-900 bg-white border max-h-[200px]">
+                    {graphFiles.length > 0 ? (
+                      graphFiles.map((file) => (
+                        <SelectItem key={file.id} value={file.id} className="text-base flex items-center gap-2">
+                          <div className="flex items-center gap-2 w-full">
+                            <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                            <span className="truncate flex-1">{file.name}</span>
+                            <div className="flex items-center gap-1 text-xs text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">
+                              <Bot className="h-3 w-3" />
+                              Graph ({file.chunk_count} chunks)
+                            </div>
+                          </div>
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <div className="p-4 text-center text-slate-500">
+                        <p className="text-sm">No files with graph data found</p>
+                        <p className="text-xs mt-1">Upload and process documents first</p>
+                      </div>
+                    )}
+                  </SelectContent>
+                </Select>
+              )}
+              {!selectedGraphFile && !isLoadingGraphFiles && (
+                <p className="text-xs text-slate-500">
+                  {graphFiles.length > 0
+                    ? "Please select a document that has been processed with graph data"
+                    : "No documents with graph data available. Please upload and process documents first."
+                  }
+                </p>
+              )}
+              {selectedGraphFile && (
+                <div className="mt-2 p-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                  <div className="flex items-center gap-2 text-sm text-emerald-700">
+                    <CheckCircle className="h-4 w-4 text-emerald-500" />
+                    <span>Selected: {graphFiles.find(f => f.id === selectedGraphFile)?.name}</span>
                   </div>
-                )}
-              </div>
-              {selectedFiles.size === 0 && (
-                <p className="text-xs text-slate-500">You must select at least one document to generate a report</p>
+                </div>
               )}
             </div>
           </div>
@@ -1824,7 +1895,7 @@ function ChatPage() {
             </Button>
             <Button
               onClick={handleGenerateReport}
-              disabled={!selectedType || selectedFiles.size === 0}
+              disabled={!selectedType || !selectedGraphFile}
               className="h-10 px-6 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
             >
               {isGeneratingReport ? (

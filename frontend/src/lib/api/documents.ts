@@ -659,4 +659,13 @@ export const documentsApi = {
       throw error
     }
   },
+
+  /**
+   * Get files that have graphs created in Neo4j
+   * These are the only files that can be used for report generation
+   */
+  getGraphFiles: async (): Promise<FileItem[]> => {
+    const response = await api.get('/api/graph-files')
+    return response.data.graph_files || []
+  },
 }
