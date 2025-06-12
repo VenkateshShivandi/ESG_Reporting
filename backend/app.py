@@ -869,6 +869,77 @@ def initialize_assistant():
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
+    """Chat with the AI Assistant using Redis to persist thread ID."""
+    try:
+        message = request.json.get("data", {}).get("content", "")
+        if not message:
+            return jsonify({"error": "No message provided"}), 400
+
+        assistant_id = OPENAI_ASSISTANT_ID_2 or initialize_assistant()
+        if not assistant_id:
+            return jsonify({"error": "Failed to initialize assistant"}), 500
+
+        # Handle Redis logic
+        thread_id = None
+        if REDIS_URL:
+            try:
+                redis_client = redis.from_url(REDIS_URL)
+                redis_client.ping()  # validate connection
+                thread_id = redis_client.get("thread_id")
+                if thread_id:
+                    thread_id = thread_id.decode("utf-8") if isinstance(thread_id, bytes) else thread_id
+                else:
+                    thread = client.beta.threads.create()
+                    thread_id = thread.id
+                    redis_client.set("thread_id", thread_id)
+            except Exception as e:
+                app.logger.warning(f"⚠️ Redis not usable: {e}")
+                thread = client.beta.threads.create()
+                thread_id = thread.id
+        else:
+            thread = client.beta.threads.create()
+            thread_id = thread.id
+
+        # Send message to OpenAI Assistant
+        client.beta.threads.messages.create(
+            thread_id=thread_id,
+            role="user",
+            content=message,
+        )
+
+        run = client.beta.threads.runs.create(
+            thread_id=thread_id,
+            assistant_id=assistant_id,
+        )
+
+        # Wait for run to complete
+        while run.status not in ["completed", "failed"]:
+            time.sleep(0.5)
+            run = client.beta.threads.runs.retrieve(
+                thread_id=thread_id, run_id=run.id
+            )
+
+        if run.status == "failed":
+            return jsonify({"error": "Assistant run failed"}), 500
+
+        # Retrieve assistant response
+        messages = client.beta.threads.messages.list(thread_id=thread_id)
+        for msg in messages.data:
+            if msg.role == "assistant":
+                for content_part in msg.content:
+                    if content_part.type == "text":
+                        return jsonify({
+                            "id": str(uuid.uuid4()),
+                            "role": "assistant",
+                            "content": content_part.text.value,
+                        }), 200
+
+        return jsonify({"error": "No assistant response received"}), 500
+
+    except Exception as e:
+        app.logger.error(f"💥 Error in chat endpoint: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
     """Chat with the AI."""
     try:
         if OPENAI_ASSISTANT_ID_2:

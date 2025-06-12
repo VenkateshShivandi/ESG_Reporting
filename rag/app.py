@@ -21,34 +21,29 @@ app = flask.Flask(__name__)
 neo4j_initializer = None
 
 try:
-        logging.info("⏳ Waiting 30s before initializing Neo4j...")
-        time.sleep(30)
+    logging.info("⏳ Waiting 30s before initializing Neo4j...")
+    time.sleep(30)
 
-        neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        neo4j_username = os.getenv("NEO4J_USERNAME", "")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+    neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    neo4j_username = os.getenv("NEO4J_USERNAME", None)
+    neo4j_password = os.getenv("NEO4J_PASSWORD", None)
 
-        app.logger.info(f"🔌 Connecting to Neo4j at {neo4j_uri} with no auth")
+    from rag.initialize_neo4j import Neo4jGraphInitializer
 
-        from rag.initialize_neo4j import Neo4jGraphInitializer
+    neo4j_initializer = Neo4jGraphInitializer(
+        uri=neo4j_uri,
+        user=neo4j_username or None,
+        password=neo4j_password or None,
+    )
 
-        neo4j_initializer = Neo4jGraphInitializer(
-            uri=neo4j_uri,
-            user=neo4j_username or None,
-            password=neo4j_password or None,
-        )
-        globals()["neo4j_initializer"] = neo4j_initializer
-        
-        if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
-            raise Exception("Neo4j not ready")
+    if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
+        raise Exception("Neo4j not ready")
 
-        neo4j_driver = neo4j_initializer.getNeo4jDriver()
-        neo4j_initializer.initializeGraphWithRoot()
-
-        logging.info("✅ Neo4j initialized.")
+    neo4j_driver = neo4j_initializer.getNeo4jDriver()
+    neo4j_initializer.initializeGraphWithRoot()
+    logging.info("✅ Neo4j initialized.")
 except Exception as e:
-        logging.warning(f"⚠️ Neo4j init skipped or failed: {str(e)}")
-
+    logging.warning(f"⚠️ Neo4j init failed: {str(e)}")
 
 # Enable CORS for all routes
 CORS(
@@ -462,11 +457,6 @@ def debug_neo4j():
 
 @app.route("/api/v1/add-user", methods=["POST"])
 def add_user():
-    """Add a user to the graph database.
-    If the user already exists, do nothing.
-
-    Accepts JSON body with user_id and email fields.
-    """
     app.logger.info(f"---------------/api/v1/add-user-----------------")
     try:
         data = flask.request.json
@@ -475,36 +465,44 @@ def add_user():
 
         if not user_id or not email:
             return flask.jsonify({"error": "Missing user_id or email"}), 400
+
+        global neo4j_initializer
         if not neo4j_initializer:
-            return flask.jsonify({"error": "Neo4j not initialized"}), 503
+            try:
+                neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+                neo4j_username = os.getenv("NEO4J_USERNAME", "")
+                neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+                neo4j_initializer = Neo4jGraphInitializer(
+                    uri=neo4j_uri,
+                    user=neo4j_username or None,
+                    password=neo4j_password or None,
+                )
+                if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
+                    raise Exception("Neo4j not ready")
+                neo4j_initializer.getNeo4jDriver()
+                neo4j_initializer.initializeGraphWithRoot()
+                app.logger.info("✅ Neo4j re-initialized inside /add-user")
+            except Exception as err:
+                app.logger.error(f"💥 Neo4j connection failed in /add-user: {str(err)}")
+                return flask.jsonify({"error": "Neo4j not initialized"}), 503
 
-        # Use global Neo4j initializer
+        # Now continue as normal
         if neo4j_initializer.userExists(user_id):
-            return (
-                flask.jsonify(
-                    {
-                        "success": True,
-                        "message": "User already exists",
-                        "user_id": user_id,
-                        "email": email,
-                    }
-                ),
-                200,
-            )
+            return flask.jsonify({
+                "success": True,
+                "message": "User already exists",
+                "user_id": user_id,
+                "email": email,
+            }), 200
 
-        # Create new user node using existing connection
         neo4j_initializer.createUserNode(user_id, email)
-        return (
-            flask.jsonify(
-                {
-                    "success": True,
-                    "message": "User created successfully",
-                    "user_id": user_id,
-                    "email": email,
-                }
-            ),
-            201,
-        )
+        return flask.jsonify({
+            "success": True,
+            "message": "User created successfully",
+            "user_id": user_id,
+            "email": email,
+        }), 201
+
     except Exception as e:
         app.logger.error(f"Error adding user: {str(e)}")
         app.logger.error(traceback.format_exc())
