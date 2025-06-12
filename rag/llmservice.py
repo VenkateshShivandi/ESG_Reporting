@@ -45,8 +45,8 @@ class Prompts:
         1. Adhere strictly to the {standard} {year} reporting framework relevant to the selected report type.
         2. Extract and summarize key findings, mitigation strategies, metrics, boundaries, and reporting periods as applicable.
         3. Include precise references to original data sources or community summaries using identifiers.
-        4. Structure the report for readability and compliance, providing JSON-compatible output with fields for summary, mitigation, period, boundary, references, and scores.
-        5. The scores field should be a JSON object containing numeric scores for the report’s overall Environmental, Social, and Governance performance, using keys: "environmental", "social", and "governance".
+        4. Structure the report for readability and compliance, using clear Markdown formatting with appropriate headers, lists, and emphasis.
+        5. Include numeric scores for Environmental, Social, and Governance performance in a dedicated section.
         6. Incorporate the user's custom prompt preferences, such as tone, depth, or focus areas, without deviating from ESG compliance.
         7. When data is missing or unclear, clearly state assumptions or limitations.
 
@@ -56,7 +56,18 @@ class Prompts:
         Custom user instructions for the report to decide the nature and style of the report:
         {custom_prompt}
 
-        Begin your report synthesis below. Output your response strictly as a JSON object with the following keys: "summary", "mitigation", "period", "boundary", "references", and "scores" (which contains "environmental", "social", and "governance" numeric scores).
+        Please generate a comprehensive ESG report in Markdown format. Structure it with clear sections including:
+        - Executive Summary
+        - Key Findings
+        - Environmental Impact
+        - Social Impact  
+        - Governance Aspects
+        - Mitigation Strategies
+        - Reporting Period and Boundary
+        - References
+        - Performance Scores (Environmental, Social, Governance)
+
+        Begin your report synthesis below in well-formatted Markdown.
         """
 
         if report_type.lower() == "gri":
@@ -221,10 +232,10 @@ class LLMService:
                         {
                             "role": "system",
                             "content": (
-                                "You are a helpful ESG reporting assistant. "
-                                "When answering, respond only with a single valid JSON object matching this schema: "
-                                "{'summary': string, 'mitigation': string, 'period': string, 'boundary': string, "
-                                "'references': list of strings, 'scores': {'environmental': number, 'social': number, 'governance': number}}"
+                                "You are a helpful ESG reporting assistant specialized in generating comprehensive, "
+                                "well-structured reports in Markdown format. Create clear, professional reports with "
+                                "proper headers, sections, and formatting. Use tables, lists, and emphasis where appropriate "
+                                "to enhance readability and compliance with ESG reporting standards."
                             ),
                         },
                         {"role": "user", "content": content},
@@ -232,18 +243,21 @@ class LLMService:
                     max_tokens=4000,
                     temperature=0,  # optional: set low temperature for more deterministic output
                 )
-                final_content += message_response.choices[0].message.content
+                final_content += message_response.choices[0].message.content + "\n\n"
+
             # Save the report to the database
             # TODO: Save the report to the database
             supabase = create_client(
                 os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_KEY")
             )
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            file_name = f"{report_type}_{timestamp}.txt"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            file_name = (
+                f"{report_type}_report_{timestamp}.md"  # Changed to .md extension
+            )
             supabase.storage.from_("reports").upload(
                 file_name,
                 final_content.encode("utf-8"),
-                {"content-type": "text/plain"},
+                {"content-type": "text/markdown"},  # Changed content type
             )
             public_url = supabase.storage.from_("reports").get_public_url(file_name)
             return file_name, public_url
