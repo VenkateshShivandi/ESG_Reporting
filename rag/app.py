@@ -250,64 +250,60 @@ def process_document_endpoint():
 
 @app.route("/api/v1/create-graph", methods=["POST"])
 def create_graph():
+    """Create a graph from a file.
+
+    Accepts multipart/form-data with a file field named 'file'
+
+    Returns:
+        JSON response with processing results and graph data
     """
-    Create a subgraph for a user from extracted entities and relationships.
-    """
-    app.logger.info("---------------/api/v1/create-graph-----------------")
+    app.logger.info(f"---------------/api/v1/create-graph-----------------")
+    # get the entities and relationships from the request
+    data = flask.request.json
+    entities = data.get("entities")
+    relationships = data.get("relationships")
+    user_id = data.get("user_id")
 
-    try:
-        # Parse JSON body
-        data = flask.request.json
-        entities = data.get("entities")
-        relationships = data.get("relationships")
-        user_id = data.get("user_id")
-
-        app.logger.info(f"Received request to create graph for user: {user_id}")
-        app.logger.info(f"Entities: {entities}")
-        app.logger.info(f"Relationships: {relationships}")
-
-        if not user_id:
+    if not user_id:
             return flask.jsonify({"error": "Missing user_id"}), 400
 
-        if not neo4j_initializer:
+    if not neo4j_initializer:
             return flask.jsonify({"error": "Neo4j not initialized"}), 503
 
-        # Check if user exists
-        if neo4j_initializer.userExists(user_id):
-            app.logger.info(f"User {user_id} already exists. Deleting old subgraph.")
-            neo4j_initializer.deleteSubgraph(user_id)
 
-        # Create subgraph
+    # 1. check if the user has already created a subgraph, if yes, delete/detach it first before creating a new one
+    if neo4j_initializer.userExists(user_id):
+        # delete the subgraph, if it exists
+        neo4j_initializer.deleteSubgraph(user_id)
+
+        # 2. create the subgraph using GDS and return the projection name
         subgraph_projection = neo4j_initializer.createSubgraph(
             entities, relationships, user_id
         )
-
         if not subgraph_projection:
-            raise Exception("createSubgraph returned None or failed silently.")
-
-        app.logger.info(f"Subgraph '{subgraph_projection}' created successfully.")
-
-        # Run community detection
-        detection_results = neo4j_initializer.runCommunityDetection(
+            raise Exception("createSubgraph returned None")
+        
+        # 3. Run community detection and insights on the subgraph using the graph projection
+        neo4j_initializer.runCommunityDetection(
             projection_name=subgraph_projection,
             algorithm="louvain",
             min_community_size=3,
         )
+        # 4. return the subgraph id
+        return (
+            flask.jsonify(
+                {
+                    "success": True,
+                    "message": "Graph created successfully",
+                    "subgraph_id": subgraph_projection,
+                }
+            ),
+            200,
+        )
+    else:
+        # provide a message to the user that the user does not exist
+        return flask.jsonify({"error": "User does not exist"}), 400
 
-        if detection_results is None:
-            app.logger.warning("Community detection returned None.")
-
-        return flask.jsonify({
-            "success": True,
-            "message": "Graph created successfully",
-            "subgraph_id": subgraph_projection,
-            "detection_results": detection_results
-        }), 200
-
-    except Exception as e:
-        app.logger.error(f"❌ Failed to create graph: {str(e)}")
-        app.logger.error(traceback.format_exc())
-        return flask.jsonify({"error": f"Failed to create subgraph: {str(e)}"}), 500
 
 @app.route("/api/v1/process-file", methods=["POST"])
 def process_file():
