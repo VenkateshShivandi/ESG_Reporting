@@ -30,7 +30,13 @@ import {
   FolderX,
   Eye,
   FileX,
-  Database
+  Database,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Filter,
+  SortAsc,
+  SortDesc
 } from "lucide-react"
 import { documentsApi } from "@/lib/api/documents"
 import { Button } from "@/components/ui/button"
@@ -62,6 +68,10 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu"
 import { ChunkResult, Chunk } from "@/lib/api/documents"
 import DraggableFileItem from "@/components/documents/DraggableFileItem"
@@ -170,7 +180,7 @@ const DocumentsPage: NextPage<Props> = () => {
   const [filesToMove, setFilesToMove] = useState<{ fileId: string; filePath: string[] }[]>([])
   const [searchQuery, setSearchQuery] = useState("")
   const [isMoveModalOpen, setIsMoveModalOpen] = useState(false)
-  const [itemToMove, setItemToMove] = useState<FileItem | null>(null)
+  const [itemsToMove, setItemsToMove] = useState<FileItem[]>([])
   const [allFoldersForMove, setAllFoldersForMove] = useState<FileItem[]>([])
   const [selectedMoveTargetPath, setSelectedMoveTargetPath] = useState<string[] | null>(null)
   const [localSelectedPath, setLocalSelectedPath] = useState<string[] | null>(null)
@@ -188,19 +198,109 @@ const DocumentsPage: NextPage<Props> = () => {
 
   const [isProcessingETL, setIsProcessingETL] = useState(false)
 
+  // Sort and filter states
+  const [sortBy, setSortBy] = useState<'name' | 'size' | 'modified' | 'type'>('name')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [fileTypeFilter, setFileTypeFilter] = useState<'all' | 'folder' | 'pdf' | 'excel' | 'word' | 'csv'>('all')
+  const [processedFilter, setProcessedFilter] = useState<'all' | 'processed' | 'unprocessed'>('all')
+  const [chunkedFilter, setChunkedFilter] = useState<'all' | 'chunked' | 'not-chunked'>('all')
+
   const getItemUniqueId = useCallback((item: FileItem) => {
     return [...(item.path || []), item.name].join('/');
   }, []);
 
   const getCurrentFolderItems = useCallback(() => {
-    return files
+    let filteredItems = files
       .filter((item) => JSON.stringify(item.path) === JSON.stringify(currentPath))
       .filter((item) => item.name !== '.folder')
       .filter((item) =>
         searchQuery === "" ||
         item.name.toLowerCase().includes(searchQuery.toLowerCase())
       );
-  }, [files, currentPath, searchQuery])
+
+    // Apply file type filter
+    if (fileTypeFilter !== 'all') {
+      filteredItems = filteredItems.filter((item) => {
+        if (fileTypeFilter === 'folder') {
+          return item.type === 'folder';
+        }
+        if (item.type === 'folder') return false;
+        
+        const extension = item.name.split('.').pop()?.toLowerCase();
+        switch (fileTypeFilter) {
+          case 'pdf':
+            return extension === 'pdf';
+          case 'excel':
+            return extension === 'xlsx' || extension === 'xls';
+          case 'word':
+            return extension === 'docx' || extension === 'doc';
+          case 'csv':
+            return extension === 'csv';
+          default:
+            return true;
+        }
+      });
+    }
+
+    // Apply processed filter
+    if (processedFilter !== 'all' && fileTypeFilter !== 'folder') {
+      filteredItems = filteredItems.filter((item) => {
+        if (item.type === 'folder') return true; // Always show folders
+        if (processedFilter === 'processed') {
+          return item.processed === true;
+        } else {
+          return !item.processed;
+        }
+      });
+    }
+
+    // Apply chunked filter
+    if (chunkedFilter !== 'all' && fileTypeFilter !== 'folder') {
+      filteredItems = filteredItems.filter((item) => {
+        if (item.type === 'folder') return true; // Always show folders
+        if (chunkedFilter === 'chunked') {
+          return item.chunked === true;
+        } else {
+          return item.chunked !== true;
+        }
+      });
+    }
+
+    // Apply sorting
+    filteredItems.sort((a, b) => {
+      // Always put folders first regardless of sort
+      if (a.type === 'folder' && b.type !== 'folder') return -1;
+      if (b.type === 'folder' && a.type !== 'folder') return 1;
+
+      let comparison = 0;
+      switch (sortBy) {
+        case 'name':
+          comparison = a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+          break;
+        case 'size':
+          const aSize = a.size || 0;
+          const bSize = b.size || 0;
+          comparison = aSize - bSize;
+          break;
+        case 'modified':
+          const aDate = a.modified ? (typeof a.modified === 'string' ? new Date(a.modified) : a.modified) : new Date(0);
+          const bDate = b.modified ? (typeof b.modified === 'string' ? new Date(b.modified) : b.modified) : new Date(0);
+          comparison = aDate.getTime() - bDate.getTime();
+          break;
+        case 'type':
+          const aExt = a.name.split('.').pop()?.toLowerCase() || '';
+          const bExt = b.name.split('.').pop()?.toLowerCase() || '';
+          comparison = aExt.localeCompare(bExt);
+          break;
+        default:
+          comparison = 0;
+      }
+
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+
+    return filteredItems;
+  }, [files, currentPath, searchQuery, fileTypeFilter, processedFilter, chunkedFilter, sortBy, sortOrder])
 
   useEffect(() => {
     const documentCount = files.filter(item =>
@@ -233,6 +333,54 @@ const DocumentsPage: NextPage<Props> = () => {
   useEffect(() => {
     loadFiles()
   }, [loadFiles])
+
+  // Keyboard shortcuts for sorting and filtering
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only trigger if no input/textarea is focused and no modals are open
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        document.querySelector('[role="dialog"]')
+      ) {
+        return;
+      }
+
+      // Sort shortcuts
+      if (event.key === '1') {
+        setSortBy('name');
+        event.preventDefault();
+      } else if (event.key === '2') {
+        setSortBy('size');
+        event.preventDefault();
+      } else if (event.key === '3') {
+        setSortBy('modified');
+        event.preventDefault();
+      } else if (event.key === '4') {
+        setSortBy('type');
+        event.preventDefault();
+      }
+      
+      // Toggle sort order with 'r' (reverse)
+      if (event.key === 'r' || event.key === 'R') {
+        setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+        event.preventDefault();
+      }
+      
+      // Clear all filters with 'c'
+      if (event.key === 'c' || event.key === 'C') {
+        setFileTypeFilter('all');
+        setProcessedFilter('all');
+        setChunkedFilter('all');
+        setSortBy('name');
+        setSortOrder('asc');
+        event.preventDefault();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleSelectItem = (itemName: string) => {
     const itemPath = [...currentPath, itemName].join('/')
@@ -473,18 +621,26 @@ const DocumentsPage: NextPage<Props> = () => {
     try {
       const allItems = await documentsApi.listFiles([])
       const foldersOnly = allItems.filter(f => f.type === 'folder');
-      setAllFoldersForMove(foldersOnly);
-      setItemToMove(item);
+      
+      // If trying to move a folder, filter out the folder itself and its subfolders
+      // to prevent creating a cyclical folder structure
+      let validFolders = foldersOnly;
+      if (item.type === "folder") {
+        const folderPath = [...item.path, item.name].join('/');
+        validFolders = foldersOnly.filter(folder => {
+          const targetPath = [...folder.path, folder.name].join('/');
+          return !targetPath.startsWith(folderPath);
+        });
+      }
+      
+      setAllFoldersForMove(validFolders);
+      setItemsToMove([item]);
       setLocalSelectedPath(null);
       setIsMoveModalOpen(true);
     } catch (error) {
       console.error("Error fetching folder structure for move:", error);
       toast.error("Could not load folder structure to move item.");
     }
-  }
-
-  const handleReUpload = async (item: FileItem) => {
-    toast.info("Re-upload functionality to be implemented")
   }
 
   const viewFileDetails = (file: FileItem) => {
@@ -837,20 +993,78 @@ const DocumentsPage: NextPage<Props> = () => {
     setCurrentPath([...currentPath, folderName]);
   }
 
+  const handleMoveSelectedItems = async () => {
+    if (selectedItems.length === 0) {
+      toast.error("Please select files or folders to move");
+      return;
+    }
+
+    try {
+      const allItems = await documentsApi.listFiles([])
+      const foldersOnly = allItems.filter(f => f.type === 'folder');
+      
+      // Find the corresponding FileItem objects for each selected path
+      const selectedFileItems = selectedItems.map(path => {
+        const name = path.split('/').pop() || '';
+        const pathParts = path.split('/');
+        pathParts.pop(); // Remove filename or folder name
+        const itemPath = pathParts.length > 0 ? pathParts : [];
+        
+        return files.find(
+          f => f.name === name && JSON.stringify(f.path) === JSON.stringify(itemPath)
+        );
+      }).filter(Boolean) as FileItem[];
+      
+      if (selectedFileItems.length === 0) {
+        toast.error("No valid items found to move");
+        return;
+      }
+      
+      // Extract all folder paths from selected items
+      const selectedFolderPaths: string[] = [];
+      selectedFileItems.forEach(item => {
+        if (item.type === 'folder') {
+          const folderPath = [...item.path, item.name].join('/');
+          selectedFolderPaths.push(folderPath);
+        }
+      });
+      
+      // Filter out any folder that is a subfolder of a selected folder
+      // to prevent moving a folder into its own subfolder
+      let validFolders = foldersOnly;
+      if (selectedFolderPaths.length > 0) {
+        validFolders = foldersOnly.filter(folder => {
+          const targetPath = [...folder.path, folder.name].join('/');
+          return !selectedFolderPaths.some(folderPath => 
+            targetPath.startsWith(folderPath + '/') || targetPath === folderPath
+          );
+        });
+      }
+      
+      setAllFoldersForMove(validFolders);
+      setItemsToMove(selectedFileItems);
+      setLocalSelectedPath(null);
+      setIsMoveModalOpen(true);
+    } catch (error) {
+      console.error("Error fetching folder structure for move:", error);
+      toast.error("Could not load folder structure to move items.");
+    }
+  }
+
   const MoveFolderDialog = ({
     isOpen,
     onOpenChange,
-    item,
+    items,
     onConfirmMove,
     allFolders,
   }: {
     isOpen: boolean
     onOpenChange: (open: boolean) => void
-    item: FileItem | null
+    items: FileItem[]
     onConfirmMove: (targetPath: string[]) => void
     allFolders: FileItem[]
   }) => {
-    if (!item) return null
+    if (items.length === 0) return null
     const [localSelectedPath, setLocalSelectedPath] = useState<string[] | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const filteredFolders = useMemo(() => {
@@ -910,12 +1124,12 @@ const DocumentsPage: NextPage<Props> = () => {
             className={`flex items-center p-1.5 rounded-sm cursor-pointer transition-colors duration-100 
               ${isEven ? 'bg-slate-50 dark:bg-slate-800/50' : 'bg-white dark:bg-slate-800'} 
               ${isSelected
-                ? 'bg-emerald-100 dark:bg-emerald-900'
-                : 'hover:bg-emerald-50 dark:hover:bg-emerald-900'}`}
+                ? 'bg-emerald-100 dark:bg-emerald-900 border-l-4 border-emerald-600 dark:border-emerald-500 shadow-sm'
+                : 'hover:bg-emerald-50 dark:hover:bg-emerald-900 border-l-4 border-transparent'}`}
             onClick={() => onSelect(fullPath)}
           >
-            <Folder className="w-4 h-4 mr-1.5 text-yellow-600 flex-shrink-0" />
-            <span className={`truncate ${isSelected ? 'font-semibold' : 'font-medium'}`}>{folder.name}</span>
+            <Folder className={`w-4 h-4 mr-1.5 flex-shrink-0 ${isSelected ? 'text-emerald-600' : 'text-yellow-600'}`} />
+            <span className={`truncate ${isSelected ? 'font-semibold text-emerald-700 dark:text-emerald-300' : 'font-medium'}`}>{folder.name}</span>
           </div>
           {childFolders.length > 0 && (
             <div className="mt-1">
@@ -938,10 +1152,23 @@ const DocumentsPage: NextPage<Props> = () => {
     };
     const handleConfirm = () => {
       if (localSelectedPath !== null) {
-        if (JSON.stringify(item.path) === JSON.stringify(localSelectedPath)) {
-          toast.error("Cannot move item to its current folder.");
-          return;
+        // Check if any item is already in the target folder
+        const itemsAlreadyInTargetFolder = items.filter(item => 
+          JSON.stringify(item.path) === JSON.stringify(localSelectedPath)
+        );
+        
+        if (itemsAlreadyInTargetFolder.length > 0) {
+          if (items.length === 1) {
+            toast.error("Cannot move item to its current folder.");
+            return;
+          } else if (itemsAlreadyInTargetFolder.length === items.length) {
+            toast.error("All selected items are already in this folder.");
+            return;
+          } else {
+            toast.warning(`${itemsAlreadyInTargetFolder.length} of ${items.length} items are already in this folder and will be skipped.`);
+          }
         }
+        
         onConfirmMove(localSelectedPath);
         onOpenChange(false);
       } else {
@@ -952,9 +1179,11 @@ const DocumentsPage: NextPage<Props> = () => {
       <Dialog open={isOpen} onOpenChange={onOpenChange}>
         <DialogContent className="sm:max-w-[525px]" data-testid="move-item-dialog">
           <DialogHeader>
-            <DialogTitle aria-label="move-item-dialog-title">Move Item</DialogTitle>
+            <DialogTitle aria-label="move-item-dialog-title">Move {items.length > 1 ? `${items.length} Items` : "Item"}</DialogTitle>
             <DialogDescription>
-              Select a destination folder for <span className="font-semibold">{item.name}</span>.
+              Select a destination folder for {items.length > 1 
+                ? `${items.length} selected items` 
+                : <span className="font-semibold">{items[0].name}</span>}.
             </DialogDescription>
           </DialogHeader>
           <div className="p-4 pb-2">
@@ -971,16 +1200,18 @@ const DocumentsPage: NextPage<Props> = () => {
             <ScrollArea className="h-52 border rounded-md p-3 bg-white dark:bg-slate-800">
               <div
                 className={[
-                  "flex items-center p-1.5 my-0.5 rounded cursor-pointer transition-colors duration-100",
-                  "text-emerald-700 dark:text-emerald-500",
+                  "flex items-center p-1.5 my-0.5 rounded-sm cursor-pointer transition-colors duration-100",
                   (localSelectedPath !== null && localSelectedPath.length === 0
-                    ? "bg-emerald-100 dark:bg-emerald-900"
-                    : "hover:bg-emerald-50 dark:hover:bg-emerald-900/50")
+                    ? "bg-emerald-100 dark:bg-emerald-900 border-l-4 border-emerald-600 dark:border-emerald-500 shadow-sm"
+                    : "hover:bg-emerald-50 dark:hover:bg-emerald-900/50 border-l-4 border-transparent"),
+                  (localSelectedPath !== null && localSelectedPath.length === 0
+                    ? "text-emerald-700 dark:text-emerald-300 font-semibold" 
+                    : "text-slate-700 dark:text-slate-300 font-medium")
                 ].join(" ")}
                 onClick={() => setLocalSelectedPath([])}
               >
-                <FolderClosed className="w-4 h-4 mr-1.5 text-slate-500 flex-shrink-0" />
-                <span className="font-semibold">Home</span>
+                <FolderClosed className={`w-4 h-4 mr-1.5 flex-shrink-0 ${localSelectedPath !== null && localSelectedPath.length === 0 ? 'text-emerald-600' : 'text-slate-500'}`} />
+                <span>Home</span>
               </div>
               <div className="border-b my-2 border-slate-200 dark:border-slate-700" />
               {allFolders
@@ -999,12 +1230,38 @@ const DocumentsPage: NextPage<Props> = () => {
                 ))}
             </ScrollArea>
           </div>
+          <div className="px-4 pb-2">
+            <p className="text-sm text-muted-foreground mb-1">Selected destination:</p>
+            <div className="p-2 bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+              {localSelectedPath === null ? (
+                <span className="text-slate-500 dark:text-slate-400 italic">No folder selected</span>
+              ) : localSelectedPath.length === 0 ? (
+                <div className="flex items-center">
+                  <FolderClosed className="w-4 h-4 mr-1.5 text-emerald-600 flex-shrink-0" />
+                  <span className="font-medium text-emerald-700 dark:text-emerald-400">Home</span>
+                </div>
+              ) : (
+                <div className="flex items-center">
+                  <Folder className="w-4 h-4 mr-1.5 text-emerald-600 flex-shrink-0" />
+                  <span className="font-medium text-emerald-700 dark:text-emerald-400">
+                    {localSelectedPath.join(' / ')}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button onClick={handleConfirm} disabled={localSelectedPath === null || (localSelectedPath !== null && JSON.stringify(item.path) === JSON.stringify(localSelectedPath))}>
-              Move Here
+            <Button 
+              onClick={handleConfirm} 
+              disabled={localSelectedPath === null} 
+              className={localSelectedPath !== null ? "bg-emerald-600 hover:bg-emerald-700" : ""}
+            >
+              {items.length > 1 
+                ? `Move ${items.length} Items Here` 
+                : "Move Here"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1013,23 +1270,72 @@ const DocumentsPage: NextPage<Props> = () => {
   }
 
   const handleConfirmMove = useCallback(async (targetPath: string[]) => {
-    if (!itemToMove) return;
-    const toastId = toast.loading(`Moving ${itemToMove.name}...`);
+    if (itemsToMove.length === 0) return;
+    
+    // Check if any folder is being moved into itself or a subfolder
+    const invalidFolderMoves = itemsToMove.filter(item => {
+      if (item.type === 'folder') {
+        const sourcePath = [...item.path, item.name].join('/');
+        const targetPathStr = targetPath.join('/');
+        
+        // Check if target is inside source folder (would create loop)
+        return targetPathStr.startsWith(sourcePath + '/') || targetPathStr === sourcePath;
+      }
+      return false;
+    });
+    
+    if (invalidFolderMoves.length > 0) {
+      if (invalidFolderMoves.length === 1) {
+        toast.error(`Cannot move folder "${invalidFolderMoves[0].name}" into itself or its subfolder`);
+      } else {
+        toast.error(`Cannot move folders into themselves or their subfolders`);
+      }
+      return;
+    }
+    
+    const toastId = toast.loading(`Moving ${itemsToMove.length > 1 ? `${itemsToMove.length} items` : itemsToMove[0].name}...`);
+    let successCount = 0;
+    let failCount = 0;
+    
     try {
-      const oldPath = [...itemToMove.path, itemToMove.name].join('/');
-      const newPath = [...targetPath, itemToMove.name].join('/');
-      console.log(`Moving ${oldPath} to ${newPath}`);
-      await documentsApi.renameItem(oldPath, newPath);
-      toast.success(`Moved ${itemToMove.name} successfully`, { id: toastId });
+      // Process each item to move
+      for (const item of itemsToMove) {
+        // Skip items already in the target folder
+        if (JSON.stringify(item.path) === JSON.stringify(targetPath)) {
+          continue;
+        }
+        
+        const oldPath = [...item.path, item.name].join('/');
+        const newPath = [...targetPath, item.name].join('/');
+        
+        try {
+          await documentsApi.renameItem(oldPath, newPath);
+          successCount++;
+        } catch (error) {
+          console.error(`Error moving item ${item.name}:`, error);
+          failCount++;
+        }
+      }
+      
+      // Show appropriate toast message based on results
+      if (failCount === 0) {
+        toast.success(`Moved ${successCount} item${successCount !== 1 ? 's' : ''} successfully`, { id: toastId });
+      } else if (successCount === 0) {
+        toast.error(`Failed to move any items`, { id: toastId });
+      } else {
+        toast.warning(`Moved ${successCount} item${successCount !== 1 ? 's' : ''}, but failed to move ${failCount} item${failCount !== 1 ? 's' : ''}`, { id: toastId });
+      }
+      
       await loadFiles();
+      setSelectedItems([]);
     } catch (error) {
-      console.error("Error moving item:", error);
-      toast.error(`Failed to move ${itemToMove.name}`, { id: toastId });
+      console.error("Error moving items:", error);
+      toast.error(`Failed to complete move operation`, { id: toastId });
     } finally {
-      setItemToMove(null);
+      setItemsToMove([]);
       setIsMoveModalOpen(false);
     }
-  }, [itemToMove, loadFiles, setItemToMove, setIsMoveModalOpen]);
+  }, [itemsToMove, loadFiles, setItemsToMove, setIsMoveModalOpen, setSelectedItems]);
 
   useEffect(() => {
     if (isPreviewOpen && previewFile && urlToPreview) {
@@ -1139,7 +1445,99 @@ const DocumentsPage: NextPage<Props> = () => {
                         />
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Sort Dropdown */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="shadow-sm transition-transform hover:scale-105" title="Sort Files">
+                            {sortOrder === 'asc' ? <SortAsc className="w-4 h-4 mr-1" /> : <SortDesc className="w-4 h-4 mr-1" />}
+                            Sort
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuLabel>Sort By</DropdownMenuLabel>
+                          <DropdownMenuRadioGroup value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
+                            <DropdownMenuRadioItem value="name">Name</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="size">Size</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="modified">Modified Date</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="type">File Type</DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel>Order</DropdownMenuLabel>
+                          <DropdownMenuRadioGroup value={sortOrder} onValueChange={(value) => setSortOrder(value as typeof sortOrder)}>
+                            <DropdownMenuRadioItem value="asc">
+                              <ArrowUp className="w-4 h-4 mr-2" />
+                              Ascending
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="desc">
+                              <ArrowDown className="w-4 h-4 mr-2" />
+                              Descending
+                            </DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      {/* Filter Dropdown */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="shadow-sm transition-transform hover:scale-105" title="Filter Files">
+                            <Filter className="w-4 h-4 mr-1" />
+                            Filter
+                            {(fileTypeFilter !== 'all' || processedFilter !== 'all' || chunkedFilter !== 'all') && (
+                              <span className="ml-1 h-2 w-2 bg-emerald-500 rounded-full"></span>
+                            )}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuLabel>File Type</DropdownMenuLabel>
+                          <DropdownMenuRadioGroup value={fileTypeFilter} onValueChange={(value) => setFileTypeFilter(value as typeof fileTypeFilter)}>
+                            <DropdownMenuRadioItem value="all">All Types</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="folder">
+                              <Folder className="w-4 h-4 mr-2" />
+                              Folders
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="pdf">
+                              <FileCheck className="w-4 h-4 mr-2" />
+                              PDF Files
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="excel">
+                              <FileSpreadsheet className="w-4 h-4 mr-2" />
+                              Excel Files
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="word">
+                              <FileText className="w-4 h-4 mr-2" />
+                              Word Documents
+                            </DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="csv">
+                              <FileType className="w-4 h-4 mr-2" />
+                              CSV Files
+                            </DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel>Processing Status</DropdownMenuLabel>
+                          <DropdownMenuRadioGroup value={processedFilter} onValueChange={(value) => setProcessedFilter(value as typeof processedFilter)}>
+                            <DropdownMenuRadioItem value="all">All Files</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="processed">Processed Only</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="unprocessed">Unprocessed Only</DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel>Chunking Status</DropdownMenuLabel>
+                          <DropdownMenuRadioGroup value={chunkedFilter} onValueChange={(value) => setChunkedFilter(value as typeof chunkedFilter)}>
+                            <DropdownMenuRadioItem value="all">All Files</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="chunked">Chunked Only</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="not-chunked">Not Chunked</DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => {
+                            setFileTypeFilter('all');
+                            setProcessedFilter('all');
+                            setChunkedFilter('all');
+                          }}>
+                            Clear All Filters
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
                       <Input
                         type="file"
                         multiple
@@ -1149,35 +1547,47 @@ const DocumentsPage: NextPage<Props> = () => {
                         accept={ALLOWED_FILE_TYPES}
                       />
                       <label htmlFor="file-upload" title="Upload Files">
-                        <Button variant="outline" className="cursor-pointer shadow-sm transition-transform hover:scale-105" asChild>
+                        <Button variant="outline" size="sm" className="cursor-pointer shadow-sm transition-transform hover:scale-105" asChild>
                           <span>
                             {isUploading ? (
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              <Loader2 className="w-4 h-4 mr-1" />
                             ) : (
-                              <Upload className="w-4 h-4 mr-2" />
+                              <Upload className="w-4 h-4 mr-1" />
                             )}
-                            Upload Files
+                            Upload
                           </span>
                         </Button>
                       </label>
                       <Button
                         variant="outline"
+                        size="sm"
                         className={`shadow-sm transition-transform hover:scale-105 ${selectedItems.length > 0 ? 'bg-emerald-50 hover:bg-emerald-100' : ''}`}
                         onClick={handleETLProcess}
                         disabled={selectedItems.length === 0 || isProcessingETL}
                         title="Process ETL"
                       >
                         {isProcessingETL ? (
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          <Loader2 className="w-4 h-4 mr-1" />
                         ) : (
-                          <Database className="w-4 h-4 mr-2" />
+                          <Database className="w-4 h-4 mr-1" />
                         )}
                         Process ETL
                       </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={`shadow-sm transition-transform hover:scale-105 ${selectedItems.length > 0 ? 'bg-emerald-50 hover:bg-emerald-100' : ''}`}
+                        onClick={handleMoveSelectedItems}
+                        disabled={selectedItems.length === 0}
+                        title="Move Selected Files and Folders"
+                      >
+                        <FolderInput className="w-4 h-4 mr-1" />
+                        Move
+                      </Button>
                       <Dialog>
                         <DialogTrigger asChild>
-                          <Button variant="outline" className="shadow-sm transition-transform hover:scale-105" title="Create New Folder">
-                            <FolderOpen className="w-4 h-4 mr-2" />
+                          <Button variant="outline" size="sm" className="shadow-sm transition-transform hover:scale-105" title="Create New Folder">
+                            <FolderOpen className="w-4 h-4 mr-1" />
                             New Folder
                           </Button>
                         </DialogTrigger>
@@ -1215,43 +1625,73 @@ const DocumentsPage: NextPage<Props> = () => {
                       </Dialog>
                       <Button
                         variant={selectedItems.length === 0 ? "outline" : "destructive"}
+                        size="sm"
                         className={`${selectedItems.length === 0 ? "shadow-sm" : "shadow-sm bg-red-600 text-white hover:bg-red-700"} transition-transform hover:scale-105`}
                         disabled={selectedItems.length === 0}
                         onClick={() => handleDelete()}
                         title="Delete Selected"
                       >
-                        <Trash2 className="w-4 h-4 mr-2" />
+                        <Trash2 className="w-4 h-4 mr-1" />
                         Delete
                       </Button>
                     </div>
                   </div>
-                  <div className="px-2 py-2 md:px-4 md:py-3 bg-white dark:bg-slate-900 rounded-xl mb-2 flex items-center shadow">
-                    <Breadcrumb>
-                      <BreadcrumbList className="flex items-center gap-1">
-                        <BreadcrumbItem>
-                          <BreadcrumbLink className="text-emerald-700 font-semibold transition cursor-pointer hover:no-underline" onClick={() => setCurrentPath([])}>
-                            Home
-                          </BreadcrumbLink>
-                        </BreadcrumbItem>
-                        {currentPath.map((folder, index) => (
-                          <React.Fragment key={index}>
-                            <BreadcrumbSeparator>
-                              <ChevronRight className="h-4 w-4 text-slate-400" />
-                            </BreadcrumbSeparator>
-                            <BreadcrumbItem>
-                              <BreadcrumbLink
-                                className={`transition cursor-pointer ${index === currentPath.length - 1 ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}
-                                onClick={() => {
-                                  setCurrentPath(currentPath.slice(0, index + 1))
-                                }}
-                              >
-                                {folder}
-                              </BreadcrumbLink>
-                            </BreadcrumbItem>
-                          </React.Fragment>
-                        ))}
-                      </BreadcrumbList>
-                    </Breadcrumb>
+                  <div className="px-2 py-2 md:px-4 md:py-3 bg-white dark:bg-slate-900 rounded-xl mb-2 shadow">
+                    <div className="flex items-center justify-between">
+                      <Breadcrumb>
+                        <BreadcrumbList className="flex items-center gap-1">
+                          <BreadcrumbItem>
+                            <BreadcrumbLink className="text-emerald-700 font-semibold transition cursor-pointer hover:no-underline" onClick={() => setCurrentPath([])}>
+                              Home
+                            </BreadcrumbLink>
+                          </BreadcrumbItem>
+                          {currentPath.map((folder, index) => (
+                            <React.Fragment key={index}>
+                              <BreadcrumbSeparator>
+                                <ChevronRight className="h-4 w-4 text-slate-400" />
+                              </BreadcrumbSeparator>
+                              <BreadcrumbItem>
+                                <BreadcrumbLink
+                                  className={`transition cursor-pointer ${index === currentPath.length - 1 ? 'font-bold text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'}`}
+                                  onClick={() => {
+                                    setCurrentPath(currentPath.slice(0, index + 1))
+                                  }}
+                                >
+                                  {folder}
+                                </BreadcrumbLink>
+                              </BreadcrumbItem>
+                            </React.Fragment>
+                          ))}
+                        </BreadcrumbList>
+                      </Breadcrumb>
+                      
+                      {/* Active Filters Display */}
+                      {(fileTypeFilter !== 'all' || processedFilter !== 'all' || chunkedFilter !== 'all' || sortBy !== 'name') && (
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="text-slate-500 dark:text-slate-400">Active:</span>
+                          {sortBy !== 'name' && (
+                            <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded-full text-xs font-medium">
+                              Sort: {sortBy} ({sortOrder})
+                            </span>
+                          )}
+                          {fileTypeFilter !== 'all' && (
+                            <span className="px-2 py-1 bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 rounded-full text-xs font-medium">
+                              Type: {fileTypeFilter}
+                            </span>
+                          )}
+                          {processedFilter !== 'all' && (
+                            <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 rounded-full text-xs font-medium">
+                              Status: {processedFilter}
+                            </span>
+                          )}
+                          {chunkedFilter !== 'all' && (
+                            <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900 text-orange-700 dark:text-orange-300 rounded-full text-xs font-medium">
+                              Chunked: {chunkedFilter === 'chunked' ? 'Yes' : 'No'}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="flex-1 p-0 overflow-hidden flex flex-col justify-between">
@@ -1268,6 +1708,28 @@ const DocumentsPage: NextPage<Props> = () => {
                             }%`
                         }}
                       />
+                    </div>
+                  )}
+                  
+                  {/* File Statistics */}
+                  {!isLoading && (
+                    <div className="flex items-center justify-between px-2 py-1 text-sm text-slate-500 dark:text-slate-400">
+                      <div>
+                        Showing {getCurrentFolderItems().length} of {files.filter((item) => 
+                          JSON.stringify(item.path) === JSON.stringify(currentPath) && item.name !== '.folder'
+                        ).length} items
+                        {(fileTypeFilter !== 'all' || processedFilter !== 'all' || chunkedFilter !== 'all') && (
+                          <span className="ml-2 text-emerald-600 dark:text-emerald-400">(filtered)</span>
+                        )}
+                      </div>
+                      <div className="flex gap-4">
+                        {getCurrentFolderItems().filter(item => item.type === 'folder').length > 0 && (
+                          <span>{getCurrentFolderItems().filter(item => item.type === 'folder').length} folder{getCurrentFolderItems().filter(item => item.type === 'folder').length !== 1 ? 's' : ''}</span>
+                        )}
+                        {getCurrentFolderItems().filter(item => item.type === 'file').length > 0 && (
+                          <span>{getCurrentFolderItems().filter(item => item.type === 'file').length} file{getCurrentFolderItems().filter(item => item.type === 'file').length !== 1 ? 's' : ''}</span>
+                        )}
+                      </div>
                     </div>
                   )}
                   <div className="flex-1 flex flex-col overflow-y-auto">
@@ -1293,13 +1755,58 @@ const DocumentsPage: NextPage<Props> = () => {
                               />
                             </TableHead>
                             <TableHead className="pl-1 py-3">
-                              File Name
+                              <button
+                                className="flex items-center gap-1 hover:text-emerald-600 transition-colors font-semibold"
+                                onClick={() => {
+                                  if (sortBy === 'name') {
+                                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                  } else {
+                                    setSortBy('name');
+                                    setSortOrder('asc');
+                                  }
+                                }}
+                              >
+                                File Name
+                                {sortBy === 'name' && (
+                                  sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />
+                                )}
+                              </button>
                             </TableHead>
                             <TableHead>
-                              Size
+                              <button
+                                className="flex items-center gap-1 hover:text-emerald-600 transition-colors font-semibold"
+                                onClick={() => {
+                                  if (sortBy === 'size') {
+                                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                  } else {
+                                    setSortBy('size');
+                                    setSortOrder('desc'); // Default to largest first for size
+                                  }
+                                }}
+                              >
+                                Size
+                                {sortBy === 'size' && (
+                                  sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />
+                                )}
+                              </button>
                             </TableHead>
                             <TableHead>
-                              Modified
+                              <button
+                                className="flex items-center gap-1 hover:text-emerald-600 transition-colors font-semibold"
+                                onClick={() => {
+                                  if (sortBy === 'modified') {
+                                    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                                  } else {
+                                    setSortBy('modified');
+                                    setSortOrder('desc'); // Default to newest first for dates
+                                  }
+                                }}
+                              >
+                                Modified
+                                {sortBy === 'modified' && (
+                                  sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />
+                                )}
+                              </button>
                             </TableHead>
                             <TableHead className="text-right pr-4">
                               Actions
@@ -1464,23 +1971,15 @@ const DocumentsPage: NextPage<Props> = () => {
                                             <Edit className="w-4 h-4 mr-2" />
                                             <span>Rename</span>
                                           </DropdownMenuItem>
-                                          {item.type === "file" && (
-                                            <DropdownMenuItem 
-                                              role="menuitem"
-                                              aria-label="move-to-folder"
-                                              className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" 
-                                              onClick={() => handleMoveItem(item)}
-                                            >
-                                              <FolderInput className="w-4 h-4 mr-2" />
-                                              <span>Move to folder</span>
-                                            </DropdownMenuItem>
-                                          )}
-                                          {item.type === "file" && (
-                                            <DropdownMenuItem className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" onClick={() => handleReUpload(item)}>
-                                              <RefreshCw className="w-4 h-4 mr-2" />
-                                              <span>Re-upload</span>
-                                            </DropdownMenuItem>
-                                          )}
+                                          <DropdownMenuItem 
+                                            role="menuitem"
+                                            aria-label="move-to-folder"
+                                            className="rounded-lg px-4 py-2 font-medium text-slate-700 dark:text-slate-200 hover:bg-emerald-50 dark:hover:bg-emerald-900 transition" 
+                                            onClick={() => handleMoveItem(item)}
+                                          >
+                                            <FolderInput className="w-4 h-4 mr-2" />
+                                            <span>Move to folder</span>
+                                          </DropdownMenuItem>
                                           <DropdownMenuSeparator />
                                           <DropdownMenuItem
                                             onClick={(e) => {
@@ -1542,7 +2041,7 @@ const DocumentsPage: NextPage<Props> = () => {
                 <MoveFolderDialog
                   isOpen={isMoveModalOpen}
                   onOpenChange={setIsMoveModalOpen}
-                  item={itemToMove}
+                  items={itemsToMove}
                   onConfirmMove={handleConfirmMove}
                   allFolders={allFoldersForMove}
                 />
@@ -1699,6 +2198,24 @@ const DocumentsPage: NextPage<Props> = () => {
                   </DialogContent>
                 </Dialog>
               </div>
+            </div>
+          </div>
+
+          {/* Keyboard Shortcuts Hint */}
+          <div className="mt-2 px-4 py-2 bg-white dark:bg-slate-900 rounded-xl shadow-sm">
+            <div className="flex items-center justify-center gap-6 text-xs text-slate-500 dark:text-slate-400">
+              <span className="flex items-center gap-1">
+                <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border text-xs">1-4</kbd>
+                Sort by column
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border text-xs">R</kbd>
+                Reverse order
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border text-xs">C</kbd>
+                Clear filters
+              </span>
             </div>
           </div>
         </div>

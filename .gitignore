@@ -19,6 +19,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 venv/
+venv_mac/
 .coverage
 
 # --- JavaScript/Node Specific ---

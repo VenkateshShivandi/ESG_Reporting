@@ -101,7 +101,6 @@ export default function ProfilePage() {
     try {
       const formData = new FormData(event.currentTarget)
       const data = {
-        name: formData.get('name') as string,
         jobTitle: formData.get('title') as string,
       }
       
@@ -179,15 +178,6 @@ export default function ProfilePage() {
                   </DialogHeader>
                   <div className="grid gap-4 py-4">
                     <div className="grid gap-2">
-                      <Label htmlFor="name">Name</Label>
-                      <Input 
-                        id="name" 
-                        name="name"
-                        defaultValue={user?.email?.split("@")[0] || "User"} 
-                        className="border-slate-200 focus:border-emerald-500" 
-                      />
-                    </div>
-                    <div className="grid gap-2">
                       <Label htmlFor="title">Job Title</Label>
                       <Input 
                         id="title" 
@@ -249,10 +239,6 @@ export default function ProfilePage() {
                   <DialogDescription>Update your personal information.</DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="name">Name</Label>
-                    <Input id="name" defaultValue={user?.email?.split("@")[0] || "User"} className="border-slate-200 focus:border-emerald-500" />
-                  </div>
                   <div className="grid gap-2">
                     <Label htmlFor="title">Job Title</Label>
                     <Input id="title" defaultValue="Sustainability Manager" className="border-slate-200 focus:border-emerald-500" />

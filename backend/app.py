@@ -54,7 +54,7 @@ CORS(
     resources={
         r"/api/*": {
             "origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
-            "methods": ["GET", "POST", "DELETE"],
+            "methods": ["GET", "POST", "DELETE", "PUT"],
             "allow_headers": ["*"],
         }
     },
@@ -2347,7 +2347,14 @@ def generate_report():
         }
         print("request_body: ", request_body)
         rag_api_url = "http://localhost:8000/api/v1/generate-report"
+<<<<<<< users/zenan/bugfix
         response = requests.post(rag_api_url, json=json.dumps(request_body))
+=======
+        response = requests.post(
+            rag_api_url, 
+            json=json.dumps(request_body)
+        )
+>>>>>>> feature/bugfix
         response_data = response.json()
         return (
             jsonify(
@@ -2620,6 +2627,7 @@ def get_excel_data():
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
 
 
+<<<<<<< users/zenan/bugfix
 @app.route("/api/graph-files", methods=["GET"])
 @require_auth
 def get_graph_files():
@@ -2646,6 +2654,40 @@ def get_graph_files():
 
             if not graph_document_ids:
                 return jsonify({"graph_files": []}), 200
+=======
+@app.route("/api/edit-profile", methods=["PUT"])
+@require_auth
+def edit_profile():
+    """Update the authenticated user's profile information."""
+    try:
+        # Get request data
+        data = request.get_json()
+        user_id = request.user["id"]
+        
+        # Extract updated profile data
+        job_title = data.get("jobTitle")
+        
+        # In a real implementation, you would update this in Supabase or your database
+        # For now, we'll just return a success message
+        app.logger.info(f"📝 Updating profile for user {user_id}: jobTitle={job_title}")
+        
+        # Here you would add code to update the user's profile in your database
+        # For example with Supabase:
+        # update_response = supabase.from_("profiles").update({"job_title": job_title}).eq("user_id", user_id).execute()
+        
+        return jsonify({
+            "user": request.user,
+            "message": "Profile updated successfully"
+        })
+        
+    except Exception as e:
+        app.logger.error(f"❌ API Error in edit_profile: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5050)), debug=True)
+>>>>>>> feature/bugfix
 
             # Fetch file details from Supabase for these document IDs
             docs_resp = (
