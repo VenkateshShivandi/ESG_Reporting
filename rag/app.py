@@ -7,6 +7,7 @@ from werkzeug.utils import secure_filename
 from pathlib import Path
 from datetime import datetime
 import logging
+import time
 from flask_cors import CORS
 import concurrent.futures
 from tqdm import tqdm
@@ -471,18 +472,6 @@ def get_community_insights():
 
     except Exception as e:
         return flask.jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/api/v1/debug/neo4j", methods=["GET"])
-def debug_neo4j():
-    if not neo4j_initializer:
-        return {"status": "not initialized"}, 500
-    try:
-        with neo4j_initializer.driver.session() as session:
-            result = session.run("RETURN 1 AS check")
-            return {"status": "connected", "result": result.single()["check"]}, 200
-    except Exception as e:
-        return {"status": "error", "message": str(e)}, 500
 
 
 @app.route("/api/v1/add-user", methods=["POST"])
