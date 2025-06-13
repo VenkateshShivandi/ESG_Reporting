@@ -15,12 +15,13 @@ def require_neo4j(f):
             neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
             neo4j_username = os.getenv("NEO4J_USERNAME", None)
             neo4j_password = os.getenv("NEO4J_PASSWORD", None)
+            PORT = int(neo4j_uri.split(':')[-1])
             initializer = Neo4jGraphInitializer(
                 uri=neo4j_uri,
                 user=neo4j_username or None,
                 password=neo4j_password or None,
             )
-            if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
+            if not Neo4jGraphInitializer.wait_for_neo4j(port=PORT):
                 raise Exception("Neo4j not ready")
             driver = initializer.getNeo4jDriver()
             with driver.session() as session:
