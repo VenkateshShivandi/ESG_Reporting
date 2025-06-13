@@ -17,6 +17,7 @@ from rag.supabase_storage import store_chunks
 from rag.initialize_neo4j import Neo4jGraphInitializer
 from rag.er_parallel import EntityRelationshipManager
 from rag.llmservice import LLMService
+
 app = flask.Flask(__name__)
 neo4j_initializer = None
 
@@ -607,6 +608,7 @@ def ping_neo4j():
         return {"neo4j_status": "connected" if ok else "ping failed"}
     return {"neo4j_status": "failed to connect"}
 
+
 @app.route("/api/v1/generate-report", methods=["POST"])
 def generate_report():
     """
@@ -619,8 +621,15 @@ def generate_report():
         report_type = data.get("report_type")
         custom_prompt = data.get("prompt")
         llm_service = LLMService()
-        report_name, report_url = llm_service.generate_report(document_ids, report_type, custom_prompt)
-        return flask.jsonify({"success": True, "report_name": report_name, "report_url": report_url}), 200
+        report_name, report_url = llm_service.generate_report(
+            document_ids, report_type, custom_prompt
+        )
+        return (
+            flask.jsonify(
+                {"success": True, "report_name": report_name, "report_url": report_url}
+            ),
+            200,
+        )
     except Exception as e:
         app.logger.error(f"Error generating report: {str(e)}")
         return flask.jsonify({"error": str(e)}), 500
@@ -640,6 +649,68 @@ def query():
     llm_service = LLMService()
     response = llm_service.handle_query(query)
     return flask.jsonify({"success": True, "response": response}), 200
+
+
+@app.route("/api/v1/get-graph-files", methods=["GET"])
+def get_graph_files():
+    """
+    Get list of document IDs that have graphs created in Neo4j for a specific user.
+
+    Query parameters:
+        user_id: The user ID to get graph files for
+
+    Returns:
+        JSON response with document IDs that have graphs
+    """
+    app.logger.info(f"---------------/api/v1/get-graph-files-----------------")
+
+    try:
+        user_id = flask.request.args.get("user_id")
+
+        if not user_id:
+            return flask.jsonify({"error": "Missing user_id parameter"}), 400
+
+        # Check if user exists in Neo4j
+        if not neo4j_initializer.userExists(user_id):
+            app.logger.info(f"User {user_id} does not exist in Neo4j")
+            return flask.jsonify({"document_ids": []}), 200
+
+        # Query Neo4j to get document IDs that have entities/graphs for this user
+        # Based on the actual database structure: User -> HAS_SUBGRAPH -> SubgraphRoot -> HAS_ENTITY -> Entity
+        with neo4j_initializer.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (u:User {user_id: $user_id})-[:HAS_SUBGRAPH]->(sr:SubgraphRoot)-[:HAS_ENTITY]->(e:Entity)
+                WHERE e.document_id IS NOT NULL
+                RETURN DISTINCT e.document_id as document_id
+                """,
+                {"user_id": user_id},
+            )
+
+            document_ids = [
+                record["document_id"] for record in result if record["document_id"]
+            ]
+
+            app.logger.info(
+                f"Found {len(document_ids)} documents with graphs for user {user_id}"
+            )
+
+            return (
+                flask.jsonify(
+                    {
+                        "success": True,
+                        "document_ids": document_ids,
+                        "count": len(document_ids),
+                    }
+                ),
+                200,
+            )
+
+    except Exception as e:
+        app.logger.error(f"Error getting graph files: {str(e)}")
+        app.logger.error(traceback.format_exc())
+        return flask.jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))

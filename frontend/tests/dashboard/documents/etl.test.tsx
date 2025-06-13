@@ -138,7 +138,7 @@ describe("ETL Processing Functionality", () => {
     await waitFor(() => {
       expect(documentsApi.processFile).toHaveBeenCalledTimes(1);
     });
-    expect(documentsApi.processFile).toHaveBeenCalledWith(initialMockFiles[0].name, initialMockFiles[0].id);
+    expect(documentsApi.processFile).toHaveBeenCalledWith(initialMockFiles[1].name, initialMockFiles[1].id);
 
     await waitFor(() => {
       expect(mockedSonnerToast.success).toHaveBeenCalledWith("Successfully processed 1 file(s)", { id: "toast-id" }); 
@@ -146,8 +146,8 @@ describe("ETL Processing Functionality", () => {
 
     await waitFor(() => {
       // Re-query the checkbox inside waitFor to get the potentially updated element
-      // initialMockFiles[0] corresponds to the first actual file checkbox (checkboxes[1])
-      const row = screen.getByRole('row', { name: initialMockFiles[0].name });
+      // initialMockFiles[1] corresponds to Report.xlsx (checkboxes[1])
+      const row = screen.getByRole('row', { name: initialMockFiles[1].name });
       const checkboxInRow = within(row).getByRole('checkbox') as HTMLInputElement;
       expect(checkboxInRow.checked).toBe(false);
     });
@@ -191,7 +191,7 @@ describe("ETL Processing Functionality", () => {
     await waitFor(() => {
       expect(documentsApi.processFile).toHaveBeenCalledTimes(1);
     });
-    expect(documentsApi.processFile).toHaveBeenCalledWith(initialMockFiles[0].name, initialMockFiles[0].id);
+    expect(documentsApi.processFile).toHaveBeenCalledWith(initialMockFiles[1].name, initialMockFiles[1].id);
 
     await waitFor(() => {
       expect(mockedSonnerToast.success).toHaveBeenCalledWith("Successfully processed 1 file(s)", { id: "toast-id" });
@@ -199,8 +199,8 @@ describe("ETL Processing Functionality", () => {
 
     await waitFor(() => {
       // Re-query the checkbox inside waitFor to get the potentially updated element
-      // initialMockFiles[0] corresponds to the first actual file checkbox (checkboxes[1])
-      const row = screen.getByRole('row', { name: initialMockFiles[0].name });
+      // initialMockFiles[1] corresponds to Report.xlsx (checkboxes[1])
+      const row = screen.getByRole('row', { name: initialMockFiles[1].name });
       const checkboxInRow = within(row).getByRole('checkbox') as HTMLInputElement;
       expect(checkboxInRow.checked).toBe(false);
     });
