@@ -66,6 +66,35 @@ app.config["UPLOAD_FOLDER"] = tempfile.gettempdir()
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 
+@app.route("/api/v1/debug/neo4j", methods=["GET"])
+def debug_neo4j():
+    global neo4j_initializer
+    if not neo4j_initializer:
+        try:
+            neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+            neo4j_username = os.getenv("NEO4J_USERNAME", "")
+            neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+            neo4j_initializer = Neo4jGraphInitializer(
+                uri=neo4j_uri,
+                user=neo4j_username or None,
+                password=neo4j_password or None,
+            )
+            if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
+                raise Exception("Neo4j not ready")
+            neo4j_initializer.getNeo4jDriver()
+            neo4j_initializer.initializeGraphWithRoot()
+            app.logger.info("✅ Neo4j initialized in /debug/neo4j")
+        except Exception as err:
+            return {"status": "error", "message": str(err)}, 500
+
+    try:
+        with neo4j_initializer.driver.session() as session:
+            result = session.run("RETURN 1 AS check")
+            return {"status": "connected", "result": result.single()["check"]}, 200
+    except Exception as e:
+        return {"status": "error", "message": str(e)}, 500
+
+
 @app.route("/health")
 def health():
     """Health check endpoint for Docker."""
