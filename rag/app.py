@@ -42,30 +42,69 @@ app.config["UPLOAD_FOLDER"] = tempfile.gettempdir()
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
 
+# REMOVE the global variable: neo4j_initializer = None
+
+# --- NEW: Database Connection Management ---
+
+def get_db():
+    """
+    Opens a new database connection if there is none yet for the
+    current application context.
+    """
+    if 'neo4j_driver' not in g:
+        try:
+            neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
+            neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j") # Use neo4j as default
+            neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+
+            # Use your Neo4jGraphInitializer to get the driver
+            initializer = Neo4jGraphInitializer(
+                uri=neo4j_uri,
+                user=neo4j_username,
+                password=neo4j_password
+            )
+            # You might want a simpler way to just get a driver
+            g.neo4j_driver = initializer.getNeo4jDriver()
+            app.logger.info("✅ New Neo4j driver created for request.")
+
+        except Exception as e:
+            app.logger.error(f"💥 Failed to create Neo4j driver: {e}")
+            raise # Re-raise the exception to be caught by the endpoint
+
+    return g.neo4j_driver
+
+@app.teardown_appcontext
+def close_db(e=None):
+    """
+    Closes the database connection at the end of the request.
+    """
+    driver = g.pop('neo4j_driver', None)
+    if driver is not None:
+        driver.close()
+        app.logger.info("✅ Neo4j driver closed for request.")
+
+
 @app.route("/api/v1/debug/neo4j", methods=["GET"])
 @require_neo4j
 def debug_neo4j():
-    global neo4j_initializer
-    if not neo4j_initializer:
-        try:
-            neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
-            neo4j_username = os.getenv("NEO4J_USERNAME", "")
-            neo4j_password = os.getenv("NEO4J_PASSWORD", "")
-            neo4j_initializer = Neo4jGraphInitializer(
-                uri=neo4j_uri,
-                user=neo4j_username or None,
-                password=neo4j_password or None,
-            )
-            if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
-                raise Exception("Neo4j not ready")
-            neo4j_initializer.getNeo4jDriver()
-            neo4j_initializer.initializeGraphWithRoot()
-            app.logger.info("✅ Neo4j initialized in /debug/neo4j")
-        except Exception as err:
-            return {"status": "error", "message": str(err)}, 500
-
+    """
+    Debug endpoint to check Neo4j connectivity and initialize the graph root if needed.
+    """
     try:
-        with neo4j_initializer.driver.session() as session:
+        # Use per-request driver
+        driver = get_db()
+        # Initialize the graph root if needed
+        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
+        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
+        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        initializer = Neo4jGraphInitializer(
+            uri=neo4j_uri,
+            user=neo4j_username,
+            password=neo4j_password
+        )
+        initializer.driver = driver
+        initializer.initializeGraphWithRoot()
+        with driver.session() as session:
             result = session.run("RETURN 1 AS check")
             return {"status": "connected", "result": result.single()["check"]}, 200
     except Exception as e:
@@ -253,46 +292,38 @@ def process_document_endpoint():
 @app.route("/api/v1/create-graph", methods=["POST"])
 @require_neo4j
 def create_graph():
-    """Create a graph from a file.
-
-    Accepts multipart/form-data with a file field named 'file'
-
-    Returns:
-        JSON response with processing results and graph data
-    """
+    """Create a graph from a file."""
     app.logger.info(f"---------------/api/v1/create-graph-----------------")
-    # get the entities and relationships from the request
     data = flask.request.json
     entities = data.get("entities")
     relationships = data.get("relationships")
     user_id = data.get("user_id")
-
     if not user_id:
-            return flask.jsonify({"error": "Missing user_id"}), 400
-
-    if not neo4j_initializer:
-            return flask.jsonify({"error": "Neo4j not initialized"}), 503
-
-
+        return flask.jsonify({"error": "Missing user_id"}), 400
+    # Use per-request driver and initializer
+    driver = get_db()
+    neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
+    neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
+    neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+    initializer = Neo4jGraphInitializer(
+        uri=neo4j_uri,
+        user=neo4j_username,
+        password=neo4j_password
+    )
+    initializer.driver = driver
     # 1. check if the user has already created a subgraph, if yes, delete/detach it first before creating a new one
-    if neo4j_initializer.userExists(user_id):
-        # delete the subgraph, if it exists
-        neo4j_initializer.deleteSubgraph(user_id)
-
-        # 2. create the subgraph using GDS and return the projection name
-        subgraph_projection = neo4j_initializer.createSubgraph(
+    if initializer.userExists(user_id):
+        initializer.deleteSubgraph(user_id)
+        subgraph_projection = initializer.createSubgraph(
             entities, relationships, user_id
         )
         if not subgraph_projection:
             raise Exception("createSubgraph returned None")
-        
-        # 3. Run community detection and insights on the subgraph using the graph projection
-        neo4j_initializer.runCommunityDetection(
+        initializer.runCommunityDetection(
             projection_name=subgraph_projection,
             algorithm="louvain",
             min_community_size=3,
         )
-        # 4. return the subgraph id
         return (
             flask.jsonify(
                 {
@@ -304,7 +335,6 @@ def create_graph():
             200,
         )
     else:
-        # provide a message to the user that the user does not exist
         return flask.jsonify({"error": "User does not exist"}), 400
 
 
@@ -459,47 +489,32 @@ def add_user():
         data = flask.request.json
         user_id = data.get("user_id")
         email = data.get("email")
-
         if not user_id or not email:
             return flask.jsonify({"error": "Missing user_id or email"}), 400
-
-        global neo4j_initializer
-        if not neo4j_initializer:
-            try:
-                neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
-                neo4j_username = os.getenv("NEO4J_USERNAME", "")
-                neo4j_password = os.getenv("NEO4J_PASSWORD", "")
-                neo4j_initializer = Neo4jGraphInitializer(
-                    uri=neo4j_uri,
-                    user=neo4j_username or None,
-                    password=neo4j_password or None,
-                )
-                if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
-                    raise Exception("Neo4j not ready")
-                neo4j_initializer.getNeo4jDriver()
-                neo4j_initializer.initializeGraphWithRoot()
-                app.logger.info("✅ Neo4j re-initialized inside /add-user")
-            except Exception as err:
-                app.logger.error(f"💥 Neo4j connection failed in /add-user: {str(err)}")
-                return flask.jsonify({"error": "Neo4j not initialized"}), 503
-
-        # Now continue as normal
-        if neo4j_initializer.userExists(user_id):
+        driver = get_db()
+        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
+        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
+        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        initializer = Neo4jGraphInitializer(
+            uri=neo4j_uri,
+            user=neo4j_username,
+            password=neo4j_password
+        )
+        initializer.driver = driver
+        if initializer.userExists(user_id):
             return flask.jsonify({
                 "success": True,
                 "message": "User already exists",
                 "user_id": user_id,
                 "email": email,
             }), 200
-
-        neo4j_initializer.createUserNode(user_id, email)
+        initializer.createUserNode(user_id, email)
         return flask.jsonify({
             "success": True,
             "message": "User created successfully",
             "user_id": user_id,
             "email": email,
         }), 201
-
     except Exception as e:
         app.logger.error(f"Error adding user: {str(e)}")
         app.logger.error(traceback.format_exc())
@@ -509,20 +524,23 @@ def add_user():
 @app.route("/api/v1/delete-user", methods=["POST"])
 @require_neo4j
 def delete_user():
-    """Delete a user from the graph database.
-
-    Accepts JSON body with user_id field.
-    """
     app.logger.info(f"---------------/api/v1/delete-user-----------------")
     try:
         data = flask.request.json
         user_id = data.get("user_id")
-
         if not user_id:
             return flask.jsonify({"error": "Missing user_id"}), 400
-
-        # TODO: Delete user from the graph database
-        neo4j_initializer.deleteUserNode(user_id)
+        driver = get_db()
+        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
+        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
+        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        initializer = Neo4jGraphInitializer(
+            uri=neo4j_uri,
+            user=neo4j_username,
+            password=neo4j_password
+        )
+        initializer.driver = driver
+        initializer.deleteUserNode(user_id)
         return flask.jsonify({"success": True, "user_id": user_id}), 200
     except Exception as e:
         return flask.jsonify({"error": str(e)}), 500
@@ -531,20 +549,23 @@ def delete_user():
 @app.route("/api/v1/delete-org", methods=["POST"])
 @require_neo4j
 def delete_org():
-    """Delete an organization from the graph database.
-
-    Accepts JSON body with org_id field.
-    """
     app.logger.info(f"---------------/api/v1/delete-org-----------------")
     try:
         data = flask.request.json
         org_id = data.get("org_id")
-
         if not org_id:
             return flask.jsonify({"error": "Missing org_id"}), 400
-
-        # TODO: Delete organization from the graph database
-        neo4j_initializer.deleteOrgNode(org_id)
+        driver = get_db()
+        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
+        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
+        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        initializer = Neo4jGraphInitializer(
+            uri=neo4j_uri,
+            user=neo4j_username,
+            password=neo4j_password
+        )
+        initializer.driver = driver
+        initializer.deleteOrgNode(org_id)
         return flask.jsonify({"success": True, "org_id": org_id}), 200
     except Exception as e:
         return flask.jsonify({"error": str(e)}), 500
@@ -553,29 +574,26 @@ def delete_org():
 @app.route("/api/v1/delete-graph-entity", methods=["POST"])
 @require_neo4j
 def delete_graph_entity():
-    """
-    Delete an entity and its related subgraph from Neo4j.
-    Expects JSON: { "user_id": "...", "document_id": "..." }
-
-    Either deletes:
-    1. All entities related to a user (if only user_id provided)
-    2. Specific entities related to a document (if document_id provided)
-    """
     app.logger.info(f"---------------/api/v1/delete-graph-entity-----------------")
     data = flask.request.json
     user_id = data.get("user_id")
     document_id = data.get("document_id")
-
     if not user_id:
         return flask.jsonify({"error": "Missing user_id"}), 400
-
+    driver = get_db()
+    neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
+    neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
+    neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+    initializer = Neo4jGraphInitializer(
+        uri=neo4j_uri,
+        user=neo4j_username,
+        password=neo4j_password
+    )
+    initializer.driver = driver
     try:
         if document_id:
-            # Find and delete only entities related to this document
-            # This requires a new method to delete entities by document_id
             app.logger.info(f"Deleting graph entities for document: {document_id}")
-            with neo4j_initializer.driver.session() as session:
-                # Delete all entities with matching document_id
+            with driver.session() as session:
                 session.run(
                     """
                     MATCH (e:Entity {document_id: $document_id})
@@ -588,9 +606,8 @@ def delete_graph_entity():
                 )
             return flask.jsonify({"success": True, "document_id": document_id}), 200
         else:
-            # Delete entire subgraph for user
             app.logger.info(f"Deleting entire subgraph for user: {user_id}")
-            neo4j_initializer.deleteSubgraph(user_id)
+            initializer.deleteSubgraph(user_id)
             app.logger.info(f"Successfully deleted subgraph for user: {user_id}")
             return flask.jsonify({"success": True, "user_id": user_id}), 200
     except Exception as e:
@@ -654,31 +671,25 @@ def query():
 @app.route("/api/v1/get-graph-files", methods=["GET"])
 @require_neo4j
 def get_graph_files():
-    """
-    Get list of document IDs that have graphs created in Neo4j for a specific user.
-
-    Query parameters:
-        user_id: The user ID to get graph files for
-
-    Returns:
-        JSON response with document IDs that have graphs
-    """
     app.logger.info(f"---------------/api/v1/get-graph-files-----------------")
-
     try:
         user_id = flask.request.args.get("user_id")
-
         if not user_id:
             return flask.jsonify({"error": "Missing user_id parameter"}), 400
-
-        # Check if user exists in Neo4j
-        if not neo4j_initializer.userExists(user_id):
+        driver = get_db()
+        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
+        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
+        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        initializer = Neo4jGraphInitializer(
+            uri=neo4j_uri,
+            user=neo4j_username,
+            password=neo4j_password
+        )
+        initializer.driver = driver
+        if not initializer.userExists(user_id):
             app.logger.info(f"User {user_id} does not exist in Neo4j")
             return flask.jsonify({"document_ids": []}), 200
-
-        # Query Neo4j to get document IDs that have entities/graphs for this user
-        # Based on the actual database structure: User -> HAS_SUBGRAPH -> SubgraphRoot -> HAS_ENTITY -> Entity
-        with neo4j_initializer.driver.session() as session:
+        with driver.session() as session:
             result = session.run(
                 """
                 MATCH (u:User {user_id: $user_id})-[:HAS_SUBGRAPH]->(sr:SubgraphRoot)-[:HAS_ENTITY]->(e:Entity)
@@ -687,15 +698,12 @@ def get_graph_files():
                 """,
                 {"user_id": user_id},
             )
-
             document_ids = [
                 record["document_id"] for record in result if record["document_id"]
             ]
-
             app.logger.info(
                 f"Found {len(document_ids)} documents with graphs for user {user_id}"
             )
-
             return (
                 flask.jsonify(
                     {
@@ -706,7 +714,6 @@ def get_graph_files():
                 ),
                 200,
             )
-
     except Exception as e:
         app.logger.error(f"Error getting graph files: {str(e)}")
         app.logger.error(traceback.format_exc())
