@@ -54,7 +54,7 @@ CORS(
     app,
     resources={
         r"/api/*": {
-            "origins": ["https://myesgfrontend.zeabur.app/"],
+            "origins": ["*"],
             "methods": ["GET", "POST", "DELETE", "PUT"],
             "allow_headers": ["*"],
         }
