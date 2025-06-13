@@ -12,7 +12,7 @@ def require_neo4j(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         try:
-            neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+            neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
             neo4j_username = os.getenv("NEO4J_USERNAME", None)
             neo4j_password = os.getenv("NEO4J_PASSWORD", None)
             initializer = Neo4jGraphInitializer(

@@ -32,6 +32,8 @@ class Neo4jGraphInitializer:
         gdsVersion: str = "2.5.0",
         port: int = 7687,
         uri: str = "bolt://localhost:7687",
+        user: str = None,
+        password: str = None,
     ):
         self.containerName = containerName
         self.image = image
@@ -41,6 +43,8 @@ class Neo4jGraphInitializer:
         self.driver = None
         self.entities = None
         self.relationships = None
+        self.user = user
+        self.password = password
 
     @staticmethod
     def wait_for_neo4j(port: int = 7687, max_attempts: int = 30) -> bool:

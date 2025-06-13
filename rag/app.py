@@ -48,7 +48,7 @@ def debug_neo4j():
     global neo4j_initializer
     if not neo4j_initializer:
         try:
-            neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+            neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
             neo4j_username = os.getenv("NEO4J_USERNAME", "")
             neo4j_password = os.getenv("NEO4J_PASSWORD", "")
             neo4j_initializer = Neo4jGraphInitializer(
@@ -466,7 +466,7 @@ def add_user():
         global neo4j_initializer
         if not neo4j_initializer:
             try:
-                neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+                neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
                 neo4j_username = os.getenv("NEO4J_USERNAME", "")
                 neo4j_password = os.getenv("NEO4J_PASSWORD", "")
                 neo4j_initializer = Neo4jGraphInitializer(
