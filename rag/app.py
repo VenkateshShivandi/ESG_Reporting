@@ -16,34 +16,11 @@ from rag.supabase_storage import store_chunks
 from rag.initialize_neo4j import Neo4jGraphInitializer
 from rag.er_parallel import EntityRelationshipManager
 from rag.llmservice import LLMService
+from rag.decorators import require_neo4j
+
 
 app = flask.Flask(__name__)
-neo4j_initializer = None
-
-try:
-    logging.info("⏳ Waiting 30s before initializing Neo4j...")
-    time.sleep(30)
-
-    neo4j_uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    neo4j_username = os.getenv("NEO4J_USERNAME", None)
-    neo4j_password = os.getenv("NEO4J_PASSWORD", None)
-
-    from rag.initialize_neo4j import Neo4jGraphInitializer
-
-    neo4j_initializer = Neo4jGraphInitializer(
-        uri=neo4j_uri,
-        user=neo4j_username or None,
-        password=neo4j_password or None,
-    )
-
-    if not Neo4jGraphInitializer.wait_for_neo4j(uri=neo4j_uri):
-        raise Exception("Neo4j not ready")
-
-    neo4j_driver = neo4j_initializer.getNeo4jDriver()
-    neo4j_initializer.initializeGraphWithRoot()
-    logging.info("✅ Neo4j initialized.")
-except Exception as e:
-    logging.warning(f"⚠️ Neo4j init failed: {str(e)}")
+# neo4j_initializer = None  # Remove global initialization
 
 # Enable CORS for all routes
 CORS(
@@ -66,6 +43,7 @@ app.config["UPLOAD_FOLDER"] = tempfile.gettempdir()
 logging.basicConfig(level=logging.INFO)
 
 @app.route("/api/v1/debug/neo4j", methods=["GET"])
+@require_neo4j
 def debug_neo4j():
     global neo4j_initializer
     if not neo4j_initializer:
@@ -273,6 +251,7 @@ def process_document_endpoint():
 
 
 @app.route("/api/v1/create-graph", methods=["POST"])
+@require_neo4j
 def create_graph():
     """Create a graph from a file.
 
@@ -473,6 +452,7 @@ def get_community_insights():
 
 
 @app.route("/api/v1/add-user", methods=["POST"])
+@require_neo4j
 def add_user():
     app.logger.info(f"---------------/api/v1/add-user-----------------")
     try:
@@ -527,6 +507,7 @@ def add_user():
 
 
 @app.route("/api/v1/delete-user", methods=["POST"])
+@require_neo4j
 def delete_user():
     """Delete a user from the graph database.
 
@@ -548,6 +529,7 @@ def delete_user():
 
 
 @app.route("/api/v1/delete-org", methods=["POST"])
+@require_neo4j
 def delete_org():
     """Delete an organization from the graph database.
 
@@ -569,6 +551,7 @@ def delete_org():
 
 
 @app.route("/api/v1/delete-graph-entity", methods=["POST"])
+@require_neo4j
 def delete_graph_entity():
     """
     Delete an entity and its related subgraph from Neo4j.
@@ -615,6 +598,7 @@ def delete_graph_entity():
         return flask.jsonify({"error": str(e)}), 500
     
 @app.get("/neo4j/ping")
+@require_neo4j
 def ping_neo4j():
     from graph_store import Neo4jGraphStore
     store = Neo4jGraphStore()
@@ -668,6 +652,7 @@ def query():
 
 
 @app.route("/api/v1/get-graph-files", methods=["GET"])
+@require_neo4j
 def get_graph_files():
     """
     Get list of document IDs that have graphs created in Neo4j for a specific user.
