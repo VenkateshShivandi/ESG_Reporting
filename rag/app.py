@@ -9,8 +9,6 @@ from datetime import datetime
 import logging
 import time
 from flask_cors import CORS
-import concurrent.futures
-from tqdm import tqdm
 from run_esg_pipeline import ESGPipeline
 from rag.processor import process_uploaded_file
 from rag.embedding_service import generate_embeddings
