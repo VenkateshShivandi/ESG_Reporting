@@ -48,32 +48,29 @@ logging.basicConfig(level=logging.INFO)
 # --- NEW: Database Connection Management ---
 
 def get_db():
-    """
-    Opens a new database connection if there is none yet for the
-    current application context.
-    """
     if 'neo4j_driver' not in g:
-        try:
-            neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
-            neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j") # Use neo4j as default
-            neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                neo4j_uri = os.getenv("NEO4J_URI")
+                neo4j_username = os.getenv("NEO4J_USERNAME")
+                neo4j_password = os.getenv("NEO4J_PASSWORD")
 
-            # Use your Neo4jGraphInitializer to get the driver
-            initializer = Neo4jGraphInitializer(
-                uri=neo4j_uri,
-                user=neo4j_username,
-                password=neo4j_password
-            )
-            # You might want a simpler way to just get a driver
-            g.neo4j_driver = initializer.getNeo4jDriver()
-            app.logger.info("✅ New Neo4j driver created for request.")
-
-        except Exception as e:
-            app.logger.error(f"💥 Failed to create Neo4j driver: {e}")
-            raise # Re-raise the exception to be caught by the endpoint
-
+                initializer = Neo4jGraphInitializer(
+                    uri=neo4j_uri,
+                    user=neo4j_username,
+                    password=neo4j_password
+                )
+                g.neo4j_driver = initializer.getNeo4jDriver()
+                app.logger.info(f"✅ Neo4j connected on attempt {attempt + 1}")
+                break
+            except Exception as e:
+                app.logger.warning(f"⏳ Neo4j connection attempt {attempt + 1} failed: {e}")
+                time.sleep(5)
+        else:
+            raise RuntimeError("❌ Neo4j connection failed after multiple attempts")
     return g.neo4j_driver
-
+ 
 @app.teardown_appcontext
 def close_db(e=None):
     """
@@ -95,9 +92,9 @@ def debug_neo4j():
         # Use per-request driver
         driver = get_db()
         # Initialize the graph root if needed
-        neo4j_uri = os.getenv("NEO4J_URI", "bolt://myneo4j.zeabur.internal:7687")
-        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "7A19fR6cg4SUIhP0258Ws3daoOELvnqT")
+        neo4j_uri = os.getenv("NEO4J_URI")
+        neo4j_username = os.getenv("NEO4J_USERNAME")
+        neo4j_password = os.getenv("NEO4J_PASSWORD")
         initializer = Neo4jGraphInitializer(
             uri=neo4j_uri,
             user=neo4j_username,
@@ -303,9 +300,9 @@ def create_graph():
         return flask.jsonify({"error": "Missing user_id"}), 400
     # Use per-request driver and initializer
     driver = get_db()
-    neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
-    neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
-    neo4j_password = os.getenv("NEO4J_PASSWORD", "7A19fR6cg4SUIhP0258Ws3daoOELvnqT")
+    neo4j_uri = os.getenv("NEO4J_URI")
+    neo4j_username = os.getenv("NEO4J_USERNAME")
+    neo4j_password = os.getenv("NEO4J_PASSWORD")
     initializer = Neo4jGraphInitializer(
         uri=neo4j_uri,
         user=neo4j_username,
@@ -361,9 +358,9 @@ def process_file():
     chunk_size = int(flask.request.form.get("chunk_size", 600))
     chunk_overlap = int(flask.request.form.get("chunk_overlap", 200))
     max_chunks = int(flask.request.form.get("max_chunks", 0))
-    neo4j_uri = flask.request.form.get("neo4j_uri", os.getenv("NEO4J_URI"))
+    neo4j_uri = flask.request.form.get("NEO4J_URI")
     neo4j_username = flask.request.form.get(
-        "neo4j_username", os.getenv("NEO4J_USERNAME")
+        "neo4j_username"
     )
     neo4j_password = flask.request.form.get(
         "neo4j_password", os.getenv("NEO4J_PASSWORD")
@@ -493,9 +490,9 @@ def add_user():
         if not user_id or not email:
             return flask.jsonify({"error": "Missing user_id or email"}), 400
         driver = get_db()
-        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
-        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        neo4j_uri = os.getenv("NEO4J_URI")
+        neo4j_username = os.getenv("NEO4J_USERNAME")
+        neo4j_password = os.getenv("NEO4J_PASSWORD")
         initializer = Neo4jGraphInitializer(
             uri=neo4j_uri,
             user=neo4j_username,
@@ -519,6 +516,9 @@ def add_user():
     except Exception as e:
         app.logger.error(f"Error adding user: {str(e)}")
         app.logger.error(traceback.format_exc())
+        app.logger.error(f"❌ Neo4j failure in /add-user: {str(e)}")
+        app.logger.error(f"❌ Neo4j failure in /add-user: {str(e)}")
+        app.logger.error(f"❌ Neo4j failure in /add-user: {str(e)}")
         return flask.jsonify({"error": str(e)}), 500
 
 
@@ -532,9 +532,9 @@ def delete_user():
         if not user_id:
             return flask.jsonify({"error": "Missing user_id"}), 400
         driver = get_db()
-        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
-        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        neo4j_uri = os.getenv("NEO4J_URI")
+        neo4j_username = os.getenv("NEO4J_USERNAME")
+        neo4j_password = os.getenv("NEO4J_PASSWORD")
         initializer = Neo4jGraphInitializer(
             uri=neo4j_uri,
             user=neo4j_username,
@@ -557,9 +557,9 @@ def delete_org():
         if not org_id:
             return flask.jsonify({"error": "Missing org_id"}), 400
         driver = get_db()
-        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
-        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        neo4j_uri = os.getenv("NEO4J_URI")
+        neo4j_username = os.getenv("NEO4J_USERNAME")
+        neo4j_password = os.getenv("NEO4J_PASSWORD")
         initializer = Neo4jGraphInitializer(
             uri=neo4j_uri,
             user=neo4j_username,
@@ -582,9 +582,9 @@ def delete_graph_entity():
     if not user_id:
         return flask.jsonify({"error": "Missing user_id"}), 400
     driver = get_db()
-    neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
-    neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
-    neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+    neo4j_uri = os.getenv("NEO4J_URI")
+    neo4j_username = os.getenv("NEO4J_USERNAME")
+    neo4j_password = os.getenv("NEO4J_PASSWORD")
     initializer = Neo4jGraphInitializer(
         uri=neo4j_uri,
         user=neo4j_username,
@@ -678,9 +678,9 @@ def get_graph_files():
         if not user_id:
             return flask.jsonify({"error": "Missing user_id parameter"}), 400
         driver = get_db()
-        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
-        neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        neo4j_uri = os.getenv("NEO4J_URI")
+        neo4j_username = os.getenv("NEO4J_USERNAME")
+        neo4j_password = os.getenv("NEO4J_PASSWORD")
         initializer = Neo4jGraphInitializer(
             uri=neo4j_uri,
             user=neo4j_username,
