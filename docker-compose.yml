@@ -36,18 +36,12 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-   # depends_on:
-      #neo4j:
-      #  condition: service_healthy
-      #backend:
-      #  condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 20s
       timeout: 10s
       retries: 5
-      start_period: 80s
-
+      start_period: 120s
     env_file:
       - ./rag/.env.local
     networks:
@@ -61,7 +55,6 @@ services:
     environment:
       NEO4J_AUTH: none
       NEO4J_PLUGINS: '["graph-data-science"]'
-      #NEO4J_PLUGINS:"[\"graph-data-science\"]"
     networks:
       - esg-network
     healthcheck:

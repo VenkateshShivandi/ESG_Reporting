@@ -17,6 +17,7 @@ from rag.initialize_neo4j import Neo4jGraphInitializer
 from rag.er_parallel import EntityRelationshipManager
 from rag.llmservice import LLMService
 from rag.decorators import require_neo4j
+from flask import g
 
 
 app = flask.Flask(__name__)
@@ -94,9 +95,9 @@ def debug_neo4j():
         # Use per-request driver
         driver = get_db()
         # Initialize the graph root if needed
-        neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
+        neo4j_uri = os.getenv("NEO4J_URI", "bolt://myneo4j.zeabur.internal:7687")
         neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
-        neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+        neo4j_password = os.getenv("NEO4J_PASSWORD", "7A19fR6cg4SUIhP0258Ws3daoOELvnqT")
         initializer = Neo4jGraphInitializer(
             uri=neo4j_uri,
             user=neo4j_username,
@@ -304,7 +305,7 @@ def create_graph():
     driver = get_db()
     neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j.zeabur.internal:7687")
     neo4j_username = os.getenv("NEO4J_USERNAME", "neo4j")
-    neo4j_password = os.getenv("NEO4J_PASSWORD", "")
+    neo4j_password = os.getenv("NEO4J_PASSWORD", "7A19fR6cg4SUIhP0258Ws3daoOELvnqT")
     initializer = Neo4jGraphInitializer(
         uri=neo4j_uri,
         user=neo4j_username,
