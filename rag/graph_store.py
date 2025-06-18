@@ -1,6 +1,6 @@
 import os
 from typing import Dict, List, Any, Optional, Tuple, Union
-from neo4j import GraphDatabase
+from neo4j import GraphDatabase, exceptions as neo4j_exceptions
 import logging
 import json
 import re
@@ -47,6 +47,7 @@ class Neo4jGraphStore:
         Returns:
             bool: True if connection successful, False otherwise
         """
+        self.logger.info(f"Attempting to connect to Neo4j at {self.uri} with auth type {self.auth_type} and database {self.database}")
         try:
             if self.username:
                 self.driver = GraphDatabase.driver(
@@ -74,7 +75,7 @@ class Neo4jGraphStore:
                     return False
                     
         except Exception as e:
-            self.logger.error(f"Error connecting to Neo4j: {str(e)}")
+            self.logger.error(f"Error connecting to Neo4j at {self.uri}: {type(e).__name__} - {str(e)}")
             self.driver = None
             return False   
     def close(self):
@@ -101,7 +102,7 @@ class Neo4jGraphStore:
                 bool: True if connection is responsive, False otherwise
             """
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error("Cannot ping Neo4j: Not connected. Call connect() first.")
                 return False
                 
             try:
@@ -112,7 +113,7 @@ class Neo4jGraphStore:
                     return record is not None and record["response"] == "ping"
                     
             except Exception as e:
-                self.logger.error(f"Neo4j ping failed: {str(e)}")
+                self.logger.error(f"Neo4j ping failed for {self.uri}: {type(e).__name__} - {str(e)}")
                 return False
         
     def _sanitize_relationship_type(self, rel_type: str) -> str:
@@ -144,8 +145,9 @@ class Neo4jGraphStore:
             Returns:
                 bool: True if successful, False otherwise
             """
+            method_name = "clear_graph"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return False
                 
             try:
@@ -153,8 +155,14 @@ class Neo4jGraphStore:
                     session.run("MATCH (n) DETACH DELETE n")
                     self.logger.info("Graph cleared successfully")
                     return True
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name}: {str(e)}")
+                return False
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name}: {str(e)}")
+                return False
             except Exception as e:
-                self.logger.error(f"Error clearing graph: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name}: {type(e).__name__} - {str(e)}")
                 return False
         
     def create_constraints(self) -> bool:
@@ -164,8 +172,9 @@ class Neo4jGraphStore:
             Returns:
                 bool: True if successful, False otherwise
             """
+            method_name = "create_constraints"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return False
                 
             try:
@@ -176,8 +185,8 @@ class Neo4jGraphStore:
                         CREATE CONSTRAINT entity_name_unique IF NOT EXISTS 
                         FOR (e:Entity) REQUIRE e.name IS UNIQUE
                         """)
-                    except Exception as e:
-                        self.logger.warning(f"Warning creating entity constraint: {str(e)}")
+                    except Exception as e: # Keep existing specific warning for sub-operations
+                        self.logger.warning(f"Warning creating entity constraint during {method_name}: {str(e)}")
                     
                     # Claim ID constraint
                     try:
@@ -185,20 +194,26 @@ class Neo4jGraphStore:
                         CREATE CONSTRAINT claim_id_unique IF NOT EXISTS 
                         FOR (c:Claim) REQUIRE c.id IS UNIQUE
                         """)
-                    except Exception as e:
-                        self.logger.warning(f"Warning creating claim constraint: {str(e)}")
+                    except Exception as e: # Keep existing specific warning for sub-operations
+                        self.logger.warning(f"Warning creating claim constraint during {method_name}: {str(e)}")
                     
                     # Create indexes for common properties
                     try:
                         session.run("CREATE INDEX entity_type_index IF NOT EXISTS FOR (e:Entity) ON (e.type)")
                         session.run("CREATE INDEX claim_type_index IF NOT EXISTS FOR (c:Claim) ON (c.type)")
-                    except Exception as e:
-                        self.logger.warning(f"Warning creating indexes: {str(e)}")
+                    except Exception as e: # Keep existing specific warning for sub-operations
+                        self.logger.warning(f"Warning creating indexes during {method_name}: {str(e)}")
                     
                     self.logger.info("Constraints and indexes created successfully")
                     return True
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name}: {str(e)}")
+                return False
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name}: {str(e)}")
+                return False
             except Exception as e:
-                self.logger.error(f"Error creating constraints: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name}: {type(e).__name__} - {str(e)}")
                 return False
         
     def import_entities(self, entities: List[Dict[str, Any]]) -> int:
@@ -211,15 +226,17 @@ class Neo4jGraphStore:
             Returns:
                 int: Number of entities successfully imported
             """
+            method_name = "import_entities"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return 0
                 
             count = 0
-            with self.driver.session(database=self.database) as session:
-                for entity in entities:
-                    try:
-                        # Clean up entities for Neo4j
+            try:
+                with self.driver.session(database=self.database) as session:
+                    for entity in entities:
+                        try:
+                            # Clean up entities for Neo4j
                         props = {
                             "name": entity["name"],
                             "type": entity["type"],
@@ -261,11 +278,20 @@ class Neo4jGraphStore:
                         summary = result.consume()
                         count += summary.counters.nodes_created
                         
-                    except Exception as e:
-                        self.logger.error(f"Error importing entity {entity.get('name')}: {str(e)}")
+                        except Exception as e: # Keep existing specific error for item import
+                            self.logger.error(f"Error importing entity {entity.get('name')} during {method_name}: {str(e)}")
                 
-            self.logger.info(f"Imported {count} entities successfully")
-            return count
+                self.logger.info(f"Imported {count} entities successfully")
+                return count
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name}: {str(e)}")
+                return 0
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name}: {str(e)}")
+                return 0
+            except Exception as e:
+                self.logger.error(f"Unexpected error during {method_name}: {type(e).__name__} - {str(e)}")
+                return 0
         
     def import_relationships(self, relationships: List[Dict[str, Any]]) -> int:
             """
@@ -277,32 +303,47 @@ class Neo4jGraphStore:
             Returns:
                 int: Number of relationships successfully imported
             """
+            method_name = "import_relationships"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return 0
                 
             count = 0
-            with self.driver.session(database=self.database) as session:
-                for rel in relationships:
-                    try:
-                        # Extract relationship properties
-                        source = rel["source"]
-                        target = rel["target"]
-                        description = rel.get("description", "")
-                        
-                        # Use a single consistent relationship type
-                        rel_type = "RELATES_TO"
-                        
-                        # Prepare properties
+            try:
+                with self.driver.session(database=self.database) as session:
+                    for rel in relationships:
+                        try:
+                            # Extract relationship properties
+                            source_name = rel["source"]
+                            target_name = rel["target"]
+                            description = rel.get("description", "")
+
+                            # Check if source and target entities exist
+                            source_node = self.get_entity_by_name(source_name)
+                            if not source_node:
+                                self.logger.warning(f"Source entity '{source_name}' not found for relationship. Skipping relationship: {rel}")
+                                continue
+
+                            target_node = self.get_entity_by_name(target_name)
+                            if not target_node:
+                                self.logger.warning(f"Target entity '{target_name}' not found for relationship. Skipping relationship: {rel}")
+                                continue
+
+                            # Use a single consistent relationship type
+                            rel_type = "RELATES_TO"
+
+                            # Prepare properties
+                        # Ensure 'source' and 'target' in props are the names, not the node objects
                         props = {
-                            "source": source,
-                            "target": target,
+                            "source": source_name, # Use source_name
+                            "target": target_name, # Use target_name
                             "description": description,
                             "rel_type": description.upper(),  # Store original relationship type as property
                             "strength": rel.get("strength", 1)
                         }
                         
                         # Add chunk IDs if available
+
                         if "chunk_ids" in rel and rel["chunk_ids"]:
                             props["chunk_ids"] = rel["chunk_ids"]
                             
@@ -332,11 +373,20 @@ class Neo4jGraphStore:
                         summary = result.consume()
                         count += summary.counters.relationships_created
                         
-                    except Exception as e:
-                        self.logger.error(f"Error importing relationship {rel.get('source')} -> {rel.get('target')}: {str(e)}")
+                        except Exception as e: # Keep existing specific error for item import
+                            self.logger.error(f"Error processing relationship {rel.get('source')} -> {rel.get('target')} during {method_name}: {str(e)}")
                 
-            self.logger.info(f"Imported {count} relationships successfully")
-            return count
+                self.logger.info(f"Imported {count} relationships successfully")
+                return count
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name}: {str(e)}")
+                return 0
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name}: {str(e)}")
+                return 0
+            except Exception as e:
+                self.logger.error(f"Unexpected error during {method_name}: {type(e).__name__} - {str(e)}")
+                return 0
         
     def import_claims(self, claims: List[Dict[str, Any]]) -> int:
             """
@@ -348,15 +398,17 @@ class Neo4jGraphStore:
             Returns:
                 int: Number of claims successfully imported
             """
+            method_name = "import_claims"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return 0
                 
             count = 0
-            with self.driver.session(database=self.database) as session:
-                for claim in claims:
-                    try:
-                        # Generate a unique ID for the claim
+            try:
+                with self.driver.session(database=self.database) as session:
+                    for claim in claims:
+                        try:
+                            # Generate a unique ID for the claim
                         claim_id = f"{claim['subject']}_{claim.get('type', 'CLAIM')}_{hash(claim.get('description', ''))}"
                         
                         # Prepare properties
@@ -426,11 +478,20 @@ class Neo4jGraphStore:
                         summary = result.consume()
                         count += summary.counters.nodes_created
                         
-                    except Exception as e:
-                        self.logger.error(f"Error importing claim about {claim.get('subject')}: {str(e)}")
+                        except Exception as e: # Keep existing specific error for item import
+                            self.logger.error(f"Error importing claim about {claim.get('subject')} during {method_name}: {str(e)}")
                 
-            self.logger.info(f"Imported {count} claims successfully")
-            return count
+                self.logger.info(f"Imported {count} claims successfully")
+                return count
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name}: {str(e)}")
+                return 0
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name}: {str(e)}")
+                return 0
+            except Exception as e:
+                self.logger.error(f"Unexpected error during {method_name}: {type(e).__name__} - {str(e)}")
+                return 0
         
     def import_knowledge_graph(self, entities_file: str, relationships_file: str, claims_file: str = None) -> Dict[str, int]:
             """
@@ -480,8 +541,9 @@ class Neo4jGraphStore:
             Returns:
                 Entity dictionary or None if not found
             """
+            method_name = "get_entity_by_name"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return None
                 
             try:
@@ -494,8 +556,14 @@ class Neo4jGraphStore:
                     if record:
                         return dict(record["e"])
                     return None
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name} for entity {name}: {str(e)}")
+                return None
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name} for entity {name}: {str(e)}")
+                return None
             except Exception as e:
-                self.logger.error(f"Error retrieving entity {name}: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name} for entity {name}: {type(e).__name__} - {str(e)}")
                 return None
         
     def get_related_entities(self, entity_name: str, max_distance: int = 2) -> List[Dict[str, Any]]:
@@ -509,8 +577,9 @@ class Neo4jGraphStore:
             Returns:
                 List of related entity dictionaries
             """
+            method_name = "get_related_entities"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return []
                 
             try:
@@ -529,8 +598,14 @@ class Neo4jGraphStore:
                         related_entities.append(entity_data)
                     
                     return related_entities
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name} for entity {entity_name}: {str(e)}")
+                return []
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name} for entity {entity_name}: {str(e)}")
+                return []
             except Exception as e:
-                self.logger.error(f"Error retrieving related entities for {entity_name}: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name} for entity {entity_name}: {type(e).__name__} - {str(e)}")
                 return []
         
     def get_entities_by_type(self, entity_type: str) -> List[Dict[str, Any]]:
@@ -543,8 +618,9 @@ class Neo4jGraphStore:
             Returns:
                 List of entity dictionaries
             """
+            method_name = "get_entities_by_type"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return []
                 
             try:
@@ -559,8 +635,14 @@ class Neo4jGraphStore:
                         entities.append(dict(record["e"]))
                     
                     return entities
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name} for type {entity_type}: {str(e)}")
+                return []
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name} for type {entity_type}: {str(e)}")
+                return []
             except Exception as e:
-                self.logger.error(f"Error retrieving entities of type {entity_type}: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name} for type {entity_type}: {type(e).__name__} - {str(e)}")
                 return []
         
     def get_entity_claims(self, entity_name: str) -> List[Dict[str, Any]]:
@@ -573,8 +655,9 @@ class Neo4jGraphStore:
             Returns:
                 List of claim dictionaries
             """
+            method_name = "get_entity_claims"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return []
                 
             try:
@@ -593,8 +676,14 @@ class Neo4jGraphStore:
                         claims.append(dict(record["c"]))
                     
                     return claims
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name} for entity {entity_name}: {str(e)}")
+                return []
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name} for entity {entity_name}: {str(e)}")
+                return []
             except Exception as e:
-                self.logger.error(f"Error retrieving claims for entity {entity_name}: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name} for entity {entity_name}: {type(e).__name__} - {str(e)}")
                 return []
         
     def run_custom_query(self, query: str, params: Dict[str, Any] = None) -> List[Dict[str, Any]]:
@@ -608,16 +697,23 @@ class Neo4jGraphStore:
             Returns:
                 List of result dictionaries
             """
+            method_name = "run_custom_query"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return []
                 
             try:
                 with self.driver.session(database=self.database) as session:
                     result = session.run(query, params or {})
                     return [dict(record) for record in result]
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name}: {str(e)}")
+                return []
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name}: {str(e)}")
+                return []
             except Exception as e:
-                self.logger.error(f"Error running custom query: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name}: {type(e).__name__} - {str(e)}")
                 return []
 
     def create_graph_projection(self, 
@@ -637,8 +733,9 @@ class Neo4jGraphStore:
             Returns:
                 Dict with projection results or None if failed
             """
+            method_name = "create_graph_projection"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return None
                 
             try:
@@ -646,8 +743,8 @@ class Neo4jGraphStore:
                     # Check if GDS is available
                     try:
                         session.run("CALL gds.list()")
-                    except Exception as e:
-                        self.logger.error(f"Graph Data Science library not available: {str(e)}")
+                    except Exception as e: # Keep specific GDS check error
+                        self.logger.error(f"Graph Data Science library not available during {method_name}: {str(e)}")
                         return None
                     
                     # Prepare configuration
@@ -690,11 +787,16 @@ class Neo4jGraphStore:
                         self.logger.info(f"Created graph projection '{projection_name}' with {record['nodeCount']} nodes and {record['relationshipCount']} relationships")
                         return projection_result
                     else:
-                        self.logger.error("Failed to create graph projection")
+                        self.logger.error(f"Failed to create graph projection during {method_name}")
                         return None
-                    
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name} for projection {projection_name}: {str(e)}")
+                return None
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name} for projection {projection_name}: {str(e)}")
+                return None
             except Exception as e:
-                self.logger.error(f"Error creating graph projection: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name} for projection {projection_name}: {type(e).__name__} - {str(e)}")
                 return None
                 
     def detect_communities(self, 
@@ -712,12 +814,13 @@ class Neo4jGraphStore:
             Returns:
                 Dict with community detection results
             """
+            method_name = "detect_communities"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return None
                 
-            if not projection_name:
-                self.logger.error("A valid graph projection name must be provided")
+            if not projection_name: # Keep existing guard clause
+                self.logger.error(f"A valid graph projection name must be provided for {method_name}")
                 return None
                 
             try:
@@ -763,7 +866,7 @@ class Neo4jGraphStore:
                         ORDER BY size DESC
                         """
                     else:
-                        self.logger.error(f"Unsupported algorithm: {algorithm}")
+                        self.logger.error(f"Unsupported algorithm: {algorithm} during {method_name}")
                         return None
                     
                     # Execute community detection
@@ -794,13 +897,18 @@ class Neo4jGraphStore:
                         write_record = write_result.single()
                         if write_record:
                             self.logger.info(f"Wrote community IDs to nodes. Total communities: {write_record['communityCount']}")
-                    except Exception as e:
-                        self.logger.warning(f"Could not write community IDs to nodes: {str(e)}")
+                    except Exception as e: # Keep specific warning for sub-operation
+                        self.logger.warning(f"Could not write community IDs to nodes during {method_name}: {str(e)}")
                     
                     return {"communities": communities}
-                    
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name} using projection {projection_name}: {str(e)}")
+                return None
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name} using projection {projection_name}: {str(e)}")
+                return None
             except Exception as e:
-                self.logger.error(f"Error detecting communities: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name} using projection {projection_name}: {type(e).__name__} - {str(e)}")
                 return None
                 
     def summarize_communities(self, 
@@ -816,9 +924,10 @@ class Neo4jGraphStore:
             Returns:
                 List of community summaries
             """
+            method_name = "summarize_communities"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
-                return None
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
+                return None # Consistent with original error return
                 
             try:
                 with self.driver.session(database=self.database) as session:
@@ -874,9 +983,14 @@ class Neo4jGraphStore:
                     
                     self.logger.info(f"Generated summaries for {len(summaries)} communities")
                     return summaries
-                    
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name}: {str(e)}")
+                return None
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name}: {str(e)}")
+                return None
             except Exception as e:
-                self.logger.error(f"Error summarizing communities: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name}: {type(e).__name__} - {str(e)}")
                 return None
 
     def store_community_insights(self, community_insights: List[Dict]) -> bool:
@@ -890,12 +1004,13 @@ class Neo4jGraphStore:
             Returns:
                 bool: True if successful, False otherwise
             """
+            method_name = "store_community_insights"
             if not self.driver:
-                self.logger.error("Not connected to Neo4j")
+                self.logger.error(f"Cannot execute {method_name}: Not connected to Neo4j. Call connect() first.")
                 return False
                 
-            if not community_insights:
-                self.logger.warning("No community insights provided to store")
+            if not community_insights: # Keep existing guard clause
+                self.logger.warning(f"No community insights provided to store for {method_name}")
                 return False
                 
             try:
@@ -968,7 +1083,12 @@ class Neo4jGraphStore:
                     
                     self.logger.info(f"Stored {communities_created} communities with {relationships_created} entity relationships in Neo4j")
                     return True
-                    
+            except neo4j_exceptions.ServiceUnavailable as e:
+                self.logger.error(f"Neo4j service unavailable during {method_name}: {str(e)}")
+                return False
+            except neo4j_exceptions.AuthError as e:
+                self.logger.error(f"Neo4j authentication error during {method_name}: {str(e)}")
+                return False
             except Exception as e:
-                self.logger.error(f"Error storing community insights: {str(e)}")
+                self.logger.error(f"Unexpected error during {method_name}: {type(e).__name__} - {str(e)}")
                 return False

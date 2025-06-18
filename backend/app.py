@@ -26,7 +26,7 @@ import hashlib
 import tempfile
 import requests
 from pathlib import Path
-from pathlib import Path
+from rag.graph_store import Neo4jGraphStore
 
 # Load environment variables
 # load_dotenv(".env.local")
@@ -113,6 +113,46 @@ def home():
 def status():
     """Public endpoint to check API status."""
     return jsonify({"status": "operational", "api_version": "1.0.0"})
+
+
+@app.route("/api/health/neo4j", methods=["GET"])
+def neo4j_health_check():
+    try:
+        with Neo4jGraphStore() as store:
+            if not store.driver:
+                # This means connect() failed within __enter__
+                app.logger.error("Neo4j health check: Failed to connect (driver not initialized).")
+                return jsonify({
+                    "status": "error",
+                    "message": "Failed to connect to Neo4j. Driver not initialized.",
+                    "details": "Connection attempt within Neo4jGraphStore context manager failed."
+                }), 503 # Service Unavailable
+
+            is_connected = True # Driver was initialized
+
+            # Ping the database to ensure it's responsive
+            is_responsive = store.ping()
+
+            if is_responsive:
+                app.logger.info("Neo4j health check: Connection successful and responsive.")
+                return jsonify({
+                    "status": "ok",
+                    "message": "Neo4j connection successful and responsive."
+                }), 200
+            else:
+                app.logger.warning("Neo4j health check: Connected but not responsive.")
+                return jsonify({
+                    "status": "error",
+                    "message": "Neo4j connected but not responsive.",
+                    "details": "Ping to Neo4j failed."
+                }), 503 # Service Unavailable
+    except Exception as e:
+        app.logger.error(f"Neo4j health check: Unexpected error: {str(e)}", exc_info=True)
+        return jsonify({
+            "status": "error",
+            "message": "An unexpected error occurred during Neo4j health check.",
+            "details": str(e)
+        }), 500 # Internal Server Error
 
 
 @app.route("/health")
