@@ -670,20 +670,24 @@ function ChatPage() {
   // Custom submit handler
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!input.trim() || !session?.access_token || isGeneratingResponse) return;
-
+    if (!input.trim() || !session?.access_token || isGeneratingResponse) {
+      console.log("[⚠️ Abort] Empty input or missing session or already generating.");
+      return;
+    }
+  
     const userMessage = {
       id: `user-${Date.now()}`,
       role: "user" as const,
       content: input
     };
-
-    // Immediately show user message and clear input
+  
+    console.log("[📝 User Message]", userMessage);
+  
+    // Show message instantly
     setMessages(prev => [...prev, userMessage]);
     setInput("");
     setIsGeneratingResponse(true);
-
-    // Add temporary loading message with typing animation
+  
     const loadingId = `loading-${Date.now()}`;
     const loadingMessage = {
       id: loadingId,
@@ -691,38 +695,42 @@ function ChatPage() {
       content: '●●●'
     };
     setMessages(prev => [...prev, loadingMessage]);
-
-    // Animate the loading dots
+  
     let dots = 0;
     const loadingInterval = setInterval(() => {
       dots = (dots + 1) % 4;
       setMessages(prev =>
         prev.map(msg =>
-          msg.id === loadingId
-            ? { ...msg, content: '●'.repeat(dots + 1) }
-            : msg
+          msg.id === loadingId ? { ...msg, content: '●'.repeat(dots + 1) } : msg
         )
       );
     }, 500);
-
+  
     try {
-      // Make API call
+      const payload = { data: { role: "user", content: input } };
+      console.log("[📤 Sending to /api/chat]", payload);
+  
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({ data: { role: "user", content: input } })
+        body: JSON.stringify(payload)
       });
-
+  
+      console.log("[📥 Response Status]", response.status);
+  
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorText = await response.text();
+        console.error("[❌ API Error Body]", errorText);
+        throw new Error(`HTTP ${response.status} - ${errorText}`);
       }
-
+  
       const data = await response.json();
-
-      // Replace loading message with actual response
+      console.log("[✅ API Success]", data);
+  
+      // Replace loading message
       setMessages(prev => {
         const messages = prev.filter(msg => msg.id !== loadingId);
         if (data) {
@@ -735,18 +743,15 @@ function ChatPage() {
         return messages;
       });
     } catch (error) {
-      // Remove loading message and show error
-      setMessages(prev => {
-        const messages = prev.filter(msg => msg.id !== loadingId);
-        return messages;
-      });
-      console.error('Error sending message:', error);
-      toast.error('Failed to send message. Please try again.');
+      console.error("[💥 Error sending message]", error);
+      toast.error("Failed to send message. Please try again.");
+      setMessages(prev => prev.filter(msg => msg.id !== loadingId));
     } finally {
       clearInterval(loadingInterval);
       setIsGeneratingResponse(false);
     }
   };
+  
 
   const [isLoadingReports, setIsLoadingReports] = useState(false)
 

@@ -17,7 +17,7 @@ neo4j_username = os.getenv("NEO4J_USERNAME")
 neo4j_password = os.getenv("NEO4J_PASSWORD")
 
 # Initialize Neo4j client
-driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_username, neo4j_password))
+driver = GraphDatabase.driver(neo4j_uri, auth=(None, None))
 
 
 class Neo4jGraphInitializer:
